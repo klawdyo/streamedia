@@ -7,14 +7,14 @@ Status possíveis: `pending` | `in-progress` | `done` | `blocked`
 
 ```
 Total: 25 tarefas
-Done:  0
+Done:  1
 ```
 
 ## Lista de tarefas
 
 | # | Arquivo | Título | Status | Notas |
 |---|---------|--------|--------|-------|
-| T01 | `.tasks/01-scaffold.md` | Scaffold do projeto Go | pending | |
+| T01 | `.tasks/01-scaffold.md` | Scaffold do projeto Go | done | go 1.25 (tusd exige) |
 | T02 | `.tasks/02-config.md` | Pacote de configuração | pending | depende T01 |
 | T03 | `.tasks/03-database.md` | Camada SQLite | pending | depende T02 |
 | T04 | `.tasks/04-video-model.md` | Model Video + máquina de estados | pending | depende T03 |
@@ -44,3 +44,5 @@ Done:  0
 
 <!-- CTO registra aqui cada transição com data/hora -->
 <!-- Formato: [YYYY-MM-DD HH:MM] TNN: pending → in-progress -->
+[2026-06-06 20:30] T01: pending → in-progress
+[2026-06-06 20:35] T01: in-progress → done
