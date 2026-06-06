@@ -7,7 +7,7 @@ Status possíveis: `pending` | `in-progress` | `done` | `blocked`
 
 ```
 Total: 25 tarefas
-Done:  3
+Done:  4
 ```
 
 ## Lista de tarefas
@@ -17,7 +17,7 @@ Done:  3
 | T01 | `.tasks/01-scaffold.md` | Scaffold do projeto Go | done | go 1.25 (tusd exige) |
 | T02 | `.tasks/02-config.md` | Pacote de configuração | done | |
 | T03 | `.tasks/03-database.md` | Camada SQLite | done | |
-| T04 | `.tasks/04-video-model.md` | Model Video + máquina de estados | pending | depende T03 |
+| T04 | `.tasks/04-video-model.md` | Model Video + máquina de estados | done | |
 | T05 | `.tasks/05-token-model.md` | Model UploadToken | pending | depende T03 |
 | T06 | `.tasks/06-hmac-auth.md` | Pacote de autenticação HMAC | pending | depende T02 |
 | T07 | `.tasks/07-tus-handler.md` | Handler TUS (tusd como biblioteca) | pending | depende T05, T06 |
