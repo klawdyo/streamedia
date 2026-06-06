@@ -7,7 +7,7 @@ Status possíveis: `pending` | `in-progress` | `done` | `blocked`
 
 ```
 Total: 25 tarefas
-Done:  4
+Done:  5
 ```
 
 ## Lista de tarefas
@@ -18,7 +18,7 @@ Done:  4
 | T02 | `.tasks/02-config.md` | Pacote de configuração | done | |
 | T03 | `.tasks/03-database.md` | Camada SQLite | done | |
 | T04 | `.tasks/04-video-model.md` | Model Video + máquina de estados | done | |
-| T05 | `.tasks/05-token-model.md` | Model UploadToken | pending | depende T03 |
+| T05 | `.tasks/05-token-model.md` | Model UploadToken | done | |
 | T06 | `.tasks/06-hmac-auth.md` | Pacote de autenticação HMAC | pending | depende T02 |
 | T07 | `.tasks/07-tus-handler.md` | Handler TUS (tusd como biblioteca) | pending | depende T05, T06 |
 | T08 | `.tasks/08-upload-init.md` | Rota POST /upload/init | pending | depende T07 |
