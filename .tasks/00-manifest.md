@@ -7,7 +7,7 @@ Status possíveis: `pending` | `in-progress` | `done` | `blocked`
 
 ```
 Total: 25 tarefas
-Done:  7
+Done:  8
 ```
 
 ## Lista de tarefas
@@ -21,8 +21,8 @@ Done:  7
 | T05 | `.tasks/05-token-model.md` | Model UploadToken | done | |
 | T06 | `.tasks/06-hmac-auth.md` | Pacote de autenticação HMAC | done | |
 | T07 | `.tasks/07-tus-handler.md` | Handler TUS (tusd como biblioteca) | done | auth no ServeHTTP (preCreate não cobre POST /files/{id}) |
-| T08 | `.tasks/08-upload-init.md` | Rota POST /upload/init | pending | depende T07 |
-| T09 | `.tasks/09-upload-validation.md` | Hook post-finish: validação do arquivo | pending | depende T08 |
+| T08 | `.tasks/08-upload-init.md` | Rota POST /upload/init | done | |
+| T09 | `.tasks/09-upload-validation.md` | Hook post-finish: validação do arquivo | in-progress | depende T08 |
 | T10 | `.tasks/10-transcode-queue.md` | Fila de transcodificação (channel + workers) | pending | depende T04 |
 | T11 | `.tasks/11-ffmpeg-worker.md` | Worker FFmpeg: geração HLS | pending | depende T10 |
 | T12 | `.tasks/12-hls-serving.md` | Serving HLS estático + master.m3u8 autenticado | pending | depende T11, T06 |
@@ -46,3 +46,6 @@ Done:  7
 <!-- Formato: [YYYY-MM-DD HH:MM] TNN: pending → in-progress -->
 [2026-06-06 20:30] T01: pending → in-progress
 [2026-06-06 20:35] T01: in-progress → done
+[2026-06-06 20:50] T08: pending → in-progress
+[2026-06-06 20:55] T08: in-progress → done
+[2026-06-06 20:55] T09: pending → in-progress

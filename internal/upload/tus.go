@@ -2,6 +2,7 @@
 package upload
 
 import (
+	"context"
 	"database/sql"
 	"fmt"
 	"net/http"
@@ -14,6 +15,15 @@ import (
 	"github.com/klawdyo/streamedia/internal/config"
 	"github.com/klawdyo/streamedia/internal/models"
 )
+
+// ctxKeyVideoID é a chave de contexto usada para propagar o video_id extraído
+// da URL (/files/{videoID}) desde o ServeHTTP até o hook preCreate.
+//
+// É necessária porque o roteador embutido do tusd/v2 só aceita POST de criação
+// no BasePath raiz (/files/) — um POST para /files/{videoID} resultaria em 405.
+// Por isso, no ServeHTTP reescrevemos o path do POST para o raiz e guardamos o
+// video_id no contexto, de onde o preCreate o recupera para fixar o ID do upload.
+type ctxKeyVideoID struct{}
 
 // jsonContentType é o cabeçalho Content-Type usado nas respostas de erro.
 // Em tusd/v2 o HTTPResponse.Header é um map[string]string (tusd.HTTPHeader),
@@ -139,15 +149,47 @@ func (h *TUSHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	// O roteador interno do tusd/v2 avalia o path RELATIVO ao ponto de montagem:
+	// ele compara strings.Trim(path, "/") com "" para o endpoint de criação (POST)
+	// e trata qualquer outro path como um recurso de upload (HEAD/PATCH/...). Como
+	// o nosso ServeHTTP já é o ponto de montagem em /files/, removemos esse prefixo
+	// antes de delegar — caso contrário o tusd responderia 405.
+	r = stripFilesPrefix(r)
+
+	// No POST de criação, o tusd só aceita o path raiz (vazio). Por isso forçamos
+	// o path para "/" e propagamos o video_id no contexto, de onde o preCreate o
+	// recupera para fixar o ID do upload (que precisa ser o video_id).
+	if r.Method == http.MethodPost && videoID != "" {
+		r = r.WithContext(context.WithValue(r.Context(), ctxKeyVideoID{}, videoID))
+		r.URL.Path = "/"
+	}
+
 	// Autenticação OK — delega para o handler interno do tusd.
 	h.handler.ServeHTTP(w, r)
+}
+
+// stripFilesPrefix devolve uma cópia da requisição com o prefixo /files removido
+// do path, de modo que o roteador do tusd veja o path relativo ao ponto de montagem.
+func stripFilesPrefix(r *http.Request) *http.Request {
+	trimmed := strings.TrimPrefix(r.URL.Path, "/files")
+	if trimmed == "" {
+		trimmed = "/"
+	}
+	r2 := r.Clone(r.Context())
+	r2.URL.Path = trimmed
+	return r2
 }
 
 // preCreate é chamado pelo tusd antes de criar um novo upload.
 // Valida o token de upload e verifica o tamanho declarado.
 func (h *TUSHandler) preCreate(hook tusd.HookEvent) (tusd.HTTPResponse, tusd.FileInfoChanges, error) {
-	// Extrai o video_id do path da requisição (/files/{videoID}).
-	videoID := extractVideoIDFromPath(hook.HTTPRequest.URI)
+	// Recupera o video_id propagado pelo ServeHTTP via contexto. Em fallback,
+	// extrai do path da URI (caso a requisição não tenha passado pelo nosso
+	// ServeHTTP, p.ex. em testes diretos do hook).
+	videoID, _ := hook.Context.Value(ctxKeyVideoID{}).(string)
+	if videoID == "" {
+		videoID = extractVideoIDFromPath(hook.HTTPRequest.URI)
+	}
 
 	// Extrai o token do header Upload-Token.
 	token := hook.HTTPRequest.Header.Get("Upload-Token")
