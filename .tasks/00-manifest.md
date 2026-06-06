@@ -7,7 +7,7 @@ Status possíveis: `pending` | `in-progress` | `done` | `blocked`
 
 ```
 Total: 25 tarefas
-Done:  6
+Done:  7
 ```
 
 ## Lista de tarefas
@@ -20,7 +20,7 @@ Done:  6
 | T04 | `.tasks/04-video-model.md` | Model Video + máquina de estados | done | |
 | T05 | `.tasks/05-token-model.md` | Model UploadToken | done | |
 | T06 | `.tasks/06-hmac-auth.md` | Pacote de autenticação HMAC | done | |
-| T07 | `.tasks/07-tus-handler.md` | Handler TUS (tusd como biblioteca) | pending | depende T05, T06 |
+| T07 | `.tasks/07-tus-handler.md` | Handler TUS (tusd como biblioteca) | done | auth no ServeHTTP (preCreate não cobre POST /files/{id}) |
 | T08 | `.tasks/08-upload-init.md` | Rota POST /upload/init | pending | depende T07 |
 | T09 | `.tasks/09-upload-validation.md` | Hook post-finish: validação do arquivo | pending | depende T08 |
 | T10 | `.tasks/10-transcode-queue.md` | Fila de transcodificação (channel + workers) | pending | depende T04 |
