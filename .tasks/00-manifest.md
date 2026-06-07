@@ -6,7 +6,7 @@ Status possíveis: `pending` | `in-progress` | `done` | `blocked`
 ## Progresso geral
 
 ```
-Total: 25 tarefas
+Total: 26 tarefas
 Done:  25
 ```
 
@@ -39,6 +39,7 @@ Done:  25
 | T23 | `.tasks/23-github-actions.md` | GitHub Actions: ci.yml + release.yml | done | depende T22 |
 | T24 | `.tasks/24-readme.md` | README.md completo | done | depende T22 |
 | T25 | `.tasks/25-integration-tests.md` | Suite de testes de integração completa | done | depende T20 |
+| T26 | `.tasks/26-db-migrations.md` | Migrations versionadas (goose) substituindo schema.go | pending | depende T03 — origem: Issue #13 |
 
 ## Log de mudanças de status
 
@@ -82,3 +83,4 @@ Done:  25
 [2026-06-07 02:45] T24: in-progress → done
 [2026-06-07 02:45] T25: pending → in-progress
 [2026-06-07 03:00] T25: in-progress → done
+[2026-06-07 13:46] T26: criada a partir da Issue #13 (estudo de migrations)
