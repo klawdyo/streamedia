@@ -43,7 +43,7 @@ func TestTUSHandlerCreation(t *testing.T) {
 	cfg := configTeste(t)
 	database := abreDBTUS(t)
 
-	handler, err := NewTUSHandler(cfg, database, func(videoID string) {})
+	handler, err := NewTUSHandler(cfg, database, func(videoID, userAgent string) {})
 	if err != nil {
 		t.Fatalf("NewTUSHandler retornou erro inesperado: %v", err)
 	}
@@ -57,7 +57,7 @@ func TestTUSHandler_ServeHTTP_NotNil(t *testing.T) {
 	cfg := configTeste(t)
 	database := abreDBTUS(t)
 
-	handler, err := NewTUSHandler(cfg, database, func(videoID string) {})
+	handler, err := NewTUSHandler(cfg, database, func(videoID, userAgent string) {})
 	if err != nil {
 		t.Fatalf("NewTUSHandler falhou: %v", err)
 	}
@@ -88,7 +88,7 @@ func TestTUSPreCreate_ValidToken(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	handler, err := NewTUSHandler(cfg, database, func(id string) {})
+	handler, err := NewTUSHandler(cfg, database, func(id, userAgent string) {})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -113,7 +113,7 @@ func TestTUSPreCreate_MissingToken(t *testing.T) {
 	cfg := configTeste(t)
 	database := abreDBTUS(t)
 
-	handler, err := NewTUSHandler(cfg, database, func(id string) {})
+	handler, err := NewTUSHandler(cfg, database, func(id, userAgent string) {})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -136,7 +136,7 @@ func TestTUSPreCreate_InvalidToken(t *testing.T) {
 	cfg := configTeste(t)
 	database := abreDBTUS(t)
 
-	handler, err := NewTUSHandler(cfg, database, func(id string) {})
+	handler, err := NewTUSHandler(cfg, database, func(id, userAgent string) {})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -173,7 +173,7 @@ func TestTUSPreCreate_SizeExceedsLimit(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	handler, err := NewTUSHandler(cfg, database, func(id string) {})
+	handler, err := NewTUSHandler(cfg, database, func(id, userAgent string) {})
 	if err != nil {
 		t.Fatal(err)
 	}

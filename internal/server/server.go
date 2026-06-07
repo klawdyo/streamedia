@@ -42,16 +42,16 @@ func NewRouter(
 
 	// onFinish é chamado pelo handler TUS quando o upload termina: valida o
 	// arquivo, enfileira a transcodificação e dispara webhooks.
-	onFinish := func(videoID string) {
+	onFinish := func(videoID, userAgent string) {
 		filePath := filepath.Join(cfg.UploadTmpDir, videoID)
-		upload.HandlePostFinish(database, cfg, queue.Enqueue, sendWebhook, videoID, filePath)
+		upload.HandlePostFinish(database, cfg, queue.Enqueue, sendWebhook, videoID, filePath, userAgent)
 	}
 
 	// Constrói todos os handlers da aplicação.
 	initHandler := upload.NewInitHandler(cfg, database)
 	tusHandler, _ := upload.NewTUSHandler(cfg, database, onFinish)
 	masterHandler := serve.NewMasterHandler(cfg, database)
-	staticHandler := serve.NewStaticHandler(cfg)
+	staticHandler := serve.NewStaticHandler(cfg, database)
 	statusHandler := serve.NewStatusHandler(cfg, database)
 	adminHandler := admin.NewAdminHandler(cfg, database, queue)
 	rateLimiter := middleware.NewRateLimiter(cfg.RateLimitPerMin)

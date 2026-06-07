@@ -191,11 +191,13 @@ func TestMasterM3U8_VideoNotFound(t *testing.T) {
 
 func TestStaticSegment_ValidPath(t *testing.T) {
 	cfg := newTestConfig(t)
+	database := newTestDB(t)
+	insertVideo(t, database, testVideoID, "ready")
 
 	const segContent = "TS_SEGMENT_DATA"
 	writeFile(t, filepath.Join(cfg.MediaDir, testVideoID, "480", "0.ts"), segContent)
 
-	h := NewStaticHandler(cfg)
+	h := NewStaticHandler(cfg, database)
 	req := httptest.NewRequest(http.MethodGet, "/videos/"+testVideoID+"/480/0.ts", nil)
 	rec := httptest.NewRecorder()
 	h.ServeHTTP(rec, req)
@@ -210,8 +212,9 @@ func TestStaticSegment_ValidPath(t *testing.T) {
 
 func TestStaticSegment_InvalidResolution(t *testing.T) {
 	cfg := newTestConfig(t)
+	database := newTestDB(t)
 
-	h := NewStaticHandler(cfg)
+	h := NewStaticHandler(cfg, database)
 	req := httptest.NewRequest(http.MethodGet, "/videos/"+testVideoID+"/9999/0.ts", nil)
 	rec := httptest.NewRecorder()
 	h.ServeHTTP(rec, req)
@@ -223,8 +226,9 @@ func TestStaticSegment_InvalidResolution(t *testing.T) {
 
 func TestStaticSegment_PathTraversal(t *testing.T) {
 	cfg := newTestConfig(t)
+	database := newTestDB(t)
 
-	h := NewStaticHandler(cfg)
+	h := NewStaticHandler(cfg, database)
 	req := httptest.NewRequest(http.MethodGet, "/videos/"+testVideoID+"/480/x.ts", nil)
 	// Define o path cru com traversal, sem deixar o http.NewRequest normalizar.
 	req.URL.Path = "/videos/" + testVideoID + "/480/../../../etc/passwd"
@@ -238,11 +242,12 @@ func TestStaticSegment_PathTraversal(t *testing.T) {
 
 func TestStaticServing_NoDirectoryListing(t *testing.T) {
 	cfg := newTestConfig(t)
+	database := newTestDB(t)
 
 	// Cria o diretório de resolução com um arquivo dentro.
 	writeFile(t, filepath.Join(cfg.MediaDir, testVideoID, "480", "0.ts"), "DATA")
 
-	h := NewStaticHandler(cfg)
+	h := NewStaticHandler(cfg, database)
 	req := httptest.NewRequest(http.MethodGet, "/videos/"+testVideoID+"/480/", nil)
 	rec := httptest.NewRecorder()
 	h.ServeHTTP(rec, req)
@@ -254,8 +259,9 @@ func TestStaticServing_NoDirectoryListing(t *testing.T) {
 
 func TestStaticSegment_SegmentNotFound(t *testing.T) {
 	cfg := newTestConfig(t)
+	database := newTestDB(t)
 
-	h := NewStaticHandler(cfg)
+	h := NewStaticHandler(cfg, database)
 	req := httptest.NewRequest(http.MethodGet, "/videos/"+testVideoID+"/480/999.ts", nil)
 	rec := httptest.NewRecorder()
 	h.ServeHTTP(rec, req)

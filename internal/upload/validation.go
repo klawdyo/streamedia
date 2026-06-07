@@ -6,6 +6,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"log"
 	"os"
 	"os/exec"
 	"strconv"
@@ -171,6 +172,7 @@ func HandlePostFinish(
 	sendWebhook func(videoID string, event string, errMsg string),
 	videoID string,
 	filePath string,
+	userAgent string,
 ) {
 	// fail centraliza o tratamento de falha: persiste o erro, remove arquivos
 	// e notifica via webhook.
@@ -229,6 +231,16 @@ func HandlePostFinish(
 		fail(fmt.Sprintf("erro ao marcar upload completo: %v", err))
 		return
 	}
+
+	// Registra o evento de estatística (T26/T27): upload concluído com
+	// sucesso. Gravado de forma assíncrona para não atrasar a resposta —
+	// erros são apenas logados, nunca propagados ao cliente.
+	go func() {
+		if err := models.RecordEvent(db, videoID, "upload_complete", nil, userAgent); err != nil {
+			log.Printf("[stats] erro ao registrar evento \"upload_complete\" para vídeo %s: %v", videoID, err)
+		}
+	}()
+
 	if err := enqueue(videoID); err != nil {
 		fail(fmt.Sprintf("erro ao enfileirar transcodificação: %v", err))
 		return

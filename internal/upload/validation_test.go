@@ -208,7 +208,7 @@ func TestPostFinishValidation_InvalidMagicBytes(t *testing.T) {
 	}
 
 	// Chama HandlePostFinish
-	HandlePostFinish(database, cfg, mockEnqueue, mockSendWebhook, videoID, filePath)
+	HandlePostFinish(database, cfg, mockEnqueue, mockSendWebhook, videoID, filePath, "")
 
 	// Verifica que o status foi alterado para "failed_upload"
 	video, err := models.GetVideo(database, videoID)
@@ -305,7 +305,7 @@ func TestPostFinishValidation_SizeMismatch(t *testing.T) {
 	}
 
 	// Chama HandlePostFinish
-	HandlePostFinish(database, cfg, mockEnqueue, mockSendWebhook, videoID, filePath)
+	HandlePostFinish(database, cfg, mockEnqueue, mockSendWebhook, videoID, filePath, "")
 
 	// Verifica que o status foi alterado para "failed_upload"
 	video, err := models.GetVideo(database, videoID)
@@ -529,7 +529,7 @@ func TestPostFinishValidation_SuccessfulValidation(t *testing.T) {
 	}
 
 	// Chama HandlePostFinish
-	HandlePostFinish(database, cfg, mockEnqueue, mockSendWebhook, videoID, filePath)
+	HandlePostFinish(database, cfg, mockEnqueue, mockSendWebhook, videoID, filePath, "")
 
 	// Como runFFprobe pode falhar se ffprobe não estiver disponível,
 	// o teste se adapta ao resultado. Se tudo passou:
