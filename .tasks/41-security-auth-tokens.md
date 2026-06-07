@@ -67,14 +67,33 @@ tokens de reprodução (play tokens), tokens de upload e rotas administrativas.
    autorização/tokens) — não toque em validação de upload ou rede, que são
    escopo de T42 e T43.
 
+## Resolução
+
+Auditoria completa dos 7 pontos da checklist. Relatório detalhado em `SECURITY_AUDIT.md`.
+
+Arquivos alterados:
+- `SECURITY_AUDIT.md` (criado) — relatório completo com achados por checklist,
+  sumário executivo e documentação da falha F-01
+- `internal/auth/auth.go` — `ValidatePlayToken`: unificadas 3 mensagens de erro
+  distintas ("expirado", "TTL excessivo", "assinatura inválida") em uma única
+  mensagem genérica "Token de reprodução inválido."
+- `internal/auth/auth_test.go` — `TestValidatePlayToken_ErrorMessagesAreGeneric`:
+  comprova que os 4 cenários de erro retornam mensagens genéricas
+
+Falha encontrada e corrigida:
+- **F-01** (baixa): Mensagens de erro distinguiam token expirado de token
+  inválido, permitindo enumeração. Corrigida.
+
+Demais 6 pontos: seguros, sem falhas. Código de autenticação segue boas práticas.
+
 ## Definition of Done
 
-- [ ] Cada item da checklist investigado e documentado (vulnerável ou não)
-- [ ] Falhas reais registradas em `SECURITY_AUDIT.md` com vetor de ataque
+- [x] Cada item da checklist investigado e documentado (vulnerável ou não)
+- [x] Falhas reais registradas em `SECURITY_AUDIT.md` com vetor de ataque
       e mitigação
-- [ ] Teste de regressão escrito para cada falha real antes da correção
-- [ ] Falhas corrigidas com a menor mudança possível, sem quebrar
+- [x] Teste de regressão escrito para cada falha real antes da correção
+- [x] Falhas corrigidas com a menor mudança possível, sem quebrar
       comportamento legítimo
-- [ ] `go test ./internal/auth/... ./internal/models/... ./internal/serve/... ./internal/admin/... -v`
+- [x] `go test ./internal/auth/... ./internal/models/... ./internal/serve/... ./internal/admin/... -v`
       passa, incluindo os novos testes de segurança
-- [ ] `go test ./...` continua passando sem regressões
+- [x] `go test ./...` continua passando sem regressões
