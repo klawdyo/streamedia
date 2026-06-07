@@ -6,9 +6,9 @@ Status possíveis: `pending` | `in-progress` | `done` | `blocked`
 ## Progresso geral
 
 ```
-Total: 52 tarefas
+Total: 56 tarefas
 Done:  41
-Pending: 10 (T41-T43: issue #8; T44, T47: solicitações diretas; T45-T46: issue #9; T48-T50: issue #10; T52: issue #13)
+Pending: 14 (T41-T43: issue #8; T44, T47: solicitações diretas; T45-T46: issue #9; T48-T50: issue #10; T52: issue #13; T53-T56: correções de bugs da análise de código)
 ```
 
 ## Lista de tarefas
@@ -67,6 +67,10 @@ Pending: 10 (T41-T43: issue #8; T44, T47: solicitações diretas; T45-T46: issue
 | T50 | `.tasks/50-unify-upload-token-ttl.md` | Unificar UPLOAD_TOKEN_TTL_SECONDS e UPLOAD_TOKEN_SCOPED_TTL_SECONDS em uma única variável | pending | origem: issue #10; depende T49; fecha a issue #10 (cadeia T48→T49→T50) |
 | T51 | `.tasks/51-docs-ui-scalar.md` | Trocar UI de documentação da API de Swagger para Scalar | done | origem: issue #12 (continuação da issue #3/T30); troca só a UI, spec OpenAPI inalterada |
 | T52 | `.tasks/52-db-migrations.md` | Migrations versionadas (goose) substituindo schema.go monolítico | pending | depende T03 — origem: issue #13 — fecha a issue #13 |
+| T53 | `.tasks/53-fix-listbystatus-project-id.md` | Corrigir ListByStatus — omissão de project_id na query SELECT | pending | depende T04, T33 — origem: análise de código — bug funcional |
+| T54 | `.tasks/54-fix-ratelimiter-memory-leak.md` | Corrigir memory leak no rate limiter — sync.Map nunca limpa IPs inativos | pending | depende T19 — origem: análise de código — memory leak |
+| T55 | `.tasks/55-fix-queue-enqueue-silent-db-error.md` | Corrigir Queue.Enqueue — ignora erro de banco silenciosamente | pending | depende T10 — origem: análise de código — bug de consistência |
+| T56 | `.tasks/56-remove-unused-uuid-dependency.md` | Remover dependência órfã google/uuid | pending | sem dependências — origem: análise de código — dead import |
 
 ## Próxima onda — ordem de prioridade sugerida (T31-T37)
 
@@ -98,6 +102,15 @@ Resumo por issue:
   a cadeia de projetos)
 
 ## Log de mudanças de status
+
+[2026-06-07] CTO: geradas T53-T56 a partir de análise estática do código existente
+  — bugs e melhorias encontrados durante revisão geral da base de código:
+  T53 (ListByStatus omite project_id na query — bug funcional),
+  T54 (memory leak no rate limiter — sync.Map nunca limpa IPs inativos),
+  T55 (Queue.Enqueue ignora erro de banco — risco de estado inconsistente),
+  T56 (dependência google/uuid não usada — dead import).
+  Todas de estimativa pequena, sem issue vinculada (bugs encontrados na
+  revisão, não reportados externamente). Status inicial: pending.
 
 <!-- CTO registra aqui cada transição com data/hora -->
 <!-- Formato: [YYYY-MM-DD HH:MM] TNN: pending → in-progress -->
