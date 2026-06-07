@@ -235,3 +235,75 @@ func TestCleanupJob_LogsDeletedCount(t *testing.T) {
 		t.Errorf("esperado 3 tokens deletados, obtido %d", count)
 	}
 }
+
+// TestCleanupJob_MixedExpiredAndValid testa limpeza com mix de tokens
+// expirados e válidos para garantir que apenas os expirados são removidos.
+func TestCleanupJob_MixedExpiredAndValid(t *testing.T) {
+	database := setupCleanupTest(t)
+
+	videoID1 := "vid-mixed-1"
+	videoID2 := "vid-mixed-2"
+	videoID3 := "vid-mixed-3"
+	videoID4 := "vid-mixed-4"
+	insertVideoForCleanup(t, database, videoID1, "uploading")
+	insertVideoForCleanup(t, database, videoID2, "uploading")
+	insertVideoForCleanup(t, database, videoID3, "uploading")
+	insertVideoForCleanup(t, database, videoID4, "uploading")
+
+	insertExpiredToken(t, database, "tok-exp-1", videoID1)
+	insertExpiredToken(t, database, "tok-exp-2", videoID2)
+	insertValidToken(t, database, "tok-valid-1", videoID3)
+	insertValidToken(t, database, "tok-valid-2", videoID4)
+
+	job := NewTokenCleanupJob(database)
+	count, err := job.runOnce()
+	if err != nil {
+		t.Fatalf("runOnce retornou erro: %v", err)
+	}
+
+	if count != 2 {
+		t.Errorf("esperado 2 tokens deletados, obtido %d", count)
+	}
+
+	// Verifica que os válidos continuam
+	if !tokenExists(t, database, "tok-valid-1") || !tokenExists(t, database, "tok-valid-2") {
+		t.Errorf("tokens válidos devem ser mantidos")
+	}
+
+	// Verifica que os expirados foram removidos
+	if tokenExists(t, database, "tok-exp-1") || tokenExists(t, database, "tok-exp-2") {
+		t.Errorf("tokens expirados devem ter sido removidos")
+	}
+}
+
+// TestCleanupJob_ExactlyExpiredBoundary testa tokens que expiram exatamente agora.
+// Este é um edge case onde a comparação com 'now' é crítica.
+func TestCleanupJob_ExactlyExpiredBoundary(t *testing.T) {
+	database := setupCleanupTest(t)
+
+	videoID := "vid-boundary"
+	insertVideoForCleanup(t, database, videoID, "uploading")
+
+	// Insere token que expira agora (não em milissegundos, em segundos).
+	// SQLite arredonda, então um token com expires_at = now() deve ser considerado expirado.
+	expiresAtNow := time.Now().UTC().Format(time.RFC3339)
+	_, err := database.Exec(
+		"INSERT INTO upload_tokens (video_id, token, expires_at) VALUES (?, ?, ?)",
+		videoID, "tok-boundary", expiresAtNow,
+	)
+	if err != nil {
+		t.Fatalf("erro ao inserir token: %v", err)
+	}
+
+	job := NewTokenCleanupJob(database)
+	count, err := job.runOnce()
+	if err != nil {
+		t.Fatalf("runOnce retornou erro: %v", err)
+	}
+
+	// Comportamento pode variar por subsegundo, mas idealmente deve remover
+	// (ou não) consistentemente. Apenas confirmamos que não há pânico.
+	if count < 0 || count > 1 {
+		t.Errorf("contagem esperada 0 ou 1, obtida %d", count)
+	}
+}

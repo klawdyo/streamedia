@@ -7,8 +7,8 @@ Status possíveis: `pending` | `in-progress` | `done` | `blocked`
 
 ```
 Total: 47 tarefas
-Done:  38
-Pending: 9 (T39-T43: issues #7/#8; T44, T47: solicitações diretas; T45-T46: issue #9)
+Done:  39
+Pending: 8 (T40-T43: issues #7/#8; T44, T47: solicitações diretas; T45-T46: issue #9)
 ```
 
 ## Lista de tarefas
@@ -53,7 +53,7 @@ Pending: 9 (T39-T43: issues #7/#8; T44, T47: solicitações diretas; T45-T46: is
 | T36 | `.tasks/36-storage-stats-model.md` | Model de armazenamento por vídeo (bytes, duração, status) | done | depende T03, T04 (recomendado após T34) — issue #5 |
 | T37 | `.tasks/37-storage-stats-route.md` | Expor estatísticas de armazenamento e fila em `/admin/stats` | done | depende T36, T28 — issue #5 — fecha a issue #5 |
 | T38 | `.tasks/38-coverage-data-layer.md` | Cobertura de testes — camada de dados (models + db) | done | origem: issue #7 — cobertura models 56.6%→80.8%, db 57.1%→58.0%, 27 testes novos, nenhum bug real encontrado |
-| T39 | `.tasks/39-coverage-jobs-transcode.md` | Cobertura de testes — jobs de manutenção e transcodificação | pending | origem: issue #7 |
+| T39 | `.tasks/39-coverage-jobs-transcode.md` | Cobertura de testes — jobs de manutenção e transcodificação | done | origem: issue #7 — cobertura jobs 56.3%→78.6%, transcode 72.5%→82.8%; corrigido bug de rollback em requeue.go e adicionada abstração FFprobeExecutor |
 | T40 | `.tasks/40-coverage-upload-auth-config.md` | Cobertura de testes — upload, autenticação e configuração | pending | origem: issue #7 |
 | T41 | `.tasks/41-security-auth-tokens.md` | Auditoria de segurança — autenticação, autorização e tokens | pending | origem: issue #8 |
 | T42 | `.tasks/42-security-upload-processing.md` | Auditoria de segurança — upload, validação e execução de processos (FFmpeg) | pending | origem: issue #8; depende logicamente de T41 (não bloqueante) |
@@ -198,3 +198,5 @@ Resumo por issue:
   contrato antes da migração. Status inicial: pending.
 [2026-06-07 13:10] T38: pending → in-progress
 [2026-06-07 13:18] T38: in-progress → done (cobertura de internal/models 56.6%→80.8% e internal/db 57.1%→58.0%; 27 testes novos table-driven, incluindo schema_test.go novo; nenhum bug real encontrado — Refs #7)
+[2026-06-07 13:25] T39: pending → in-progress
+[2026-06-07 13:55] T39: in-progress → done (cobertura jobs 56.3%→78.6%, transcode 72.5%→82.8%; corrige bug de estado inconsistente em requeue.go (rollback de status quando enqueue falha) e adiciona abstração FFprobeExecutor para testabilidade — Refs #7)

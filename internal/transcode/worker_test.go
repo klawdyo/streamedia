@@ -373,26 +373,3 @@ func setWorkerExecutor(w *Worker, exec FFmpegExecutor) {
 	w.ffmpeg = exec
 }
 
-// sliceEqual verifica se dois slices de int são iguais.
-func sliceEqual(a, b []int) bool {
-	if len(a) != len(b) {
-		return false
-	}
-	for i := range a {
-		if a[i] != b[i] {
-			return false
-		}
-	}
-	return true
-}
-
-// containsArg verifica se uma string está presente em um slice de strings.
-// Útil para validar que um argumento específico está nos argumentos FFmpeg.
-func containsArg(args []string, target string) bool {
-	for _, arg := range args {
-		if arg == target || strings.Contains(arg, target) {
-			return true
-		}
-	}
-	return false
-}

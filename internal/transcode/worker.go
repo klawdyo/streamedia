@@ -35,21 +35,41 @@ func (r *RealFFmpeg) Run(ctx context.Context, args []string) error {
 	return cmd.Run()
 }
 
+// FFprobeExecutor abstrai a execução do ffprobe (análogo ao FFmpegExecutor)
+// para permitir mock nos testes — sem essa abstração probeVideo só poderia
+// ser exercitado com o binário ffprobe real instalado.
+type FFprobeExecutor interface {
+	// Output executa o ffprobe com os argumentos e devolve sua saída padrão.
+	Output(ctx context.Context, args []string) ([]byte, error)
+}
+
+// RealFFprobe é a implementação real que invoca o binário ffprobe.
+type RealFFprobe struct{}
+
+// Output executa o ffprobe com os argumentos fornecidos, respeitando o
+// contexto (timeout/cancelamento), e retorna sua saída padrão.
+func (r *RealFFprobe) Output(ctx context.Context, args []string) ([]byte, error) {
+	cmd := exec.CommandContext(ctx, "ffprobe", args...)
+	return cmd.Output()
+}
+
 // Worker encapsula a configuração, conexão ao banco, executor FFmpeg e o
 // callback de webhook usado para notificar o resultado da transcodificação.
 type Worker struct {
 	cfg       *config.Config
 	db        *sql.DB
 	ffmpeg    FFmpegExecutor
+	ffprobe   FFprobeExecutor
 	onWebhook func(videoID, event, errMsg string)
 }
 
-// NewWorker cria um Worker com o executor real do FFmpeg.
+// NewWorker cria um Worker com os executores reais do FFmpeg e do ffprobe.
 func NewWorker(cfg *config.Config, db *sql.DB, onWebhook func(videoID, event, errMsg string)) *Worker {
 	return &Worker{
 		cfg:       cfg,
 		db:        db,
 		ffmpeg:    &RealFFmpeg{},
+		ffprobe:   &RealFFprobe{},
 		onWebhook: onWebhook,
 	}
 }
@@ -168,20 +188,20 @@ type ffprobeOutput struct {
 // probeVideo executa ffprobe para obter dimensões e duração do vídeo.
 // Em caso de qualquer falha (ffprobe ausente, arquivo inválido) retorna um
 // padrão seguro de 480p (854x480) para não bloquear o pipeline.
-func probeVideo(path string) *probeResult {
+func (w *Worker) probeVideo(path string) *probeResult {
 	// Padrão seguro caso o ffprobe falhe.
 	def := &probeResult{width: 854, height: 480}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	cmd := exec.CommandContext(ctx, "ffprobe",
+	// Executa o ffprobe através do executor injetado (mockável nos testes).
+	out, err := w.ffprobe.Output(ctx, []string{
 		"-v", "quiet",
 		"-print_format", "json",
 		"-show_streams",
 		path,
-	)
-	out, err := cmd.Output()
+	})
 	if err != nil {
 		return def
 	}
@@ -273,7 +293,7 @@ func (w *Worker) Transcode(videoID string) error {
 	inputPath := filepath.Join(w.cfg.UploadTmpDir, videoID)
 
 	// 4. Extrai dimensões e duração (com padrão seguro se ffprobe falhar).
-	probe := probeVideo(inputPath)
+	probe := w.probeVideo(inputPath)
 
 	// 5. Determina quais resoluções gerar.
 	resolutions := determineResolutions(probe.width, probe.height)

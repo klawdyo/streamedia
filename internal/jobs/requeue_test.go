@@ -2,6 +2,7 @@ package jobs
 
 import (
 	"database/sql"
+	"fmt"
 	"testing"
 	"time"
 
@@ -263,5 +264,108 @@ func TestRequeueJob_CallsEnqueue(t *testing.T) {
 	// Enqueue deve ter sido chamado com o videoID correto.
 	if len(enqueueCalls) != 1 || enqueueCalls[0] != videoID {
 		t.Errorf("enqueue esperado ser chamado com %q, foi chamado com %v", videoID, enqueueCalls)
+	}
+}
+
+// TestRequeueJob_EmptyDatabase testa o caminho quando não há transcodificações
+// travadas (banco vazio ou nenhum status 'transcoding').
+func TestRequeueJob_EmptyDatabase(t *testing.T) {
+	database, cfg := setupRequeueTest(t, 30*time.Minute, 3)
+
+	job := NewTranscodeRequeueJob(cfg, database, func(vID string) error {
+		t.Errorf("enqueue não deveria ter sido chamado para banco vazio")
+		return nil
+	}, func(string, string, string) {})
+
+	if err := job.runOnce(); err != nil {
+		t.Fatalf("runOnce retornou erro: %v", err)
+	}
+	// Caminho vazio coberto.
+}
+
+// TestRequeueJob_MultipleStuck testa o processamento de múltiplas transcodificações
+// travadas em uma única execução.
+func TestRequeueJob_MultipleStuck(t *testing.T) {
+	database, cfg := setupRequeueTest(t, 30*time.Minute, 3)
+
+	// Insere 2 vídeos travados com 0 tentativas
+	insertTranscodeVideo(t, database, "vid-stuck-1", 0, time.Now().Add(-31*time.Minute))
+	insertTranscodeVideo(t, database, "vid-stuck-2", 0, time.Now().Add(-31*time.Minute))
+
+	var enqueueCalls []string
+	job := NewTranscodeRequeueJob(cfg, database, func(vID string) error {
+		enqueueCalls = append(enqueueCalls, vID)
+		return nil
+	}, func(string, string, string) {})
+
+	if err := job.runOnce(); err != nil {
+		t.Fatalf("runOnce retornou erro: %v", err)
+	}
+
+	if len(enqueueCalls) != 2 {
+		t.Errorf("enqueue esperado ser chamado 2 vezes, foi chamado %d vezes", len(enqueueCalls))
+	}
+
+	// Ambos devem estar em upload_complete
+	for i := 1; i <= 2; i++ {
+		videoID := "vid-stuck-" + string(rune('0'+i))
+		if got := statusOfRequeue(t, database, videoID); got != string(models.StatusUploadComplete) {
+			t.Errorf("%s: status esperado %s, obtido %q", videoID, models.StatusUploadComplete, got)
+		}
+	}
+}
+
+// TestRequeueJob_NilWebhookCallback testa que o job funciona mesmo sem
+// callback de webhook quando falhando vídeo.
+func TestRequeueJob_NilWebhookCallback(t *testing.T) {
+	database, cfg := setupRequeueTest(t, 30*time.Minute, 3)
+	videoID := "vid-fail-no-webhook"
+
+	// Vídeo com 3 tentativas (máximo) e travado
+	insertTranscodeVideo(t, database, videoID, 3, time.Now().Add(-31*time.Minute))
+
+	job := NewTranscodeRequeueJob(cfg, database, func(vID string) error {
+		t.Errorf("enqueue não deveria ter sido chamado")
+		return nil
+	}, nil)
+
+	if err := job.runOnce(); err != nil {
+		t.Fatalf("runOnce retornou erro: %v", err)
+	}
+
+	if got := statusOfRequeue(t, database, videoID); got != string(models.StatusFailedTranscode) {
+		t.Errorf("status esperado %s, obtido %q", models.StatusFailedTranscode, got)
+	}
+}
+
+// TestRequeueJob_EnqueueErrorContinues testa que se enqueue falhar para um
+// vídeo, o job continua processando os demais.
+func TestRequeueJob_EnqueueErrorContinues(t *testing.T) {
+	database, cfg := setupRequeueTest(t, 30*time.Minute, 3)
+
+	insertTranscodeVideo(t, database, "vid-fail-enqueue", 0, time.Now().Add(-31*time.Minute))
+	insertTranscodeVideo(t, database, "vid-ok-enqueue", 0, time.Now().Add(-31*time.Minute))
+
+	var enqueueCalls []string
+	job := NewTranscodeRequeueJob(cfg, database, func(vID string) error {
+		enqueueCalls = append(enqueueCalls, vID)
+		if vID == "vid-fail-enqueue" {
+			return fmt.Errorf("erro simulado no enqueue")
+		}
+		return nil
+	}, func(string, string, string) {})
+
+	if err := job.runOnce(); err != nil {
+		t.Fatalf("runOnce retornou erro: %v", err)
+	}
+
+	// Ambos devem ter sido tentados
+	if len(enqueueCalls) != 2 {
+		t.Errorf("enqueue esperado ser chamado 2 vezes, foi chamado %d vezes", len(enqueueCalls))
+	}
+
+	// O que falhou em enqueue não deveria ter seu status atualizado
+	if got := statusOfRequeue(t, database, "vid-fail-enqueue"); got == string(models.StatusUploadComplete) {
+		t.Errorf("vid-fail-enqueue não deveria estar em upload_complete após falha no enqueue")
 	}
 }

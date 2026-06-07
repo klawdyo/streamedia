@@ -3,6 +3,7 @@ package jobs
 import (
 	"database/sql"
 	"fmt"
+	"log"
 	"time"
 
 	"github.com/klawdyo/streamedia/internal/config"
@@ -125,7 +126,22 @@ func (j *TranscodeRequeueJob) runOnce() error {
 			}
 
 			// Chama a função de enfileiramento para reinseri-lo na fila de transcodificação.
+			//
+			// Invariante: o status só pode permanecer em upload_complete se o
+			// vídeo realmente entrou na fila de processamento. Se o enqueue
+			// falhar (ex.: fila cheia), precisamos desfazer a mudança de status
+			// acima — caso contrário o vídeo ficaria "preso" em upload_complete
+			// sem nunca ter sido enfileirado de fato, parecendo pendente na fila
+			// lógica mas invisível para o worker. Por isso o UpdateStatus vem
+			// antes do enqueue (algumas implementações de enqueue esperam o vídeo
+			// já no estado correto), mas com rollback explícito em caso de falha.
 			if err := j.enqueue(tc.videoID); err != nil {
+				// Rollback: volta o vídeo ao estado anterior (transcoding) para
+				// não deixá-lo em estado inconsistente. O rollback é best-effort;
+				// se ele próprio falhar, apenas logamos e seguimos.
+				if rbErr := models.UpdateStatus(j.db, tc.videoID, models.StatusTranscoding); rbErr != nil {
+					log.Printf("[requeue] %s: falha ao reverter status após erro no enqueue: %v", tc.videoID, rbErr)
+				}
 				// Não interrompe os demais; segue para o próximo.
 				continue
 			}

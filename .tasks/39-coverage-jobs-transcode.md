@@ -63,11 +63,53 @@ isso é fácil deixar caminhos sem teste.
 - `internal/transcode/worker_test.go`
 - `internal/transcode/recovery_test.go`
 
+## Resolução
+
+Cobertura "antes": `internal/jobs` 56.3%, `internal/transcode` 72.5%.
+Cobertura "depois": `internal/jobs` **78.6%**, `internal/transcode` **82.8%**.
+
+Testes novos (27, table-driven onde fazia sentido):
+
+- `internal/jobs/jobs_integration_test.go` (novo, 12 testes): `Start`/`Stop`
+  das três jobs, cenários de erro de DB (`QueryError`, `UpdateStatusError`),
+  exclusão segura de arquivos inexistentes, uso de `last_chunk_at` vs
+  `created_at` no killer.
+- `internal/transcode/transcode_coverage_test.go` (novo, 15+ testes):
+  `parseDurationSeconds` (decimais/negativos/vazio), `determineResolutions`
+  (matriz landscape/portrait), `generateMasterM3U8`, `buildFFmpegArgs`,
+  `scanRenditionDir`, `RunStartupRecovery` (DB vazio + estados múltiplos),
+  `RealFFmpeg.Run` (contexto/timeout), e `probeVideo` via fake `FFprobeExecutor`
+  (JSON válido, comando falha, JSON malformado).
+- Ajustes pontuais nos testes existentes (`queue_test.go`: import faltante;
+  `worker_test.go`: funções duplicadas removidas; `cleanup_test.go`:
+  constraint violation corrigida no fixture).
+
+**Bug real encontrado e corrigido** (`internal/jobs/requeue.go` ~linhas
+126-147): o job de reenfileiramento alterava o status do vídeo para
+`upload_complete` ANTES de `enqueue()`; se o enqueue falhasse, o vídeo
+ficava preso num estado inconsistente (parecia estar na fila lógica mas
+nunca entraria na fila real de processamento). Corrigido com **rollback
+explícito**: se `enqueue()` falhar, o status volta para `StatusTranscoding`
+(best-effort, com log se o próprio rollback falhar). Comentário em
+português documenta a invariante. `TestRequeueJob_EnqueueErrorContinues`
+passa.
+
+**Ponto de extensão adicionado**: `probeVideo()` em
+`internal/transcode/worker.go` chamava `exec.CommandContext("ffprobe", ...)`
+diretamente (38.9% de cobertura, impossível mockar). Criada a interface
+`FFprobeExecutor` (análoga à `FFmpegExecutor` já existente), com
+implementação real `RealFFprobe` preservando o comportamento de produção
+e injeção via `Worker.ffprobe` / `NewWorker`.
+
+`go test ./internal/jobs/... ./internal/transcode/... -race -cover` passa
+sem detectar races. `go test ./...` passa integralmente (sem regressões).
+
 ## Definition of Done
 
-- [ ] Relatório de cobertura "antes/depois" documentado
-- [ ] Cenários de erro e concorrência cobertos por testes novos
-- [ ] `go test ./internal/jobs/... ./internal/transcode/... -race -cover`
+- [x] Relatório de cobertura "antes/depois" documentado
+- [x] Cenários de erro e concorrência cobertos por testes novos
+- [x] `go test ./internal/jobs/... ./internal/transcode/... -race -cover`
       passa sem detectar races e com cobertura maior que a inicial
-- [ ] Bugs reais encontrados corrigidos com mudança mínima
-- [ ] `go test ./...` continua passando sem regressões
+- [x] Bugs reais encontrados corrigidos com mudança mínima — rollback de
+      status em `requeue.go` quando `enqueue()` falha
+- [x] `go test ./...` continua passando sem regressões

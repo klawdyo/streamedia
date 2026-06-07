@@ -2,6 +2,7 @@ package transcode
 
 import (
 	"fmt"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -11,6 +12,29 @@ import (
 	"github.com/klawdyo/streamedia/internal/config"
 	"github.com/klawdyo/streamedia/internal/db"
 )
+
+// sliceEqual compara dois slices de inteiros.
+func sliceEqual(a, b []int) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i] != b[i] {
+			return false
+		}
+	}
+	return true
+}
+
+// containsArg verifica se args contém um valor que inclui a substring s.
+func containsArg(args []string, s string) bool {
+	for _, arg := range args {
+		if strings.Contains(arg, s) {
+			return true
+		}
+	}
+	return false
+}
 
 // TestQueue_EnqueueAndProcess verifica que a fila enfileira e processa
 // itens sequencialmente. Usa um TranscodeFunc que registra os video IDs
@@ -410,4 +434,167 @@ func TestQueue_UpdatesStatusOnStart(t *testing.T) {
 		t.Errorf("esperava status 'transcoding', worker viu %q", statusSeen)
 	}
 	mu.Unlock()
+}
+
+// TestQueue_ConcurrentEnqueue testa enfileiramento concorrente de múltiplos
+// vídeos sem race condition.
+func TestQueue_ConcurrentEnqueue(t *testing.T) {
+	database, err := db.Open(":memory:")
+	if err != nil {
+		t.Fatalf("erro ao abrir banco: %v", err)
+	}
+	defer database.Close()
+
+	cfg := &config.Config{
+		QueueMaxSize:     100,
+		TranscodeWorkers: 2,
+	}
+
+	var mu sync.Mutex
+	var processedCount int
+	done := make(chan struct{})
+
+	transcodeFunc := func(videoID string) error {
+		mu.Lock()
+		processedCount++
+		if processedCount == 10 {
+			close(done)
+		}
+		mu.Unlock()
+		return nil
+	}
+
+	queue := NewQueue(cfg, database, transcodeFunc)
+	queue.Start()
+
+	// Enfileira 10 vídeos concorrentemente
+	for i := 1; i <= 10; i++ {
+		go func(idx int) {
+			videoID := fmt.Sprintf("v%d", idx)
+			if err := queue.Enqueue(videoID); err != nil {
+				t.Errorf("Enqueue(%s) falhou: %v", videoID, err)
+			}
+		}(i)
+	}
+
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("timeout aguardando 10 vídeos processados")
+	}
+
+	queue.Stop()
+
+	mu.Lock()
+	if processedCount != 10 {
+		t.Errorf("esperava 10 processados, obtive %d", processedCount)
+	}
+	mu.Unlock()
+}
+
+// TestQueue_MultipleworkersParallel testa que múltiplos workers processam
+// itens em paralelo (tempo total menor que sequencial).
+func TestQueue_MultipleWorkersParallel(t *testing.T) {
+	database, err := db.Open(":memory:")
+	if err != nil {
+		t.Fatalf("erro ao abrir banco: %v", err)
+	}
+	defer database.Close()
+
+	cfg := &config.Config{
+		QueueMaxSize:     50,
+		TranscodeWorkers: 3,
+	}
+
+	var mu sync.Mutex
+	var processedCount int
+	done := make(chan struct{})
+
+	// Worker que dorme 30ms
+	transcodeFunc := func(videoID string) error {
+		time.Sleep(30 * time.Millisecond)
+		mu.Lock()
+		processedCount++
+		if processedCount == 6 {
+			close(done)
+		}
+		mu.Unlock()
+		return nil
+	}
+
+	queue := NewQueue(cfg, database, transcodeFunc)
+
+	start := time.Now()
+	queue.Start()
+
+	// Enfileira 6 vídeos
+	for i := 1; i <= 6; i++ {
+		queue.Enqueue(fmt.Sprintf("v%d", i))
+	}
+
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("timeout")
+	}
+
+	elapsed := time.Since(start)
+	queue.Stop()
+
+	// 6 itens × 30ms com 3 workers paralelos deve levar ~60ms (6/3 = 2 batches)
+	// Aceitamos até 200ms considerando overhead
+	if elapsed > 200*time.Millisecond {
+		t.Errorf("processamento com 3 workers demorou muito: %v", elapsed)
+	}
+}
+
+// TestQueue_StopBeforeStart verifica que Stop() funciona mesmo se chamado
+// antes de Start() (sem pânico, mesmo com sync.Once).
+func TestQueue_StopBeforeStart(t *testing.T) {
+	database, err := db.Open(":memory:")
+	if err != nil {
+		t.Fatalf("erro ao abrir banco: %v", err)
+	}
+	defer database.Close()
+
+	cfg := &config.Config{
+		QueueMaxSize:     50,
+		TranscodeWorkers: 1,
+	}
+
+	transcodeFunc := func(videoID string) error {
+		return nil
+	}
+
+	queue := NewQueue(cfg, database, transcodeFunc)
+
+	// Não chama Start(), apenas Stop()
+	queue.Stop()
+
+	// Se não houve pânico, o teste passa
+}
+
+// TestQueue_EnqueueAfterStop verifica que Enqueue não trava se chamado
+// após Stop() (comportamento undefined, mas não deve travar).
+func TestQueue_EnqueueAfterStop(t *testing.T) {
+	database, err := db.Open(":memory:")
+	if err != nil {
+		t.Fatalf("erro ao abrir banco: %v", err)
+	}
+	defer database.Close()
+
+	cfg := &config.Config{
+		QueueMaxSize:     50,
+		TranscodeWorkers: 1,
+	}
+
+	queue := NewQueue(cfg, database, func(videoID string) error {
+		return nil
+	})
+	queue.Start()
+	queue.Stop()
+
+	// Tenta enfileirar após parada (pode falhar ou não, mas não deve travar)
+	queue.Enqueue("v1")
+	// Se não travou, o teste passa
 }
