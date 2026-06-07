@@ -6,9 +6,9 @@ Status possíveis: `pending` | `in-progress` | `done` | `blocked`
 ## Progresso geral
 
 ```
-Total: 46 tarefas
+Total: 47 tarefas
 Done:  37
-Pending: 9 (T38-T43: issues #7/#8; T44: solicitação direta; T45-T46: issue #9)
+Pending: 10 (T38-T43: issues #7/#8; T44, T47: solicitações diretas; T45-T46: issue #9)
 ```
 
 ## Lista de tarefas
@@ -61,6 +61,7 @@ Pending: 9 (T38-T43: issues #7/#8; T44: solicitação direta; T45-T46: issue #9)
 | T44 | `.tasks/44-optional-video-id-uuidv7.md` | video_id opcional em /upload/init — gera UUID v7 quando ausente, aceita qualquer versão quando informado | pending | origem: solicitação direta (não vinculada a issue); depende T08, T35 |
 | T45 | `.tasks/45-standard-response-envelope.md` | Pacote central de resposta padronizada `{error, message, data, status_code}` | pending | origem: issue #9; fundação — T46 depende desta |
 | T46 | `.tasks/46-migrate-routes-standard-response.md` | Migrar todas as rotas para o envelope padrão + testes de conformidade | pending | origem: issue #9; depende T45 |
+| T47 | `.tasks/47-centralize-hls-regex-and-url-builder.md` | Centralizar regex de segmento HLS e construção de URL pública (scheme/host) | pending | origem: solicitação direta — "pente fino" de duplicação (mesmo princípio da T44) |
 
 ## Próxima onda — ordem de prioridade sugerida (T31-T37)
 
@@ -184,3 +185,14 @@ Resumo por issue:
   existentes e cria a suíte de testes de conformidade que garante que
   nenhuma rota — nem exceções não tratadas — escapa do padrão. Status
   inicial: pending.
+[2026-06-07] CTO: gerada T47 a partir de "pente fino" de duplicação
+  solicitado pelo usuário (mesmo princípio da T44 — eliminar regex/lógica
+  reimplementada em paralelo). Encontrados 2 casos concretos: (1) regex
+  de nome de segmento HLS `^[0-9]+\.ts$` duplicada byte-a-byte em
+  internal/serve/serve.go (segmentRe) e internal/transcode/worker.go
+  (renditionSegmentRe — cujo comentário já reconhecia a duplicação sem
+  eliminá-la); (2) bloco de 13 linhas idêntico de resolução de
+  scheme/host via X-Forwarded-* para montar a URL pública de upload,
+  duplicado em internal/upload/init.go e internal/admin/projects.go.
+  Tarefa propõe centralizar ambos com testes de tabela documentando o
+  contrato antes da migração. Status inicial: pending.
