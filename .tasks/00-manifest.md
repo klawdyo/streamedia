@@ -6,9 +6,9 @@ Status possíveis: `pending` | `in-progress` | `done` | `blocked`
 ## Progresso geral
 
 ```
-Total: 47 tarefas
+Total: 50 tarefas
 Done:  40
-Pending: 6 (T41-T43: issue #8; T44, T47: solicitações diretas; T45-T46: issue #9)
+Pending: 9 (T41-T43: issue #8; T44, T47: solicitações diretas; T45-T46: issue #9; T48-T50: issue #10)
 ```
 
 ## Lista de tarefas
@@ -62,6 +62,9 @@ Pending: 6 (T41-T43: issue #8; T44, T47: solicitações diretas; T45-T46: issue 
 | T45 | `.tasks/45-standard-response-envelope.md` | Pacote central de resposta padronizada `{error, message, data, status_code}` | pending | origem: issue #9; fundação — T46 depende desta |
 | T46 | `.tasks/46-migrate-routes-standard-response.md` | Migrar todas as rotas para o envelope padrão + testes de conformidade | pending | origem: issue #9; depende T45 |
 | T47 | `.tasks/47-centralize-hls-regex-and-url-builder.md` | Centralizar regex de segmento HLS e construção de URL pública (scheme/host) | pending | origem: solicitação direta — "pente fino" de duplicação (mesmo princípio da T44) |
+| T48 | `.tasks/48-default-project-always-assigned.md` | Todo upload sempre pertence a um projeto — projeto padrão automático | pending | origem: issue #10; depende de T32-T35; fundação — T49 e T50 dependem desta |
+| T49 | `.tasks/49-remove-legacy-upload-auth-flow.md` | Remover fluxo de autenticação legado (HMAC global) de /upload/init | pending | origem: issue #10; depende T48 — preserva UploadTokenSecret/ValidateBackendAuth/ValidatePlayToken (usados fora do upload) |
+| T50 | `.tasks/50-unify-upload-token-ttl.md` | Unificar UPLOAD_TOKEN_TTL_SECONDS e UPLOAD_TOKEN_SCOPED_TTL_SECONDS em uma única variável | pending | origem: issue #10; depende T49; fecha a issue #10 (cadeia T48→T49→T50) |
 
 ## Próxima onda — ordem de prioridade sugerida (T31-T37)
 
@@ -202,3 +205,18 @@ Resumo por issue:
 [2026-06-07 13:55] T39: in-progress → done (cobertura jobs 56.3%→78.6%, transcode 72.5%→82.8%; corrige bug de estado inconsistente em requeue.go (rollback de status quando enqueue falha) e adiciona abstração FFprobeExecutor para testabilidade — Refs #7)
 [2026-06-07 14:05] T40: pending → in-progress
 [2026-06-07 14:35] T40: in-progress → done (cobertura upload 69.0%→72.0%, auth 74.4%→93.0%, config 74.5%→82.8%; suspeita de bug "UUID all-zeros" investigada e descartada — formato é RFC4122-compliant; superfícies de segurança HMAC/validação confirmadas seguras; fecha issue #7 — cadeia T38→T39→T40)
+[2026-06-07] CTO: geradas T48, T49 e T50 a partir da issue #10 ("Pq
+  UPLOAD_TOKEN_SCOPED_TTL_SECONDS e UPLOAD_TOKEN_TTL_SECONDS são
+  diferentes?"). Cadeia em 3 micro-tarefas dependentes: T48 garante que
+  todo upload sempre tenha um projeto associado (cria projeto "default"
+  automático, elimina project_id=NULL, remove o job MigrateLegacyVideos
+  que vira código morto); T49 remove o branch de autenticação HMAC
+  legado (X-Upload-Auth/UPLOAD_TOKEN_SECRET) de /upload/init — com nota
+  explícita de que UploadTokenSecret/ValidateBackendAuth/ValidatePlayToken
+  permanecem intocados por serem usados também em serve.go/status.go,
+  fora do escopo de upload; T50 unifica as duas variáveis de TTL em uma
+  só (UPLOAD_TOKEN_TTL_SECONDS, valor padrão de vida curta ~20min) e
+  fecha a issue #10. Por pedido explícito do usuário: nome final da
+  variável não deve conter "scoped"; sem necessidade de retrocompatibilidade
+  (projeto ainda não está em uso — "quero ele limpo e sem vestígios de
+  coisa velha antes de lançar"). Status inicial de todas: pending.
