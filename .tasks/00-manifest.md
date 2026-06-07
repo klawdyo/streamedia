@@ -7,7 +7,7 @@ Status possíveis: `pending` | `in-progress` | `done` | `blocked`
 
 ```
 Total: 25 tarefas
-Done:  11
+Done:  13
 ```
 
 ## Lista de tarefas
@@ -25,10 +25,10 @@ Done:  11
 | T09 | `.tasks/09-upload-validation.md` | Hook post-finish: validação do arquivo | done | |
 | T10 | `.tasks/10-transcode-queue.md` | Fila de transcodificação (channel + workers) | done | |
 | T11 | `.tasks/11-ffmpeg-worker.md` | Worker FFmpeg: geração HLS | done | |
-| T12 | `.tasks/12-hls-serving.md` | Serving HLS estático + master.m3u8 autenticado | in-progress | depende T11, T06 |
-| T13 | `.tasks/13-status-route.md` | Rota GET /api/status/{video_id} | pending | depende T04 |
-| T14 | `.tasks/14-job-upload-killer.md` | Job 1: killer de uploads inativos | pending | depende T04 |
-| T15 | `.tasks/15-job-transcode-requeue.md` | Job 2: reenfileirador de transcodes travados | pending | depende T10 |
+| T12 | `.tasks/12-hls-serving.md` | Serving HLS estático + master.m3u8 autenticado | done | |
+| T13 | `.tasks/13-status-route.md` | Rota GET /api/status/{video_id} | in-progress | depende T04 |
+| T14 | `.tasks/14-job-upload-killer.md` | Job 1: killer de uploads inativos | done | |
+| T15 | `.tasks/15-job-transcode-requeue.md` | Job 2: reenfileirador de transcodes travados | in-progress | depende T10 |
 | T16 | `.tasks/16-job-token-cleanup.md` | Job 3: limpeza de tokens expirados | pending | depende T05 |
 | T17 | `.tasks/17-webhook-client.md` | Cliente de webhook com retry | pending | depende T04 |
 | T18 | `.tasks/18-admin-routes.md` | Rotas admin (/admin/videos, /admin/queue) | pending | depende T04, T10 |
@@ -55,3 +55,8 @@ Done:  11
 [2026-06-06 21:15] T11: pending → in-progress
 [2026-06-06 21:30] T11: in-progress → done
 [2026-06-06 21:30] T12: pending → in-progress
+[2026-06-07 00:30] T12: in-progress → done
+[2026-06-07 00:30] T13: pending → in-progress
+[2026-06-07 00:30] T14: pending → in-progress
+[2026-06-07 00:35] T14: in-progress → done
+[2026-06-07 00:35] T15: pending → in-progress

@@ -1,0 +1,207 @@
+// Pacote serve expõe as rotas de serving HLS.
+//
+// Existem dois tipos de serving:
+//
+//  1. master.m3u8 — autenticado por token HMAC de reprodução e pelo status
+//     do vídeo no banco.
+//  2. Playlists de resolução e segmentos .ts — estáticos e públicos (os nomes
+//     opacos contidos no master.m3u8 funcionam como a "chave" de acesso).
+//
+// Toda extração de path é feita manualmente via strings.Split porque o chi
+// ainda não está conectado nesta etapa (T12); ele entra em T20.
+package serve
+
+import (
+	"database/sql"
+	"encoding/json"
+	"net/http"
+	"os"
+	"path/filepath"
+	"regexp"
+	"strconv"
+	"strings"
+
+	"github.com/klawdyo/streamedia/internal/auth"
+	"github.com/klawdyo/streamedia/internal/config"
+)
+
+// uuidV4Re valida UUID v4 estrito: versão 4 e variante 8-b.
+var uuidV4Re = regexp.MustCompile(`^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$`)
+
+// allowedResolutions são as únicas resoluções aceitas no serving estático.
+var allowedResolutions = map[string]bool{
+	"480":  true,
+	"720":  true,
+	"1080": true,
+}
+
+// segmentRe casa nomes de segmento: um ou mais dígitos seguidos de ".ts".
+var segmentRe = regexp.MustCompile(`^[0-9]+\.ts$`)
+
+// respondError escreve uma resposta JSON de erro com o status informado.
+// Mensagens em português, conforme convenção do projeto para a API.
+func respondError(w http.ResponseWriter, status int, msg string) {
+	w.Header().Set("Content-Type", "application/json; charset=utf-8")
+	w.WriteHeader(status)
+	// Ignoramos o erro de Encode: o header e o status já foram enviados.
+	_ = json.NewEncoder(w).Encode(map[string]string{"error": msg})
+}
+
+// pathParts remove o prefixo "/videos/" do path e o divide por "/".
+// Retorna os componentes não vazios já com o prefixo retirado.
+//
+// Importante: NÃO normalizamos o path aqui — qualquer ".." presente é
+// preservado para que a validação subsequente possa rejeitá-lo.
+func pathParts(urlPath string) []string {
+	trimmed := strings.TrimPrefix(urlPath, "/videos/")
+	return strings.Split(trimmed, "/")
+}
+
+// MasterHandler serve o arquivo master.m3u8 autenticado por token de
+// reprodução e protegido pela verificação de status do vídeo.
+type MasterHandler struct {
+	cfg *config.Config
+	db  *sql.DB
+}
+
+// NewMasterHandler cria um MasterHandler com a config e o banco informados.
+func NewMasterHandler(cfg *config.Config, db *sql.DB) *MasterHandler {
+	return &MasterHandler{cfg: cfg, db: db}
+}
+
+// ServeHTTP implementa o fluxo de serving do master.m3u8.
+func (h *MasterHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	// 1. Extrai o video_id do path: /videos/{videoID}/master.m3u8
+	parts := pathParts(r.URL.Path)
+	if len(parts) < 2 {
+		respondError(w, http.StatusBadRequest, "Caminho inválido.")
+		return
+	}
+	videoID := parts[0]
+
+	// 2. Valida o video_id como UUID v4 estrito. Isso, por si só, já bloqueia
+	// qualquer tentativa de path traversal (ex.: "../etc/passwd").
+	if !uuidV4Re.MatchString(videoID) {
+		respondError(w, http.StatusBadRequest, "video_id inválido.")
+		return
+	}
+
+	// 3. Extrai expires e token dos query params.
+	q := r.URL.Query()
+	expires, err := strconv.ParseInt(q.Get("expires"), 10, 64)
+	if err != nil {
+		respondError(w, http.StatusUnauthorized, "Parâmetro expires inválido.")
+		return
+	}
+	token := q.Get("token")
+
+	// 4. Valida o token de reprodução (expiração, TTL máximo e assinatura HMAC).
+	// O secret de reprodução é o secret HMAC compartilhado (UPLOAD_TOKEN_SECRET).
+	if err := auth.ValidatePlayToken(h.cfg.UploadTokenSecret, videoID, expires, token, h.cfg.PlayTokenMaxTTL); err != nil {
+		respondError(w, http.StatusUnauthorized, err.Error())
+		return
+	}
+
+	// 5. Busca o vídeo no banco e exige status "ready".
+	var status string
+	err = h.db.QueryRow("SELECT status FROM videos WHERE video_id = ?", videoID).Scan(&status)
+	if err == sql.ErrNoRows {
+		respondError(w, http.StatusNotFound, "Vídeo não encontrado.")
+		return
+	}
+	if err != nil {
+		respondError(w, http.StatusInternalServerError, "Erro ao consultar o vídeo.")
+		return
+	}
+	if status != "ready" {
+		respondError(w, http.StatusNotFound, "Vídeo não está disponível para reprodução.")
+		return
+	}
+
+	// 6. Serve o arquivo master.m3u8 do diretório do vídeo.
+	masterPath := filepath.Join(h.cfg.MediaDir, videoID, "master.m3u8")
+	http.ServeFile(w, r, masterPath)
+}
+
+// StaticHandler serve playlists de resolução e segmentos .ts como arquivos
+// estáticos públicos, sem autenticação, mas com validação rígida de path e
+// directory listing desabilitado.
+type StaticHandler struct {
+	cfg *config.Config
+}
+
+// NewStaticHandler cria um StaticHandler com a config informada.
+func NewStaticHandler(cfg *config.Config) *StaticHandler {
+	return &StaticHandler{cfg: cfg}
+}
+
+// ServeHTTP implementa o fluxo de serving estático.
+func (h *StaticHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	// 1. Extrai os componentes do path: /videos/{videoID}/{resolution}/{filename}
+	parts := pathParts(r.URL.Path)
+	if len(parts) < 3 {
+		respondError(w, http.StatusBadRequest, "Caminho inválido.")
+		return
+	}
+	videoID := parts[0]
+	resolution := parts[1]
+	// O filename é o restante reunido; assim, qualquer ".." no caminho aparece
+	// aqui e é rejeitado pela validação de filename abaixo.
+	filename := strings.Join(parts[2:], "/")
+
+	// 2. Valida o video_id como UUID v4 estrito.
+	if !uuidV4Re.MatchString(videoID) {
+		respondError(w, http.StatusBadRequest, "video_id inválido.")
+		return
+	}
+
+	// 3. Valida a resolução contra a lista permitida.
+	if !allowedResolutions[resolution] {
+		respondError(w, http.StatusBadRequest, "Resolução inválida.")
+		return
+	}
+
+	// 4. Filename vazio (path terminando em "/", ex.: /videos/{id}/480/) é uma
+	// tentativa de listar o diretório da resolução. Nunca listamos: 404.
+	if filename == "" {
+		respondError(w, http.StatusNotFound, "Arquivo não encontrado.")
+		return
+	}
+
+	// 5. Valida o filename: só segmentos "{digitos}.ts" ou "playlist.m3u8".
+	// Qualquer ".." ou barra extra reprova aqui.
+	if filename != "playlist.m3u8" && !segmentRe.MatchString(filename) {
+		respondError(w, http.StatusBadRequest, "Nome de arquivo inválido.")
+		return
+	}
+
+	// 5. Constrói o path final dentro do MediaDir.
+	path := filepath.Join(h.cfg.MediaDir, videoID, resolution, filename)
+
+	// 6. Proteção extra contra traversal: o path resolvido precisa estar
+	// contido no MediaDir. Usamos filepath.Clean nas duas pontas.
+	mediaRoot := filepath.Clean(h.cfg.MediaDir)
+	cleanPath := filepath.Clean(path)
+	if cleanPath != mediaRoot && !strings.HasPrefix(cleanPath, mediaRoot+string(os.PathSeparator)) {
+		respondError(w, http.StatusBadRequest, "Caminho fora do diretório de mídia.")
+		return
+	}
+
+	// 7. Directory listing desabilitado: se o alvo for um diretório, 404.
+	info, err := os.Stat(cleanPath)
+	if err != nil {
+		if os.IsNotExist(err) {
+			respondError(w, http.StatusNotFound, "Arquivo não encontrado.")
+			return
+		}
+		respondError(w, http.StatusInternalServerError, "Erro ao acessar o arquivo.")
+		return
+	}
+	if info.IsDir() {
+		respondError(w, http.StatusNotFound, "Arquivo não encontrado.")
+		return
+	}
+
+	// 8. Serve o arquivo estático.
+	http.ServeFile(w, r, cleanPath)
+}
