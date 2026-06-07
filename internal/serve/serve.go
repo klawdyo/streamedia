@@ -27,8 +27,10 @@ import (
 	"github.com/klawdyo/streamedia/internal/models"
 )
 
-// uuidV4Re valida UUID v4 estrito: versão 4 e variante 8-b.
-var uuidV4Re = regexp.MustCompile(`^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$`)
+// uuidV4Re valida UUID de qualquer versão (1-8) — substituído pela função
+// centralizada models.IsValidVideoIDFormat. Mantido como alias para evitar
+// reescrever todos os call sites; a definição real está em internal/models.
+var uuidV4Re = regexp.MustCompile(`^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$`)
 
 // allowedResolutions são as únicas resoluções aceitas no serving estático.
 var allowedResolutions = map[string]bool{

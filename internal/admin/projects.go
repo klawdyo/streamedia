@@ -14,7 +14,6 @@ import (
 	"time"
 
 	"github.com/go-chi/chi/v5"
-	"github.com/google/uuid"
 
 	"github.com/klawdyo/streamedia/internal/auth"
 	"github.com/klawdyo/streamedia/internal/models"
@@ -245,7 +244,13 @@ func (h *AdminHandler) HandleIssueUploadToken(w http.ResponseWriter, r *http.Req
 		return
 	}
 
-	videoID := uuid.NewString()
+	// Gera o video_id via função centralizada — o sistema sempre privilegia
+	// UUID v7 ao gerar ids (ordenável por tempo, melhora localidade no SQLite).
+	videoID, err := models.NewVideoID()
+	if err != nil {
+		respondJSONError(w, http.StatusInternalServerError, "Falha ao gerar video_id.")
+		return
+	}
 	if err := models.InsertVideoForProject(h.db, videoID, req.DeclaredSizeBytes, &project.ID); err != nil {
 		respondJSONError(w, http.StatusInternalServerError, "Falha ao registrar o vídeo.")
 		return

@@ -171,20 +171,29 @@ Use comentários em português com a densidade de costume (explique o
 - Testes correspondentes em `internal/models/`, `internal/upload/`,
   `internal/serve/`, `internal/admin/`
 
+## Resolução
+
+Arquivos alterados:
+- `internal/models/video_id.go` (criado) — `IsValidVideoIDFormat` (aceita qualquer versão UUID 1-8) e `NewVideoID` (gera UUID v7 via `uuid.NewV7()`)
+- `internal/upload/init.go` — video_id opcional: ausente/vazio gera UUID v7; informado aceita qualquer versão; resposta inclui `video_id`
+- `internal/upload/init_test.go` — removidos casos v1/v3 de inválidos; adicionado `TestUploadInit_AnyUUIDVersionAccepted`
+- `internal/serve/serve.go` — regex trocada para aceitar qualquer versão (nibble 1-8)
+- `internal/admin/projects.go` — `uuid.NewString()` trocado por `models.NewVideoID()`, removido import `google/uuid`
+
 ## Definition of Done
 
-- [ ] `POST /upload/init` aceita corpo sem `video_id` e gera um UUID v7
-- [ ] `POST /upload/init` aceita `video_id` informado em qualquer versão de
+- [x] `POST /upload/init` aceita corpo sem `video_id` e gera um UUID v7
+- [x] `POST /upload/init` aceita `video_id` informado em qualquer versão de
       UUID válida (v1, v4, v5, v7, ...) e usa exatamente o valor informado
-- [ ] Strings que não são UUID bem-formado continuam sendo rejeitadas com
+- [x] Strings que não são UUID bem-formado continuam sendo rejeitadas com
       `400 Bad Request` (proteção contra path traversal preservada e testada)
-- [ ] A resposta de `POST /upload/init` sempre inclui `video_id` (gerado ou
+- [x] A resposta de `POST /upload/init` sempre inclui `video_id` (gerado ou
       informado), permitindo ao cliente saber qual id foi atribuído
-- [ ] `POST /admin/projects/{slug}/upload-token` (T35) passa a gerar
+- [x] `POST /admin/projects/{slug}/upload-token` (T35) passa a gerar
       `video_id` em UUID v7 (antes: v4)
-- [ ] `internal/serve` (serving HLS e status) aceita `video_id` de qualquer
+- [x] `internal/serve` (serving HLS e status) aceita `video_id` de qualquer
       versão de UUID válida sem regressão na proteção de path traversal
-- [ ] Validação e geração centralizadas em `internal/models` — sem regex
+- [x] Validação e geração centralizadas em `internal/models` — sem regex
       duplicado pelo código
-- [ ] `go test ./... -v` passa, incluindo os novos testes de T44
-- [ ] `go vet ./...` sem warnings
+- [x] `go test ./... -v` passa, incluindo os novos testes de T44
+- [x] `go vet ./...` sem warnings

@@ -391,16 +391,9 @@ func TestUploadInit_InvalidUUIDFormats(t *testing.T) {
 		videoID string
 		desc   string
 	}{
-		{
-			name:    "v3_uuid",
-			videoID: "550e8400-e29b-31d4-a716-446655440000",
-			desc:    "UUID v3 (versão errada, deve ser v4)",
-		},
-		{
-			name:    "v1_uuid",
-			videoID: "550e8400-e29b-11d4-a716-446655440000",
-			desc:    "UUID v1 (versão errada, deve ser v4)",
-		},
+		// v1 e v3 foram removidos da lista de inválidos — o sistema agora
+		// aceita qualquer versão de UUID (T44). O teste de aceitação está
+		// em TestUploadInit_AnyUUIDVersionAccepted.
 		{
 			name:    "invalid_variant",
 			videoID: "550e8400-e29b-41d4-c716-446655440000",
@@ -530,6 +523,48 @@ func TestUploadInit_HMACConstantTime(t *testing.T) {
 				t.Errorf("%s: esperava aceitar, obteve %d", tc.desc, rec.Code)
 			} else if !tc.shouldAccept && rec.Code == http.StatusOK {
 				t.Errorf("%s: esperava rejeitar, mas foi aceito", tc.desc)
+			}
+		})
+	}
+}
+
+// TestUploadInit_AnyUUIDVersionAccepted verifica que qualquer versão de UUID
+// (v1, v3, v4, v5, v7) informada pelo cliente é aceita (T44).
+func TestUploadInit_AnyUUIDVersionAccepted(t *testing.T) {
+	cfg := configInit(t)
+	database := abreDBInit(t)
+	handler := NewInitHandler(cfg, database)
+
+	cases := []struct {
+		name    string
+		videoID string
+	}{
+		{"v1", "550e8400-e29b-11d4-a716-446655440000"},
+		{"v3", "550e8400-e29b-31d4-a716-446655440000"},
+		{"v4", "550e8400-e29b-41d4-a716-446655440000"},
+		{"v5", "550e8400-e29b-51d4-a716-446655440000"},
+		{"v7", "550e8400-e29b-71d4-a716-446655440000"},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			body, _ := json.Marshal(map[string]interface{}{
+				"video_id":            tc.videoID,
+				"declared_size_bytes": 1024,
+			})
+			req := fazRequestInit(t, cfg, body)
+			rec := httptest.NewRecorder()
+			handler.ServeHTTP(rec, req)
+
+			if rec.Code != http.StatusOK {
+				t.Errorf("UUID %s deveria ser aceito, mas retornou %d", tc.name, rec.Code)
+			}
+
+			// Verifica que o video_id na resposta é o mesmo informado
+			var resp map[string]string
+			json.NewDecoder(rec.Body).Decode(&resp)
+			if resp["video_id"] != tc.videoID {
+				t.Errorf("video_id na resposta: esperado %s, obtido %s", tc.videoID, resp["video_id"])
 			}
 		})
 	}
