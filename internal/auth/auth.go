@@ -54,28 +54,28 @@ func ValidatePlayToken(secret, videoID string, expiresUnix int64, token string, 
 
 	// Verifica se o token já expirou
 	if now.After(expiresAt) {
-		return errors.New("Token de reprodução expirado.")
+		return errors.New("Token de reprodução inválido.")
 	}
 
 	// Verifica se a expiração está dentro do TTL máximo permitido
 	// (protege contra tokens com expiração absurdamente longa)
 	maxExpires := now.Add(maxTTL)
 	if expiresAt.After(maxExpires) {
-		return errors.New("Token de reprodução excede o tempo máximo permitido.")
+		return errors.New("Token de reprodução inválido.")
 	}
 
 	// Recalcula o HMAC esperado e compara em tempo constante
 	expected := GeneratePlayToken(secret, videoID, expiresUnix)
 	expectedBytes, err := hex.DecodeString(expected)
 	if err != nil {
-		return errors.New("Assinatura do token de reprodução inválida.")
+		return errors.New("Token de reprodução inválido.")
 	}
 	tokenBytes, err := hex.DecodeString(token)
 	if err != nil {
-		return errors.New("Assinatura do token de reprodução inválida.")
+		return errors.New("Token de reprodução inválido.")
 	}
 	if !hmac.Equal(expectedBytes, tokenBytes) {
-		return errors.New("Assinatura do token de reprodução inválida.")
+		return errors.New("Token de reprodução inválido.")
 	}
 
 	return nil
