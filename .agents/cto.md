@@ -45,6 +45,21 @@ Leia .tasks/NN-nome.md
 Extraia: título, dependências, QA Instructions, Dev Instructions, Definition of Done
 ```
 
+### Sobre nomear branches
+
+Ao criar uma branch de trabalho (a partir de `dev`, ver "Fluxo de branches"
+no CLAUDE.md), escolha um nome que descreva o ASSUNTO das tarefas — não o
+processo ou a sessão. Quem olhar o nome da branch (sem contexto da
+conversa) deve entender do que se trata.
+
+- Bom: `feature/cobertura-testes-camada-de-dados`,
+  `feature/auditoria-seguranca-rede-infra`,
+  `feature/envelope-resposta-padronizada`
+- Ruim (não use): `revisar-issues`, `gerar-tarefas`, `continue-review`,
+  `resume-latest-branch`, `multi-agent-cto-system` — nomes que descrevem
+  "o que o agente estava fazendo na sessão" em vez de "o que a mudança
+  contém".
+
 ### Passo 3: Atualizar manifest
 
 ```

@@ -23,6 +23,16 @@ Este repositório usa um sistema multi-agente estruturado:
 - **Branches de feature** — para cada nova funcionalidade/tarefa, crie uma
   branch a partir de `dev` (ex.: `feature/nome-da-feature`). Ao concluir,
   faça merge de volta para `dev`.
+- **Nome da branch deve descrever o conteúdo do trabalho, não o processo.**
+  Use o assunto/escopo das tarefas que serão feitas (ex.:
+  `feature/cobertura-testes-camada-de-dados`,
+  `feature/auditoria-seguranca-auth-tokens`,
+  `feature/envelope-resposta-padronizada`). Evite nomes genéricos que não
+  dizem nada sobre o trabalho em si — como `revisar-issues`,
+  `gerar-tarefas`, `continue-review`, `resume-latest-branch` ou variações
+  baseadas em "última branch"/"retomar trabalho". Pense: alguém lendo só
+  o nome da branch (sem o histórico da sessão) deve conseguir adivinhar
+  do que ela trata.
 
 ```
 dev → feature/xyz → (trabalho) → merge de volta em dev
