@@ -46,6 +46,12 @@ func main() {
 	// worker e iniciada aqui; o roteador a recebe pronta.
 	worker := transcode.NewWorker(cfg, database, sendWebhook)
 	queue := transcode.NewQueue(cfg, database, worker.Transcode)
+
+	// Recupera vídeos em estado inconsistente após crash.
+	if err := transcode.RunStartupRecovery(database, cfg, queue.Enqueue, sendWebhook); err != nil {
+		log.Printf("recovery: %v", err)
+	}
+
 	queue.Start()
 	defer queue.Stop()
 

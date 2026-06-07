@@ -1,0 +1,37 @@
+services:
+  mediaserver:
+    build: .
+    restart: unless-stopped
+    environment:
+      - UPLOAD_TOKEN_SECRET=${UPLOAD_TOKEN_SECRET}
+      - WEBHOOK_URL=${WEBHOOK_URL}
+      - WEBHOOK_SECRET=${WEBHOOK_SECRET}
+      - ADMIN_TOKEN=${ADMIN_TOKEN}
+      - MAX_UPLOAD_SIZE_MB=${MAX_UPLOAD_SIZE_MB:-10}
+      - MEDIA_DIR=${MEDIA_DIR:-/media}
+      - UPLOAD_TMP_DIR=${UPLOAD_TMP_DIR:-/media/.uploads}
+      - SQLITE_PATH=${SQLITE_PATH:-/data/media.db}
+      - QUEUE_MAX_SIZE=${QUEUE_MAX_SIZE:-50}
+      - TRANSCODE_WORKERS=${TRANSCODE_WORKERS:-1}
+      - UPLOAD_TOKEN_TTL_H=${UPLOAD_TOKEN_TTL_H:-6}
+      - PLAY_TOKEN_MAX_TTL_H=${PLAY_TOKEN_MAX_TTL_H:-6}
+      - UPLOAD_IDLE_TIMEOUT_MIN=${UPLOAD_IDLE_TIMEOUT_MIN:-10}
+      - TRANSCODE_STUCK_MIN=${TRANSCODE_STUCK_MIN:-30}
+      - MAX_TRANSCODE_ATTEMPTS=${MAX_TRANSCODE_ATTEMPTS:-3}
+      - KEEP_ORIGINAL=${KEEP_ORIGINAL:-false}
+      - PORT=${PORT:-3000}
+      - RATE_LIMIT_PER_MIN=${RATE_LIMIT_PER_MIN:-60}
+    volumes:
+      - media_files:/media
+      - db_data:/data
+    ports:
+      - "${PORT:-3000}:3000"
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:3000/healthz"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
+volumes:
+  media_files:
+  db_data:
