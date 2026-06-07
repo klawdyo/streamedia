@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"regexp"
 	"strings"
 	"time"
 
@@ -15,10 +14,9 @@ import (
 	"github.com/klawdyo/streamedia/internal/models"
 )
 
-// uuidV4Re valida estritamente um UUID versão 4 (compilada uma única vez).
-var uuidV4Re = regexp.MustCompile(`^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$`)
-
 // initRequest representa o corpo JSON esperado em POST /upload/init.
+// video_id é opcional: se informado, deve ser um UUID bem-formado; se omitido,
+// o servidor gera um UUID v7.
 type initRequest struct {
 	VideoID           string `json:"video_id"`
 	DeclaredSizeBytes int64  `json:"declared_size_bytes"`
@@ -87,9 +85,22 @@ func (h *InitHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// 4. Valida video_id como UUID v4 estrito (também barra path traversal).
-	if !uuidV4Re.MatchString(req.VideoID) {
-		respondError(w, http.StatusBadRequest, "video_id inválido: deve ser um UUID v4.")
+	// 4. Resolve video_id: se informado, valida formato; se ausente, gera UUID v7.
+	videoID := req.VideoID
+	if videoID == "" {
+		// Cliente não informou video_id — o servidor gera um UUID v7.
+		// O sistema sempre privilegia v7 ao gerar ids: é ordenável por tempo,
+		// o que melhora localidade no índice do SQLite.
+		var err error
+		videoID, err = models.NewVideoID()
+		if err != nil {
+			respondError(w, http.StatusInternalServerError, "Falha ao gerar video_id.")
+			return
+		}
+	} else if !models.IsValidVideoIDFormat(videoID) {
+		// video_id informado mas não é um UUID bem-formado — rejeita.
+		// Continua barrando path traversal: só UUIDs passam.
+		respondError(w, http.StatusBadRequest, "video_id inválido: deve ser um UUID bem-formado.")
 		return
 	}
 
@@ -109,7 +120,7 @@ func (h *InitHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if project != nil {
 		projectID = &project.ID
 	}
-	if err := models.InsertVideoForProject(h.db, req.VideoID, req.DeclaredSizeBytes, projectID); err != nil {
+	if err := models.InsertVideoForProject(h.db, videoID, req.DeclaredSizeBytes, projectID); err != nil {
 		if strings.Contains(err.Error(), "UNIQUE") {
 			respondError(w, http.StatusConflict, "video_id já existe.")
 			return
@@ -128,14 +139,14 @@ func (h *InitHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	var token string
 	var ttl time.Duration
 	if project != nil {
-		token = auth.GenerateUploadToken(projectKey, req.VideoID)
+		token = auth.GenerateUploadToken(projectKey, videoID)
 		ttl = h.cfg.UploadTokenScopedTTL
 	} else {
-		token = auth.GenerateUploadToken(h.cfg.UploadTokenSecret, req.VideoID)
+		token = auth.GenerateUploadToken(h.cfg.UploadTokenSecret, videoID)
 		ttl = h.cfg.UploadTokenTTL
 	}
 	expiresAt := time.Now().Add(ttl)
-	if err := models.InsertUploadTokenForProject(h.db, token, req.VideoID, expiresAt, projectID); err != nil {
+	if err := models.InsertUploadTokenForProject(h.db, token, videoID, expiresAt, projectID); err != nil {
 		respondError(w, http.StatusInternalServerError, "Falha ao registrar o token de upload.")
 		return
 	}
@@ -153,12 +164,15 @@ func (h *InitHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if fwdHost := r.Header.Get("X-Forwarded-Host"); fwdHost != "" {
 		host = fwdHost
 	}
-	uploadURL := fmt.Sprintf("%s://%s/files/%s", scheme, host, req.VideoID)
+	uploadURL := fmt.Sprintf("%s://%s/files/%s", scheme, host, videoID)
 
-	// 9. Responde 200 com a URL de upload e o token.
+	// 9. Responde 200 com video_id, URL de upload e o token.
+	// video_id sempre está presente na resposta: gerado pelo servidor ou
+	// ecoado do que o cliente informou.
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
 	_ = json.NewEncoder(w).Encode(map[string]string{
+		"video_id":   videoID,
 		"upload_url": uploadURL,
 		"token":      token,
 	})
