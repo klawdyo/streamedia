@@ -7,8 +7,8 @@ Status possíveis: `pending` | `in-progress` | `done` | `blocked`
 
 ```
 Total: 54 tarefas
-Done:  46
-Pending: 7 (T44, T47: solicitações diretas; T45-T46: issue #9; T48-T50: issue #10; T52: issue #13)
+Done:  47
+Pending: 5 (T47: solicitação direta; T45-T46: issue #9; T48-T50: issue #10; T52: issue #13)
 ```
 
 ## Lista de tarefas
@@ -58,7 +58,7 @@ Pending: 7 (T44, T47: solicitações diretas; T45-T46: issue #9; T48-T50: issue 
 | T41 | `.tasks/41-security-auth-tokens.md` | Auditoria de segurança — autenticação, autorização e tokens | done | origem: issue #8 |
 | T42 | `.tasks/42-security-upload-processing.md` | Auditoria de segurança — upload, validação e execução de processos (FFmpeg) | done | origem: issue #8; depende logicamente de T41 (não bloqueante) |
 | T43 | `.tasks/43-security-network-infra.md` | Auditoria de segurança — rede, rate limiting, webhooks e configuração | done | origem: issue #8; fecha o sumário executivo de T41+T42+T43 — fecha a issue #8 |
-| T44 | `.tasks/44-optional-video-id-uuidv7.md` | video_id opcional em /upload/init — gera UUID v7 quando ausente, aceita qualquer versão quando informado | pending | origem: solicitação direta (não vinculada a issue); depende T08, T35 |
+| T44 | `.tasks/44-optional-video-id-uuidv7.md` | video_id opcional em /upload/init — gera UUID v7 quando ausente, aceita qualquer versão quando informado | done | origem: solicitação direta (não vinculada a issue); depende T08, T35 |
 | T45 | `.tasks/45-standard-response-envelope.md` | Pacote central de resposta padronizada `{error, message, data, status_code}` | pending | origem: issue #9; fundação — T46 depende desta |
 | T46 | `.tasks/46-migrate-routes-standard-response.md` | Migrar todas as rotas para o envelope padrão + testes de conformidade | pending | origem: issue #9; depende T45 |
 | T47 | `.tasks/47-centralize-hls-regex-and-url-builder.md` | Centralizar regex de segmento HLS e construção de URL pública (scheme/host) | pending | origem: solicitação direta — "pente fino" de duplicação (mesmo princípio da T44) |
@@ -118,6 +118,7 @@ Resumo por issue:
 [2026-06-07 19:42] T41: pending → done (auditoria auth/tokens: F-01 corrigida — mensagens de erro de play token unificadas)
 [2026-06-07 19:42] T42: pending → done (auditoria upload/FFmpeg: nenhuma falha encontrada)
 [2026-06-07 19:42] T43: pending → done (auditoria rede/infra: F-02 corrigida — timeouts HTTP adicionados contra Slowloris; fecha issue #8)
+[2026-06-07 19:59] T44: pending → done (video_id opcional em /upload/init, gera UUID v7, aceita qualquer versão, centralizado em models)
 
 <!-- CTO registra aqui cada transição com data/hora -->
 <!-- Formato: [YYYY-MM-DD HH:MM] TNN: pending → in-progress -->
