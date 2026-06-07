@@ -1,6 +1,6 @@
 # T29: Rota de métricas no padrão OpenTelemetry/Prometheus
 
-**Status:** pending
+**Status:** done
 **Dependências:** T20, T26
 **Estimativa:** média
 **Issue relacionada:** #1
