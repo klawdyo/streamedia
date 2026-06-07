@@ -22,6 +22,7 @@ type Config struct {
 	QueueMaxSize         int
 	TranscodeWorkers     int
 	UploadTokenTTL       time.Duration // de segundos (UPLOAD_TOKEN_TTL_SECONDS)
+	UploadTokenScopedTTL time.Duration // de segundos (UPLOAD_TOKEN_SCOPED_TTL_SECONDS) — token de upload de projeto (T33, issue #6): vida curta, 15-20min
 	PlayTokenMaxTTL      time.Duration // de segundos (PLAY_TOKEN_MAX_TTL_SECONDS)
 	UploadIdleTimeout    time.Duration // de segundos (UPLOAD_IDLE_TIMEOUT_SECONDS)
 	TranscodeStuckTime   time.Duration // de segundos (TRANSCODE_STUCK_SECONDS)
@@ -70,6 +71,13 @@ func Load() (*Config, error) {
 	if err != nil {
 		return nil, err
 	}
+	// Token de upload escopado a projeto (T33, issue #6): a issue pede vida
+	// curta — "no máximo 15 ou 20 minutos" — bem menor que o TTL global do
+	// fluxo legado (UPLOAD_TOKEN_TTL_SECONDS, default 6h). Default: 1200s = 20min.
+	uploadTokenScopedTTLSeconds, err := getEnvInt("UPLOAD_TOKEN_SCOPED_TTL_SECONDS", 1200)
+	if err != nil {
+		return nil, err
+	}
 	playTokenMaxTTLSeconds, err := getEnvInt("PLAY_TOKEN_MAX_TTL_SECONDS", 21600)
 	if err != nil {
 		return nil, err
@@ -107,6 +115,7 @@ func Load() (*Config, error) {
 		QueueMaxSize:         queueMaxSize,
 		TranscodeWorkers:     transcodeWorkers,
 		UploadTokenTTL:       time.Second * time.Duration(uploadTokenTTLSeconds),
+		UploadTokenScopedTTL: time.Second * time.Duration(uploadTokenScopedTTLSeconds),
 		PlayTokenMaxTTL:      time.Second * time.Duration(playTokenMaxTTLSeconds),
 		UploadIdleTimeout:    time.Second * time.Duration(uploadIdleTimeoutSeconds),
 		TranscodeStuckTime:   time.Second * time.Duration(transcodeStuckSeconds),

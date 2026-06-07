@@ -106,6 +106,7 @@ curl http://localhost:3000/healthz
 | `QUEUE_MAX_SIZE` | Não | `50` | Capacidade máxima da fila de transcodificação. |
 | `TRANSCODE_WORKERS` | Não | `1` | Número de workers paralelos de transcodificação. |
 | `UPLOAD_TOKEN_TTL_SECONDS` | Não | `21600` | TTL do token de upload em segundos (21600 = 6h). |
+| `UPLOAD_TOKEN_SCOPED_TTL_SECONDS` | Não | `1200` | TTL do token de upload escopado a projeto (`X-Project-Key`, issue #6/T33), em segundos — vida curta (1200 = 20min). |
 | `PLAY_TOKEN_MAX_TTL_SECONDS` | Não | `21600` | TTL máximo do token de reprodução em segundos (21600 = 6h). |
 | `UPLOAD_IDLE_TIMEOUT_SECONDS` | Não | `600` | Timeout de inatividade de upload em segundos (600 = 10min). |
 | `TRANSCODE_STUCK_SECONDS` | Não | `1800` | Timeout de transcodificação travada em segundos (1800 = 30min). |
@@ -147,15 +148,37 @@ Variáveis como `MAX_UPLOAD_SIZE_MB`, `PORT`, etc. têm padrão definido no `doc
 
 ### POST /upload/init
 
-Inicializa um upload. Chamada exclusivamente pelo **backend principal** (server-to-server).
+Inicializa um upload. Chamada exclusivamente pelo **backend principal** (server-to-server)
+ou por um **projeto interno** (issue #6/T33).
 
-**Autenticação:** header `X-Upload-Auth` com HMAC-SHA256 do corpo em hex.
+**Autenticação — dois fluxos coexistem:**
 
-**Requisição:**
+- **Escopado a projeto** (issue #6/T33): header `X-Project-Key: <chave mestra do projeto>`,
+  obtida na criação do projeto. O servidor resolve o projeto pelo hash da chave —
+  o vídeo e o token de upload gerados ficam vinculados àquele projeto, e o
+  token tem TTL curto (`UPLOAD_TOKEN_SCOPED_TTL_SECONDS`, padrão 20min — "um
+  único arquivo"). Tem prioridade sobre `X-Upload-Auth` se ambos vierem.
+- **Legado/global**: header `X-Upload-Auth` com HMAC-SHA256 do corpo em hex,
+  assinado com `UPLOAD_TOKEN_SECRET`. Continua funcionando sem mudanças —
+  vídeo e token ficam sem projeto associado.
+
+**Requisição (fluxo legado):**
 ```http
 POST /upload/init
 Content-Type: application/json
 X-Upload-Auth: <hmac-sha256-hex>
+
+{
+  "video_id": "550e8400-e29b-41d4-a716-446655440000",
+  "declared_size_bytes": 52428800
+}
+```
+
+**Requisição (escopada a projeto):**
+```http
+POST /upload/init
+Content-Type: application/json
+X-Project-Key: <chave mestra do projeto>
 
 {
   "video_id": "550e8400-e29b-41d4-a716-446655440000",
@@ -249,7 +272,15 @@ Consulta o status de um vídeo. Chamada pelo backend principal (server-to-server
 
 ### GET /admin/videos
 
-Lista todos os vídeos no banco. Requer `Authorization: Bearer <ADMIN_TOKEN>`.
+Lista os vídeos no banco.
+
+**Autenticação — `Authorization: Bearer <token>`, dois níveis (issue #6/T33):**
+
+- `<token>` = `ADMIN_TOKEN` global → **super-admin**, sem restrição: enxerga e
+  opera sobre os vídeos de todos os projetos (comportamento original, preservado).
+- `<token>` = chave mestra de um projeto → **admin de projeto**: as rotas
+  `/admin/*` ficam restritas aos vídeos daquele projeto (`project_id`); nunca
+  enxerga ou opera sobre vídeos de outro projeto.
 
 **Resposta 200 OK:**
 ```json

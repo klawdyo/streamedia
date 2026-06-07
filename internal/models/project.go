@@ -204,6 +204,17 @@ func GetProjectBySlug(db *sql.DB, slug string) (*Project, error) {
 	return scanProject(row.Scan)
 }
 
+// GetProjectByMasterKeyHash busca o projeto cuja chave mestra tem o hash
+// informado — usado para autenticar requisições que apresentam a chave
+// mestra em texto puro (ex. header X-Project-Key, T33): o chamador calcula
+// HashMasterKey(chave recebida) e resolve o projeto a partir do hash, sem
+// nunca persistir ou comparar a chave em texto puro.
+// Retorna sql.ErrNoRows se nenhum projeto corresponder.
+func GetProjectByMasterKeyHash(db *sql.DB, hash string) (*Project, error) {
+	row := db.QueryRow(`SELECT `+selectProjectColumns+` FROM projects WHERE master_key_hash = ?`, hash)
+	return scanProject(row.Scan)
+}
+
 // ListProjects retorna todos os projetos cadastrados, ordenados pelo nome.
 func ListProjects(db *sql.DB) ([]*Project, error) {
 	rows, err := db.Query(`SELECT ` + selectProjectColumns + ` FROM projects ORDER BY name ASC`)

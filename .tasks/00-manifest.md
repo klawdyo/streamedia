@@ -7,8 +7,8 @@ Status possíveis: `pending` | `in-progress` | `done` | `blocked`
 
 ```
 Total: 37 tarefas
-Done:  32
-Pending: 5
+Done:  33
+Pending: 4
 ```
 
 ## Lista de tarefas
@@ -47,7 +47,7 @@ Pending: 5
 | T30 | `.tasks/30-swagger-docs.md` | Documentação da API via Swagger/OpenAPI | done | depende T20, T13, T18, T28, T29 — issue #3 — fecha a issue #3 |
 | T31 | `.tasks/31-env-vars-seconds.md` | Padronizar variáveis de tempo das envs em segundos | done | sem dependências — issue #4 — fecha a issue #4 |
 | T32 | `.tasks/32-project-model.md` | Model de Projeto (slug, diretório raiz, chave mestra) | done | depende T03, T31 — issue #6 |
-| T33 | `.tasks/33-scoped-api-keys.md` | Chaves de API escopadas por projeto (upload/listagem/admin) | pending | depende T32 — issue #6 |
+| T33 | `.tasks/33-scoped-api-keys.md` | Chaves de API escopadas por projeto (upload/listagem/admin) | done | depende T32 — issue #6 |
 | T34 | `.tasks/34-project-storage-layout.md` | Layout de armazenamento por projeto (diretórios isolados) | pending | depende T32, T33 — issue #6 |
 | T35 | `.tasks/35-project-management-routes.md` | Rotas de gerenciamento de projetos | pending | depende T32, T33 — issue #6 — fecha a issue #6 |
 | T36 | `.tasks/36-storage-stats-model.md` | Model de armazenamento por vídeo (bytes, duração, status) | pending | depende T03, T04 (recomendado após T34) — issue #5 |
@@ -140,3 +140,5 @@ Resumo por issue:
 [2026-06-07 07:50] T31: in-progress → done (fecha issue #4: variáveis de tempo padronizadas em segundos com sufixo _SECONDS)
 [2026-06-07 08:00] T32: pending → in-progress
 [2026-06-07 08:20] T32: in-progress → done (model de Projeto: slug, chave mestra com hash, CRUD básico — fundação da issue #6)
+[2026-06-07 08:35] T33: pending → in-progress
+[2026-06-07 09:10] T33: in-progress → done (chaves escopadas por projeto: X-Project-Key em /upload/init com TTL curto, leitura já escopada por video_id, admin com escopo por projeto via opção (a) — Refs #6)

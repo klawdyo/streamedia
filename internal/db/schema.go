@@ -55,6 +55,11 @@ CREATE TABLE IF NOT EXISTS playback_events (
 -- SHA-256 (mesmo princípio de não reter segredos em claro usado para os
 -- demais segredos do sistema). O valor em texto puro é devolvido ao
 -- cliente uma única vez, no momento da criação (ver CreateProject).
+-- Nota (T33, issue #6): "videos" e "upload_tokens" ganham uma coluna
+-- project_id (nullable, FK para projects) — adicionada via ALTER TABLE em
+-- internal/db/db.go (ensureColumn), pois CREATE TABLE IF NOT EXISTS não
+-- altera tabelas já existentes. project_id é NULL para vídeos/tokens
+-- criados pelo fluxo legado (sem projeto), preservando compatibilidade.
 CREATE TABLE IF NOT EXISTS projects (
   id              INTEGER PRIMARY KEY AUTOINCREMENT,
   name            TEXT NOT NULL,

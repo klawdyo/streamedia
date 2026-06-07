@@ -113,7 +113,7 @@ func NewRouter(
 
 	// --- Admin (protegido por middleware de token) ---
 	r.Group(func(r chi.Router) {
-		r.Use(admin.AdminAuth(cfg.AdminToken))
+		r.Use(admin.AdminAuth(cfg.AdminToken, database))
 		r.Get("/admin/videos", adminHandler.HandleVideos)
 		r.Get("/admin/queue", adminHandler.HandleQueue)
 		r.Get("/admin/stats", adminHandler.HandleStats)

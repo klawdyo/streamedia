@@ -103,7 +103,7 @@ func TestAdminVideos_WithoutAuth(t *testing.T) {
 	handler := NewAdminHandler(cfg, database, &mockQueue{})
 
 	// Wraps o handler com o middleware AdminAuth
-	wrapped := AdminAuth(cfg.AdminToken)(http.HandlerFunc(handler.HandleVideos))
+	wrapped := AdminAuth(cfg.AdminToken, database)(http.HandlerFunc(handler.HandleVideos))
 
 	// Cria a requisição SEM header Authorization
 	req := httptest.NewRequest("GET", "/admin/videos", nil)
@@ -306,8 +306,9 @@ func TestAdminVideos_InvalidStatus(t *testing.T) {
 // quando um token incorreto é fornecido.
 func TestAdminAuth_WrongToken(t *testing.T) {
 	cfg := &config.Config{AdminToken: "correct-token"}
+	database, _ := setupAdminTest(t)
 
-	wrapped := AdminAuth(cfg.AdminToken)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	wrapped := AdminAuth(cfg.AdminToken, database)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	}))
 
@@ -326,8 +327,9 @@ func TestAdminAuth_WrongToken(t *testing.T) {
 // quando o header Authorization não segue o formato "Bearer {token}".
 func TestAdminAuth_BadAuthFormat(t *testing.T) {
 	cfg := &config.Config{AdminToken: "correct-token"}
+	database, _ := setupAdminTest(t)
 
-	wrapped := AdminAuth(cfg.AdminToken)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	wrapped := AdminAuth(cfg.AdminToken, database)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	}))
 

@@ -58,5 +58,58 @@ func Open(path string) (*sql.DB, error) {
 		return nil, fmt.Errorf("erro ao aplicar schema: %w", err)
 	}
 
+	// Migração leve (T33, issue #6): associa vídeos e tokens de upload a um
+	// projeto. CREATE TABLE IF NOT EXISTS não altera tabelas já existentes
+	// em instalações antigas — por isso a coluna é adicionada à parte, de
+	// forma idempotente, em vez de fazer parte do DDL de criação acima.
+	if err := ensureColumn(db, "videos", "project_id", "project_id INTEGER REFERENCES projects(id)"); err != nil {
+		db.Close()
+		return nil, err
+	}
+	if err := ensureColumn(db, "upload_tokens", "project_id", "project_id INTEGER REFERENCES projects(id)"); err != nil {
+		db.Close()
+		return nil, err
+	}
+	if _, err := db.Exec(`CREATE INDEX IF NOT EXISTS idx_videos_project ON videos(project_id)`); err != nil {
+		db.Close()
+		return nil, fmt.Errorf("erro ao criar índice idx_videos_project: %w", err)
+	}
+	if _, err := db.Exec(`CREATE INDEX IF NOT EXISTS idx_upload_tokens_project ON upload_tokens(project_id)`); err != nil {
+		db.Close()
+		return nil, fmt.Errorf("erro ao criar índice idx_upload_tokens_project: %w", err)
+	}
+
 	return db, nil
+}
+
+// ensureColumn adiciona a coluna informada à tabela caso ela ainda não
+// exista. Necessário porque "CREATE TABLE IF NOT EXISTS" não modifica
+// tabelas já criadas — sem isso, instalações existentes nunca ganhariam a
+// coluna nova (não há sistema de migrações versionadas neste projeto).
+func ensureColumn(db *sql.DB, table, column, columnDDL string) error {
+	rows, err := db.Query(fmt.Sprintf("PRAGMA table_info(%s)", table))
+	if err != nil {
+		return fmt.Errorf("erro ao inspecionar colunas de %s: %w", table, err)
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var cid, notNull, pk int
+		var name, ctype string
+		var dfltValue sql.NullString
+		if err := rows.Scan(&cid, &name, &ctype, &notNull, &dfltValue, &pk); err != nil {
+			return fmt.Errorf("erro ao ler metadados de %s: %w", table, err)
+		}
+		if name == column {
+			return nil // coluna já existe — nada a fazer
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return fmt.Errorf("erro ao iterar colunas de %s: %w", table, err)
+	}
+
+	if _, err := db.Exec(fmt.Sprintf("ALTER TABLE %s ADD COLUMN %s", table, columnDDL)); err != nil {
+		return fmt.Errorf("erro ao adicionar coluna %s em %s: %w", column, table, err)
+	}
+	return nil
 }

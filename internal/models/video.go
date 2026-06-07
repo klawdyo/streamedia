@@ -33,8 +33,12 @@ type Video struct {
 	TranscodeAttempts int
 	LastChunkAt       *time.Time
 	ErrorMessage      string
-	CreatedAt         time.Time
-	UpdatedAt         time.Time
+	// ProjectID vincula o vídeo a um projeto interno (issue #6, T33). É nil
+	// para vídeos do fluxo legado (sem projeto), criados antes da issue #6
+	// ou via a chave global UPLOAD_TOKEN_SECRET.
+	ProjectID *int64
+	CreatedAt time.Time
+	UpdatedAt time.Time
 }
 
 // validTransitions define as transições permitidas por estado.
@@ -63,9 +67,16 @@ func isValidTransition(from, to VideoStatus) bool {
 
 // InsertVideo cria um novo registro de vídeo com o status inicial pending_upload.
 func InsertVideo(db *sql.DB, videoID string, declaredSize int64) error {
+	return InsertVideoForProject(db, videoID, declaredSize, nil)
+}
+
+// InsertVideoForProject cria um novo registro de vídeo associado a um
+// projeto (issue #6, T33). projectID nil cria um vídeo "sem projeto"
+// (fluxo legado, compatível com instalações que não usam projetos).
+func InsertVideoForProject(db *sql.DB, videoID string, declaredSize int64, projectID *int64) error {
 	_, err := db.Exec(
-		"INSERT INTO videos (video_id, declared_size_bytes) VALUES (?, ?)",
-		videoID, declaredSize,
+		"INSERT INTO videos (video_id, declared_size_bytes, project_id) VALUES (?, ?, ?)",
+		videoID, declaredSize, projectID,
 	)
 	if err != nil {
 		return fmt.Errorf("erro ao inserir vídeo: %w", err)
@@ -79,7 +90,7 @@ func GetVideo(db *sql.DB, videoID string) (*Video, error) {
 	row := db.QueryRow(
 		`SELECT video_id, status, declared_size_bytes, actual_size_bytes,
 		        duration_s, resolutions, transcode_attempts, last_chunk_at,
-		        error_message, created_at, updated_at
+		        error_message, project_id, created_at, updated_at
 		   FROM videos WHERE video_id = ?`,
 		videoID,
 	)
@@ -92,6 +103,7 @@ func GetVideo(db *sql.DB, videoID string) (*Video, error) {
 		resolutions  sql.NullString
 		lastChunkAt  sql.NullTime
 		errorMessage sql.NullString
+		projectID    sql.NullInt64
 	)
 
 	err := row.Scan(
@@ -104,6 +116,7 @@ func GetVideo(db *sql.DB, videoID string) (*Video, error) {
 		&v.TranscodeAttempts,
 		&lastChunkAt,
 		&errorMessage,
+		&projectID,
 		&v.CreatedAt,
 		&v.UpdatedAt,
 	)
@@ -117,6 +130,9 @@ func GetVideo(db *sql.DB, videoID string) (*Video, error) {
 	v.ActualSizeBytes = actualSize.Int64
 	v.DurationS = int(durationS.Int64)
 	v.ErrorMessage = errorMessage.String
+	if projectID.Valid {
+		v.ProjectID = &projectID.Int64
+	}
 
 	if lastChunkAt.Valid {
 		t := lastChunkAt.Time

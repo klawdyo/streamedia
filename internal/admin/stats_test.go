@@ -35,7 +35,7 @@ func TestStatsRoute_RequiresAdminAuth(t *testing.T) {
 	database, cfg := setupAdminTest(t)
 	handler := NewAdminHandler(cfg, database, &mockQueue{})
 
-	wrapped := AdminAuth(cfg.AdminToken)(http.HandlerFunc(handler.HandleStats))
+	wrapped := AdminAuth(cfg.AdminToken, database)(http.HandlerFunc(handler.HandleStats))
 
 	req := httptest.NewRequest(http.MethodGet, "/admin/stats", nil)
 	rec := httptest.NewRecorder()
