@@ -6,9 +6,9 @@ Status possíveis: `pending` | `in-progress` | `done` | `blocked`
 ## Progresso geral
 
 ```
-Total: 37 tarefas
+Total: 43 tarefas
 Done:  37
-Pending: 0
+Pending: 6 (T38-T43, geradas a partir das issues #7 e #8)
 ```
 
 ## Lista de tarefas
@@ -52,6 +52,12 @@ Pending: 0
 | T35 | `.tasks/35-project-management-routes.md` | Rotas de gerenciamento de projetos | done | depende T32, T33 — issue #6 — fecha a issue #6 |
 | T36 | `.tasks/36-storage-stats-model.md` | Model de armazenamento por vídeo (bytes, duração, status) | done | depende T03, T04 (recomendado após T34) — issue #5 |
 | T37 | `.tasks/37-storage-stats-route.md` | Expor estatísticas de armazenamento e fila em `/admin/stats` | done | depende T36, T28 — issue #5 — fecha a issue #5 |
+| T38 | `.tasks/38-coverage-data-layer.md` | Cobertura de testes — camada de dados (models + db) | pending | origem: issue #7 |
+| T39 | `.tasks/39-coverage-jobs-transcode.md` | Cobertura de testes — jobs de manutenção e transcodificação | pending | origem: issue #7 |
+| T40 | `.tasks/40-coverage-upload-auth-config.md` | Cobertura de testes — upload, autenticação e configuração | pending | origem: issue #7 |
+| T41 | `.tasks/41-security-auth-tokens.md` | Auditoria de segurança — autenticação, autorização e tokens | pending | origem: issue #8 |
+| T42 | `.tasks/42-security-upload-processing.md` | Auditoria de segurança — upload, validação e execução de processos (FFmpeg) | pending | origem: issue #8; depende logicamente de T41 (não bloqueante) |
+| T43 | `.tasks/43-security-network-infra.md` | Auditoria de segurança — rede, rate limiting, webhooks e configuração | pending | origem: issue #8; fecha o sumário executivo de T41+T42+T43 |
 
 ## Próxima onda — ordem de prioridade sugerida (T31-T37)
 
@@ -150,3 +156,11 @@ Resumo por issue:
 [2026-06-07 11:30] T36: in-progress → done (model de armazenamento: tabela video_renditions com UPSERT por (video_id, resolution), scanRenditionDir no worker FFmpeg, e funções de agregação TotalStorageBytes/TotalDurationSeconds/CountVideosByStatus/StorageByVideo em internal/models/storage.go — descoberta: actual_size_bytes/duration_s já existiam em videos — Refs #5)
 [2026-06-07 11:40] T37: pending → in-progress
 [2026-06-07 12:00] T37: in-progress → done (estende /admin/stats com a seção "storage" — total_bytes, total_duration_seconds, videos_by_status, queue_pending — reaproveitando as agregações de T36 e queue.Len(); seção omitida quando ?video_id= é informado, decisão documentada — fecha issue #5, encerrando a cadeia T36→T37)
+[2026-06-07] CTO: geradas T38-T43 a partir das issues abertas #7 (cobertura
+  de testes — divididas por área: T38 camada de dados, T39 jobs/transcode,
+  T40 upload/auth/config) e #8 (auditoria de segurança — divididas por
+  superfície: T41 autenticação/tokens, T42 upload/processamento/FFmpeg,
+  T43 rede/infra, que também fecha o sumário executivo da auditoria).
+  Numeração inicia em T38 (não T26) porque T26-T37 já existem nesta
+  branch dev, concluídas a partir das issues #1-#6. Status inicial:
+  pending. Aguardando início do workflow QA → Dev para cada uma.
