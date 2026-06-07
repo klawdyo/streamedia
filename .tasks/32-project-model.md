@@ -1,6 +1,6 @@
 # T32: Model de Projeto (slug, diretório raiz, chave mestra)
 
-**Status:** pending
+**Status:** done
 **Dependências:** T03, T31 (evita retrabalho em config)
 **Estimativa:** média
 **Issue relacionada:** #6
@@ -76,9 +76,43 @@ TestListProjects_ReturnsAll
 
 ## Definition of Done
 
-- [ ] Tabela `projects` criada via migração em `schema.go`
-- [ ] Slugify determinístico e com resolução de colisão
-- [ ] `CreateProject` gera e retorna a chave mestra em texto puro uma única vez
-- [ ] CRUD básico de leitura (`GetProjectBySlug`, `GetProjectByID`, `ListProjects`)
-- [ ] Todos os testes passam
+- [x] Tabela `projects` criada via migração em `schema.go`
+- [x] Slugify determinístico e com resolução de colisão
+- [x] `CreateProject` gera e retorna a chave mestra em texto puro uma única vez
+- [x] CRUD básico de leitura (`GetProjectBySlug`, `GetProjectByID`, `ListProjects`)
+- [x] Todos os testes passam
+
+## Resolução
+
+Criada a fundação do sistema de projetos internos da issue #6:
+
+- **`internal/db/schema.go`**: nova tabela `projects` (id, name, slug
+  `UNIQUE`, root_dir, master_key_hash, created_at) + índice em `slug`.
+  Segue o padrão `IF NOT EXISTS` das demais tabelas (migração idempotente).
+- **`internal/models/project.go`**:
+  - `Slugify(name)`: normaliza para `[a-z0-9-]`, removendo acentos via uma
+    tabela de substituição própria (`decompose` + `stripDiacritics` —
+    evita depender de `golang.org/x/text/unicode/norm` para um caso de uso
+    pequeno e estável: nomes em português). Ex.: `"Trip Produção"` →
+    `"trip-producao"`.
+  - `uniqueSlug`: resolve colisões anexando `-2`, `-3`, ... consultando o
+    banco — exatamente como descrito na issue ("se o projeto já existir
+    [...] meta um -2 ou -3 etc ao final da Key").
+  - `generateMasterKey`/`HashMasterKey`: a chave mestra é gerada com
+    `crypto/rand` (32 bytes, hex — mesma entropia dos demais segredos do
+    sistema) e **persistida apenas como hash SHA-256**; o valor em texto
+    puro só existe no retorno de `CreateProject`, nunca é logado ou
+    armazenado em claro.
+  - `CreateProject`, `GetProjectByID`, `GetProjectBySlug`, `ListProjects`:
+    CRUD básico de leitura/criação, devolvendo `sql.ErrNoRows` em buscas
+    sem resultado (consistente com `models.GetVideo`/`GetUploadToken`).
+- **`internal/models/project_test.go`**: cobre slugify (incluindo acentos,
+  espaços múltiplos e caracteres especiais), geração+persistência da chave
+  mestra (hash correto, texto puro nunca igual ao hash), resolução de
+  colisão de slug (`trip` → `trip-2` → `trip-3`), buscas inexistentes
+  (`sql.ErrNoRows`), listagem ordenada e determinismo do hash.
+
+Esta tarefa **não** expõe rotas HTTP nem altera o layout de armazenamento —
+isso fica para T33 (chaves escopadas) e T34 (diretórios por projeto), que
+dependem deste model.
 </content>

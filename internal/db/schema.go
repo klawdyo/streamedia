@@ -46,11 +46,30 @@ CREATE TABLE IF NOT EXISTS playback_events (
 -- TODO(futuro): job de limpeza/retenção de eventos antigos, similar ao
 -- killer de tokens expirados (T16). Esta tabela cresce sem limites por ora.
 
+-- Projetos internos (issue #6, T32): cada app/ambiente que usa o Streamedia
+-- (produção, staging, teste, ...) tem seu próprio namespace — slug usado
+-- como diretório raiz dentro de MEDIA_DIR e chave mestra própria, usada
+-- para emitir chaves de upload/leitura/admin escopadas (T33).
+--
+-- A chave mestra NUNCA é armazenada em texto puro — apenas seu hash
+-- SHA-256 (mesmo princípio de não reter segredos em claro usado para os
+-- demais segredos do sistema). O valor em texto puro é devolvido ao
+-- cliente uma única vez, no momento da criação (ver CreateProject).
+CREATE TABLE IF NOT EXISTS projects (
+  id              INTEGER PRIMARY KEY AUTOINCREMENT,
+  name            TEXT NOT NULL,
+  slug            TEXT NOT NULL UNIQUE,
+  root_dir        TEXT NOT NULL,
+  master_key_hash TEXT NOT NULL,
+  created_at      DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+
 CREATE INDEX IF NOT EXISTS idx_videos_status ON videos(status);
 CREATE INDEX IF NOT EXISTS idx_videos_last_chunk ON videos(last_chunk_at);
 CREATE INDEX IF NOT EXISTS idx_tokens_expires ON upload_tokens(expires_at);
 CREATE INDEX IF NOT EXISTS idx_playback_events_video ON playback_events(video_id);
 CREATE INDEX IF NOT EXISTS idx_playback_events_occurred ON playback_events(occurred_at);
+CREATE INDEX IF NOT EXISTS idx_projects_slug ON projects(slug);
 
 CREATE TRIGGER IF NOT EXISTS videos_updated_at
 AFTER UPDATE ON videos
