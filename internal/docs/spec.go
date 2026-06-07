@@ -10,8 +10,9 @@ package docs
 // passo de geração de código (`swag init`) no fluxo de build/CI.
 //
 // Cobre as rotas listadas em T30: upload (init + protocolo TUS), status,
-// serving HLS, rotas administrativas (videos, queue, stats) e referencia
-// /metrics em alto nível (formato Prometheus, não é uma rota JSON).
+// serving HLS, rotas administrativas (videos, queue, stats, projects — T35)
+// e referencia /metrics em alto nível (formato Prometheus, não é uma rota
+// JSON).
 func openAPISpec() map[string]any {
 	return map[string]any{
 		"openapi": "3.0.3",
@@ -243,6 +244,118 @@ func openAPISpec() map[string]any {
 					},
 				},
 			},
+			"/admin/projects": map[string]any{
+				"post": map[string]any{
+					"tags":        []string{"admin"},
+					"summary":     "Cria um projeto interno",
+					"description": "Cria um namespace isolado (diretório de armazenamento próprio + chave mestra) — issue #6, T32/T35. Operação de super-admin: cria os próprios projetos e suas chaves mestras, então exige o ADMIN_TOKEN global (uma chave mestra de projeto não autentica aqui).",
+					"security":    []map[string]any{{"adminToken": []string{}}},
+					"requestBody": map[string]any{
+						"required": true,
+						"content": map[string]any{
+							"application/json": map[string]any{
+								"schema": map[string]any{
+									"type":       "object",
+									"properties": map[string]any{"name": map[string]any{"type": "string", "example": "Trip Produção"}},
+									"required":   []string{"name"},
+								},
+							},
+						},
+					},
+					"responses": map[string]any{
+						"201": map[string]any{
+							"description": "Projeto criado — master_key é devolvida em texto puro apenas nesta resposta",
+							"content": map[string]any{
+								"application/json": map[string]any{
+									"schema": map[string]any{
+										"type": "object",
+										"properties": map[string]any{
+											"id":         map[string]any{"type": "integer", "format": "int64"},
+											"name":       map[string]any{"type": "string"},
+											"slug":       map[string]any{"type": "string"},
+											"root_dir":   map[string]any{"type": "string"},
+											"master_key": map[string]any{"type": "string", "description": "Chave mestra em texto puro — única vez em que é exposta; o servidor persiste apenas seu hash"},
+										},
+									},
+								},
+							},
+						},
+						"400": map[string]any{"description": "Corpo inválido ou campo 'name' ausente"},
+						"401": map[string]any{"description": "Token de administração ausente ou inválido"},
+						"403": map[string]any{"description": "Autenticado com chave mestra de projeto — apenas o ADMIN_TOKEN global pode criar projetos"},
+					},
+				},
+				"get": map[string]any{
+					"tags":        []string{"admin"},
+					"summary":     "Lista projetos cadastrados",
+					"description": "Lista todos os projetos sem expor master_key/hash. Operação de super-admin (mesma restrição do POST).",
+					"security":    []map[string]any{{"adminToken": []string{}}},
+					"responses": map[string]any{
+						"200": map[string]any{"description": "Lista de projetos"},
+						"401": map[string]any{"description": "Token de administração ausente ou inválido"},
+						"403": map[string]any{"description": "Autenticado com chave mestra de projeto — apenas o ADMIN_TOKEN global enxerga o catálogo completo"},
+					},
+				},
+			},
+			"/admin/projects/{slug}": map[string]any{
+				"get": map[string]any{
+					"tags":        []string{"admin"},
+					"summary":     "Detalhe de um projeto",
+					"description": "Devolve os dados públicos de um projeto pelo slug (sem master_key/hash). Operação de super-admin.",
+					"security":    []map[string]any{{"adminToken": []string{}}},
+					"parameters": []map[string]any{
+						{"name": "slug", "in": "path", "required": true, "schema": map[string]any{"type": "string"}, "description": "Slug do projeto"},
+					},
+					"responses": map[string]any{
+						"200": map[string]any{"description": "Dados do projeto"},
+						"401": map[string]any{"description": "Token de administração ausente ou inválido"},
+						"403": map[string]any{"description": "Autenticado com chave mestra de projeto — apenas o ADMIN_TOKEN global pode consultar projetos por este endpoint"},
+						"404": map[string]any{"description": "Slug não corresponde a nenhum projeto"},
+					},
+				},
+			},
+			"/admin/projects/{slug}/upload-tokens": map[string]any{
+				"post": map[string]any{
+					"tags":        []string{"admin", "upload"},
+					"summary":     "Emite um token de upload escopado para um vídeo recém-gerado",
+					"description": "Troca a chave mestra do projeto por um token de upload de curta duração para um video_id gerado pelo servidor — equivalente a POST /upload/init no fluxo escopado a projeto (T33), sem o cliente precisar gerar o UUID previamente. Autenticação própria via X-Project-Key (NÃO usa Authorization/ADMIN_TOKEN); o {slug} do path deve corresponder ao projeto resolvido pela chave.",
+					"security":    []map[string]any{{"projectKey": []string{}}},
+					"parameters": []map[string]any{
+						{"name": "slug", "in": "path", "required": true, "schema": map[string]any{"type": "string"}, "description": "Slug do projeto — deve corresponder ao projeto da chave mestra apresentada"},
+					},
+					"requestBody": map[string]any{
+						"required": false,
+						"content": map[string]any{
+							"application/json": map[string]any{
+								"schema": map[string]any{
+									"type":       "object",
+									"properties": map[string]any{"declared_size_bytes": map[string]any{"type": "integer", "format": "int64", "example": 52428800}},
+								},
+							},
+						},
+					},
+					"responses": map[string]any{
+						"201": map[string]any{
+							"description": "Token de upload emitido (TTL curto — UPLOAD_TOKEN_SCOPED_TTL_SECONDS, padrão 1200s)",
+							"content": map[string]any{
+								"application/json": map[string]any{
+									"schema": map[string]any{
+										"type": "object",
+										"properties": map[string]any{
+											"video_id":   map[string]any{"type": "string", "format": "uuid"},
+											"upload_url": map[string]any{"type": "string", "format": "uri"},
+											"token":      map[string]any{"type": "string"},
+											"expires_at": map[string]any{"type": "string", "format": "date-time"},
+										},
+									},
+								},
+							},
+						},
+						"401": map[string]any{"description": "Header X-Project-Key ausente ou chave inválida"},
+						"403": map[string]any{"description": "A chave informada não pertence ao projeto identificado pelo {slug}"},
+					},
+				},
+			},
 			"/metrics": map[string]any{
 				"get": map[string]any{
 					"tags":        []string{"observability"},
@@ -259,7 +372,13 @@ func openAPISpec() map[string]any {
 				"adminToken": map[string]any{
 					"type":         "http",
 					"scheme":       "bearer",
-					"description":  "Token de administração configurado via variável de ambiente ADMIN_TOKEN.",
+					"description":  "Token de administração configurado via variável de ambiente ADMIN_TOKEN. Aceita também a chave mestra de um projeto (escopo restrito aos seus próprios vídeos — issue #6, T33), exceto nas rotas de gerenciamento de projetos, que exigem o token global.",
+				},
+				"projectKey": map[string]any{
+					"type":        "apiKey",
+					"in":          "header",
+					"name":        "X-Project-Key",
+					"description": "Chave mestra do projeto em texto puro (issue #6, T33/T35). O servidor calcula seu hash SHA-256 e resolve o projeto correspondente — nunca persiste ou recupera a chave em texto puro. Mesmo header usado por POST /upload/init no fluxo escopado a projeto.",
 				},
 			},
 		},

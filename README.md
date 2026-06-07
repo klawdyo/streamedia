@@ -315,6 +315,102 @@ Consulta o estado atual da fila de transcodificação. Requer `Authorization: Be
 
 ---
 
+### POST /admin/projects
+
+Cria um novo "projeto interno" — um namespace com diretório de armazenamento e
+chave mestra próprios (issue #6, T32/T35). Operação sensível: cria os próprios
+projetos e suas chaves mestras, então **exige `Authorization: Bearer <ADMIN_TOKEN>`
+global** — uma chave mestra de projeto não autentica aqui (403 Forbidden).
+
+**Corpo:**
+```json
+{ "name": "Trip Produção" }
+```
+
+**Resposta 201 Created:**
+```json
+{
+  "id": 3,
+  "name": "Trip Produção",
+  "slug": "trip-producao",
+  "root_dir": "trip-producao",
+  "master_key": "f3a1...64 chars hex..."
+}
+```
+
+> ⚠️ `master_key` é devolvida **em texto puro apenas nesta resposta** —
+> o servidor persiste somente seu hash (SHA-256) e nunca a recupera depois.
+> Guarde-a com segurança: ela autentica `/upload/init`, as rotas `/admin/*`
+> escopadas a este projeto, e a emissão de tokens abaixo.
+
+---
+
+### GET /admin/projects
+
+Lista todos os projetos cadastrados (sem expor `master_key`/hash). Requer
+`Authorization: Bearer <ADMIN_TOKEN>` global — mesma restrição de super-admin
+do endpoint de criação.
+
+**Resposta 200 OK:**
+```json
+{
+  "projects": [
+    { "id": 1, "name": "Legacy", "slug": "legacy", "root_dir": "legacy", "created_at": "2024-01-01T00:00:00Z" },
+    { "id": 3, "name": "Trip Produção", "slug": "trip-producao", "root_dir": "trip-producao", "created_at": "2024-02-01T12:00:00Z" }
+  ],
+  "total": 2
+}
+```
+
+---
+
+### GET /admin/projects/{slug}
+
+Detalhe de um projeto pelo slug (sem expor `master_key`/hash). Requer
+`Authorization: Bearer <ADMIN_TOKEN>` global. `404` se o slug não existir.
+
+**Resposta 200 OK:**
+```json
+{ "id": 3, "name": "Trip Produção", "slug": "trip-producao", "root_dir": "trip-producao", "created_at": "2024-02-01T12:00:00Z" }
+```
+
+---
+
+### POST /admin/projects/{slug}/upload-tokens
+
+Troca a chave mestra de um projeto por um token de upload de curta duração
+para um `video_id` **gerado pelo servidor** (issue #6, T35) — o equivalente a
+`POST /upload/init` no fluxo escopado a projeto (T33), só que sem o cliente
+precisar gerar o UUID do vídeo previamente.
+
+**Autenticação — diferente das demais rotas `/admin/projects*`:** não usa
+`Authorization: Bearer`/`ADMIN_TOKEN`. Em vez disso, exige a **própria chave
+mestra do projeto** no header `X-Project-Key` (mesmo princípio de
+`/upload/init`: o servidor calcula o hash e resolve o projeto, nunca retém a
+chave em texto puro). O `{slug}` no path precisa corresponder ao projeto
+resolvido pela chave — caso contrário, `403 Forbidden`.
+
+**Corpo (opcional):**
+```json
+{ "declared_size_bytes": 52428800 }
+```
+
+**Resposta 201 Created:**
+```json
+{
+  "video_id": "550e8400-e29b-41d4-a716-446655440000",
+  "upload_url": "https://media.example.com/files/550e8400-e29b-41d4-a716-446655440000",
+  "token": "5e8f...",
+  "expires_at": "2024-01-01T10:20:00Z"
+}
+```
+
+O `token` expira em `UPLOAD_TOKEN_SCOPED_TTL_SECONDS` (padrão 1200s = 20min,
+T33) e é assinado com a própria chave mestra do projeto — validado da mesma
+forma que tokens emitidos por `/upload/init`.
+
+---
+
 ### GET /healthz
 
 Healthcheck para Docker e load balancers. Não requer autenticação.

@@ -117,7 +117,21 @@ func NewRouter(
 		r.Get("/admin/videos", adminHandler.HandleVideos)
 		r.Get("/admin/queue", adminHandler.HandleQueue)
 		r.Get("/admin/stats", adminHandler.HandleStats)
+
+		// Gerenciamento de projetos (T35, issue #6) — operação de
+		// super-admin (ver admin.requireSuperAdmin: rejeita autenticação
+		// por chave mestra de projeto, exige o ADMIN_TOKEN global).
+		r.Post("/admin/projects", adminHandler.HandleCreateProject)
+		r.Get("/admin/projects", adminHandler.HandleListProjects)
+		r.Get("/admin/projects/{slug}", adminHandler.HandleGetProject)
 	})
+
+	// Emissão de token de upload escopado a um projeto (T35, issue #6):
+	// autenticada pela própria chave mestra do projeto via X-Project-Key
+	// (mesmo princípio de POST /upload/init), e não pelo AdminAuth — por
+	// isso fica fora do grupo acima. Ver admin.HandleIssueUploadToken para
+	// a justificativa completa dessa decisão de modelo de autenticação.
+	r.Post("/admin/projects/{slug}/upload-tokens", adminHandler.HandleIssueUploadToken)
 
 	// --- Health check ---
 	r.Get("/healthz", func(w http.ResponseWriter, _ *http.Request) {
