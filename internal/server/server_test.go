@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/klawdyo/streamedia/internal/apiresponse"
 	"github.com/klawdyo/streamedia/internal/auth"
 	"github.com/klawdyo/streamedia/internal/config"
 	"github.com/klawdyo/streamedia/internal/db"
@@ -139,18 +140,24 @@ func TestUploadInitE2E(t *testing.T) {
 		t.Fatalf("esperado 200, obtido %d (corpo: %s)", rec.Code, rec.Body.String())
 	}
 
-	var resp map[string]string
-	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+	var env apiresponse.Envelope
+	if err := json.Unmarshal(rec.Body.Bytes(), &env); err != nil {
 		t.Fatalf("resposta não é JSON válido: %v", err)
 	}
-	if resp["upload_url"] == "" {
-		t.Errorf("esperado upload_url não vazio, obtido %q", resp["upload_url"])
+	data, ok := env.Data.(map[string]interface{})
+	if !ok {
+		t.Fatalf("data deveria ser um objeto, obtido %T", env.Data)
 	}
-	if resp["token"] == "" {
-		t.Errorf("esperado token não vazio, obtido %q", resp["token"])
+	uploadURL, _ := data["upload_url"].(string)
+	token, _ := data["token"].(string)
+	if uploadURL == "" {
+		t.Errorf("esperado upload_url não vazio, obtido %q", uploadURL)
 	}
-	if !strings.Contains(resp["upload_url"], validUUID) {
-		t.Errorf("upload_url deveria conter o video_id, obtido %q", resp["upload_url"])
+	if token == "" {
+		t.Errorf("esperado token não vazio, obtido %q", token)
+	}
+	if !strings.Contains(uploadURL, validUUID) {
+		t.Errorf("upload_url deveria conter o video_id, obtido %q", uploadURL)
 	}
 }
 

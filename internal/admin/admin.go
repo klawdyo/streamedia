@@ -10,6 +10,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/klawdyo/streamedia/internal/apiresponse"
 	"github.com/klawdyo/streamedia/internal/config"
 	"github.com/klawdyo/streamedia/internal/models"
 )
@@ -65,14 +66,14 @@ func AdminAuth(adminToken string, db *sql.DB) func(http.Handler) http.Handler {
 			// Extrai o header Authorization
 			authHeader := r.Header.Get("Authorization")
 			if authHeader == "" {
-				http.Error(w, "Unauthorized", http.StatusUnauthorized)
+				apiresponse.Error(w, http.StatusUnauthorized, "Não autorizado.")
 				return
 			}
 
 			// Espera o formato "Bearer {token}"
 			const bearerPrefix = "Bearer "
 			if !strings.HasPrefix(authHeader, bearerPrefix) {
-				http.Error(w, "Unauthorized", http.StatusUnauthorized)
+				apiresponse.Error(w, http.StatusUnauthorized, "Não autorizado.")
 				return
 			}
 
@@ -97,7 +98,7 @@ func AdminAuth(adminToken string, db *sql.DB) func(http.Handler) http.Handler {
 				return
 			}
 
-			http.Error(w, "Unauthorized", http.StatusUnauthorized)
+			apiresponse.Error(w, http.StatusUnauthorized, "Não autorizado.")
 		})
 	}
 }
@@ -165,7 +166,7 @@ func (h *AdminHandler) HandleVideos(w http.ResponseWriter, r *http.Request) {
 	// Conta o total de registros (mesmos filtros, sem LIMIT/OFFSET)
 	var total int
 	if err := h.db.QueryRow(countQuery, args...).Scan(&total); err != nil {
-		http.Error(w, "Erro ao contar vídeos", http.StatusInternalServerError)
+		apiresponse.Error(w, http.StatusInternalServerError, "Erro ao contar vídeos.")
 		return
 	}
 
@@ -173,7 +174,7 @@ func (h *AdminHandler) HandleVideos(w http.ResponseWriter, r *http.Request) {
 	listArgs := append(append([]interface{}{}, args...), limit, offset)
 	rows, err := h.db.Query(listQuery, listArgs...)
 	if err != nil {
-		http.Error(w, "Erro ao listar vídeos", http.StatusInternalServerError)
+		apiresponse.Error(w, http.StatusInternalServerError, "Erro ao listar vídeos.")
 		return
 	}
 	defer rows.Close()
@@ -206,7 +207,7 @@ func (h *AdminHandler) HandleVideos(w http.ResponseWriter, r *http.Request) {
 			&v.UpdatedAt,
 		)
 		if err != nil {
-			http.Error(w, "Erro ao ler vídeos", http.StatusInternalServerError)
+			apiresponse.Error(w, http.StatusInternalServerError, "Erro ao ler vídeos.")
 			return
 		}
 
@@ -237,8 +238,8 @@ func (h *AdminHandler) HandleVideos(w http.ResponseWriter, r *http.Request) {
 		videos = append(videos, &v)
 	}
 
-	if err := rows.Err(); err != nil {
-		http.Error(w, "Erro ao iterar vídeos", http.StatusInternalServerError)
+		if err := rows.Err(); err != nil {
+		apiresponse.Error(w, http.StatusInternalServerError, "Erro ao iterar vídeos.")
 		return
 	}
 
@@ -247,17 +248,12 @@ func (h *AdminHandler) HandleVideos(w http.ResponseWriter, r *http.Request) {
 		videos = []*models.Video{}
 	}
 
-	// Monta a resposta JSON
+	// Monta a resposta JSON no envelope padrão.
 	resp := videosResponse{
 		Videos: videos,
 		Total:  total,
 	}
-
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusOK)
-	if err := json.NewEncoder(w).Encode(resp); err != nil {
-		// Log silencioso de erros de encoding - cliente já desconectou
-	}
+	apiresponse.Success(w, http.StatusOK, resp)
 }
 
 // queueResponse é a estrutura de resposta para a rota de fila.
@@ -278,9 +274,5 @@ func (h *AdminHandler) HandleQueue(w http.ResponseWriter, r *http.Request) {
 		Workers:     h.cfg.TranscodeWorkers,
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusOK)
-	if err := json.NewEncoder(w).Encode(resp); err != nil {
-		// Log silencioso de erros de encoding - cliente já desconectou
-	}
+	apiresponse.Success(w, http.StatusOK, resp)
 }

@@ -18,6 +18,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/klawdyo/streamedia/internal/apiresponse"
 	"github.com/klawdyo/streamedia/internal/auth"
 	"github.com/klawdyo/streamedia/internal/config"
 	"github.com/klawdyo/streamedia/internal/db"
@@ -210,14 +211,21 @@ func TestUploadInit_HMACProtection_Integration(t *testing.T) {
 			t.Fatalf("esperado 200 ou 201, obtido %d (corpo: %s)", resp.StatusCode, body)
 		}
 
-		var result map[string]string
-		readJSON(t, resp, &result)
+		var env apiresponse.Envelope
+		readJSON(t, resp, &env)
 
-		if result["upload_url"] == "" {
-			t.Errorf("esperado upload_url não vazio, obtido %q", result["upload_url"])
+		data, ok := env.Data.(map[string]interface{})
+		if !ok {
+			t.Fatalf("data não é um mapa, tipo: %T", env.Data)
 		}
-		if result["token"] == "" {
-			t.Errorf("esperado token não vazio, obtido %q", result["token"])
+		uploadURL, _ := data["upload_url"].(string)
+		token, _ := data["token"].(string)
+
+		if uploadURL == "" {
+			t.Errorf("esperado upload_url não vazio, obtido %q", uploadURL)
+		}
+		if token == "" {
+			t.Errorf("esperado token não vazio, obtido %q", token)
 		}
 	})
 }
@@ -306,11 +314,14 @@ func TestAdminRoutes_Integration(t *testing.T) {
 			t.Fatalf("esperado 200, obtido %d (corpo: %s)", resp.StatusCode, body)
 		}
 
-		var result map[string]interface{}
-		readJSON(t, resp, &result)
+		var env apiresponse.Envelope
+		readJSON(t, resp, &env)
 
-		// Resposta deve ter o campo "videos" como array.
-		if _, ok := result["videos"]; !ok {
+		data, ok := env.Data.(map[string]interface{})
+		if !ok {
+			t.Fatalf("data não é um mapa, tipo: %T", env.Data)
+		}
+		if _, ok := data["videos"]; !ok {
 			t.Errorf("resposta deveria conter campo 'videos'")
 		}
 	})
@@ -326,10 +337,14 @@ func TestAdminRoutes_Integration(t *testing.T) {
 			t.Fatalf("esperado 200, obtido %d (corpo: %s)", resp.StatusCode, body)
 		}
 
-		var result map[string]interface{}
-		readJSON(t, resp, &result)
+		var env apiresponse.Envelope
+		readJSON(t, resp, &env)
 
-		if _, ok := result["queue_length"]; !ok {
+		data, ok := env.Data.(map[string]interface{})
+		if !ok {
+			t.Fatalf("data não é um mapa, tipo: %T", env.Data)
+		}
+		if _, ok := data["queue_length"]; !ok {
 			t.Errorf("resposta deveria conter campo 'queue_length'")
 		}
 	})
@@ -369,11 +384,15 @@ func TestStatusRoute_Integration(t *testing.T) {
 			t.Fatalf("esperado 200, obtido %d (corpo: %s)", resp.StatusCode, body)
 		}
 
-		var result map[string]interface{}
-		readJSON(t, resp, &result)
+		var env apiresponse.Envelope
+		readJSON(t, resp, &env)
 
-		if result["status"] != "ready" {
-			t.Errorf("esperado status \"ready\", obtido %q", result["status"])
+		data, ok := env.Data.(map[string]interface{})
+		if !ok {
+			t.Fatalf("data não é um mapa, tipo: %T", env.Data)
+		}
+		if data["status"] != "ready" {
+			t.Errorf("esperado status \"ready\", obtido %q", data["status"])
 		}
 	})
 }
@@ -431,12 +450,17 @@ func TestConcurrentUploads_Integration(t *testing.T) {
 		}
 
 		// Verifica que a resposta contém upload_url.
-		var parsed map[string]string
-		if err := json.Unmarshal([]byte(r.body), &parsed); err != nil {
+		var env apiresponse.Envelope
+		if err := json.Unmarshal([]byte(r.body), &env); err != nil {
 			t.Errorf("upload %d: resposta não é JSON válido: %v", i, err)
 			continue
 		}
-		if parsed["upload_url"] == "" {
+		data, ok := env.Data.(map[string]interface{})
+		if !ok {
+			t.Errorf("upload %d: data não é um mapa", i)
+			continue
+		}
+		if uploadURL, _ := data["upload_url"].(string); uploadURL == "" {
 			t.Errorf("upload %d: esperado upload_url não vazio", i)
 		}
 	}

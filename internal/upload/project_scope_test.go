@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/klawdyo/streamedia/internal/apiresponse"
 	"github.com/klawdyo/streamedia/internal/models"
 )
 
@@ -46,12 +47,17 @@ func TestUploadToken_ExpiresInScopedTTL(t *testing.T) {
 		t.Fatalf("esperava 200, obteve %d: %s", rec.Code, rec.Body.String())
 	}
 
-	var resp map[string]string
-	if err := json.NewDecoder(rec.Body).Decode(&resp); err != nil {
+	var env apiresponse.Envelope
+	if err := json.NewDecoder(rec.Body).Decode(&env); err != nil {
 		t.Fatalf("falha ao decodificar resposta: %v", err)
 	}
+	data, _ := env.Data.(map[string]interface{})
+	token, _ := data["token"].(string)
+	if token == "" {
+		t.Fatal("token ausente na resposta")
+	}
 
-	uploadToken, err := models.GetUploadToken(database, resp["token"])
+	uploadToken, err := models.GetUploadToken(database, token)
 	if err != nil {
 		t.Fatalf("GetUploadToken: %v", err)
 	}

@@ -1,13 +1,14 @@
 package middleware
 
 import (
-	"encoding/json"
 	"net"
 	"net/http"
 	"strings"
 	"sync"
 
 	"golang.org/x/time/rate"
+
+	"github.com/klawdyo/streamedia/internal/apiresponse"
 )
 
 // RateLimiter implementa um middleware de rate limiting por IP.
@@ -69,15 +70,11 @@ func (rl *RateLimiter) Middleware(next http.Handler) http.Handler {
 		limiter := rl.getLimiter(ip)
 
 		if !limiter.Allow() {
-			// Rate limit excedido
+			// Rate limit excedido — responde com o envelope padrão da API.
+			// O header Retry-After deve ser setado ANTES de chamar
+			// apiresponse.Error, porque esta já chama WriteHeader.
 			w.Header().Set("Retry-After", "60")
-			w.Header().Set("Content-Type", "application/json")
-			w.WriteHeader(http.StatusTooManyRequests)
-
-			// Escreve resposta JSON com mensagem de erro
-			json.NewEncoder(w).Encode(map[string]string{
-				"error": "rate limit exceeded",
-			})
+			apiresponse.Error(w, http.StatusTooManyRequests, "Muitas requisições. Tente novamente em 60 segundos.")
 			return
 		}
 

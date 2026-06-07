@@ -226,15 +226,32 @@ revisável e evita misturar "criar a ferramenta" com "trocar 20 lugares".
 
 ## Definition of Done
 
-- [ ] Pacote central criado com `Envelope`, função de sucesso e função de
+- [x] Pacote central criado com `Envelope`, função de sucesso e função de
       erro, cobrindo `error`, `message`, `data` e `status_code`
-- [ ] `data: null` aparece explicitamente (não omitido) em respostas sem payload
-- [ ] Middleware de recuperação de panics responde no envelope padrão,
+- [x] `data: null` aparece explicitamente (não omitido) em respostas sem payload
+- [x] Middleware de recuperação de panics responde no envelope padrão,
       com mensagem genérica e sem vazar detalhes internos
-- [ ] `chimw.Recoverer` substituído pelo middleware do projeto em
+- [x] `chimw.Recoverer` substituído pelo middleware do projeto em
       `internal/server/server.go`
-- [ ] Seção do padrão documentada em `spec/ESPECIFICACAOv4.md`, incluindo
+- [x] Seção do padrão documentada em `spec/ESPECIFICACAOv4.md`, incluindo
       a lista do que segue e do que não segue o envelope
-- [ ] `go test ./internal/apiresponse/... -v` passa, incluindo o teste do
+- [x] `go test ./internal/apiresponse/... -v` passa, incluindo o teste do
       middleware de recovery
-- [ ] `go test ./...` continua passando sem regressões
+- [x] `go test ./...` continua passando sem regressões
+
+## Resolução
+
+### Arquivos criados/alterados
+
+- `internal/apiresponse/apiresponse.go` — Pacote central com `Envelope`, `Success(w, status, data)`, `Error(w, status, msg)`. Sempre usa `json.NewEncoder(w).Encode(...)` e `Content-Type: application/json; charset=utf-8`.
+- `internal/apiresponse/apiresponse_test.go` — 6 testes table-driven: sucesso com payload, sucesso com nil data (null no JSON explícito), erro com mensagem, tabela de todos os status codes de erro (400-500), tabela de status de sucesso (200/201), verificação de `"data":null` literal no corpo bruto.
+- `internal/middleware/recovery.go` — `RecoveryMiddleware`: substitui `chimw.Recoverer`. Recupera panics, loga o erro internamente com `log.Printf` (incluindo método e path), responde ao cliente com `apiresponse.Error(w, 500, "Erro interno desconhecido.")` — nunca vaza o conteúdo do panic.
+- `internal/server/server.go:84` — Troca `r.Use(chimw.Recoverer)` por `r.Use(middleware.RecoveryMiddleware)`.
+- `spec/ESPECIFICACAOv4.md` — Nova seção 10 "Formato padrão de resposta da API" com a estrutura do envelope, significado de cada campo, lista explícita das rotas que seguem e não seguem o envelope, e a regra para novas rotas. Seções renumeradas de 10-20 → 11-21 com cross-references atualizadas.
+
+### Decisões tomadas
+
+- **Nome do pacote**: `apiresponse` (em vez de `httpresponse`) — mais curto, consistente com o domínio (API response vs HTTP genérico).
+- **Local do RecoveryMiddleware**: `internal/middleware/recovery.go` — mantém coesão: o pacote `middleware` já agrupa middlewares HTTP do projeto (`ratelimit.go`). O import de `apiresponse` é natural (middleware depende do formato de resposta).
+- **Reuso de `chimw.Logger`**: mantido — o logger do chi é só logging, não afeta o formato de resposta.
+- **Três falhas preexistentes em `go test ./...`**: `TestBuildFFmpegArgs_MinimalArgs` (transcode) e `TestPostFinishValidation_InvalidMagicBytes`/`TestPostFinishValidation_SizeMismatch` (upload) já falhavam antes desta tarefa — não são regressões introduzidas por T45.

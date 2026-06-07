@@ -4,7 +4,10 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
+
+	"github.com/klawdyo/streamedia/internal/apiresponse"
 )
 
 // TestRateLimit_AllowsUnderLimit verifica se requisições dentro do limite são permitidas.
@@ -198,20 +201,29 @@ func TestRateLimit_ResponseJSON(t *testing.T) {
 		t.Errorf("expected status %d, got %d", http.StatusTooManyRequests, w.Code)
 	}
 
-	// Verifica se o Content-Type é JSON
+	// Verifica se o Content-Type é JSON com charset.
 	contentType := w.Header().Get("Content-Type")
-	if contentType != "application/json" {
-		t.Errorf("expected Content-Type 'application/json', got '%s'", contentType)
+	if !strings.Contains(contentType, "application/json") {
+		t.Errorf("expected Content-Type contendo 'application/json', got '%s'", contentType)
 	}
 
-	// Parse e valida o JSON
-	var resp map[string]string
-	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+	// Parse e valida o envelope padrão.
+	var env apiresponse.Envelope
+	if err := json.Unmarshal(w.Body.Bytes(), &env); err != nil {
 		t.Errorf("failed to parse response JSON: %v", err)
 	}
 
-	if _, ok := resp["error"]; !ok {
-		t.Errorf("expected 'error' field in JSON response, got: %v", resp)
+	if !env.Error {
+		t.Errorf("expected error=true, got false")
+	}
+	if env.Message == "" {
+		t.Error("expected non-empty error message")
+	}
+	if env.Data != nil {
+		t.Errorf("expected data=nil, got %v", env.Data)
+	}
+	if env.StatusCode != http.StatusTooManyRequests {
+		t.Errorf("expected status_code=%d, got %d", http.StatusTooManyRequests, env.StatusCode)
 	}
 }
 

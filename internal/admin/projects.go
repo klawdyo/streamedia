@@ -8,24 +8,17 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"net/http"
 	"strings"
 	"time"
 
 	"github.com/go-chi/chi/v5"
 
+	"github.com/klawdyo/streamedia/internal/apiresponse"
 	"github.com/klawdyo/streamedia/internal/auth"
+	"github.com/klawdyo/streamedia/internal/httputil"
 	"github.com/klawdyo/streamedia/internal/models"
 )
-
-// respondJSONError escreve uma resposta de erro JSON com o status e a
-// mensagem informados — mesmo formato usado pelos demais handlers admin.
-func respondJSONError(w http.ResponseWriter, status int, msg string) {
-	w.Header().Set("Content-Type", "application/json; charset=utf-8")
-	w.WriteHeader(status)
-	_ = json.NewEncoder(w).Encode(map[string]string{"error": msg})
-}
 
 // requireSuperAdmin garante que a requisição foi autenticada pelo
 // ADMIN_TOKEN global (sem escopo de projeto). As rotas de gerenciamento de
@@ -36,7 +29,7 @@ func respondJSONError(w http.ResponseWriter, status int, msg string) {
 // Retorna false (e já escreve a resposta de erro) se a checagem falhar.
 func requireSuperAdmin(w http.ResponseWriter, r *http.Request) bool {
 	if scope := ProjectScopeFromContext(r.Context()); scope != nil {
-		respondJSONError(w, http.StatusForbidden, "Esta operação exige autenticação de super-admin (ADMIN_TOKEN global).")
+		apiresponse.Error(w, http.StatusForbidden, "Esta operação exige autenticação de super-admin (ADMIN_TOKEN global).")
 		return false
 	}
 	return true
@@ -91,24 +84,22 @@ func (h *AdminHandler) HandleCreateProject(w http.ResponseWriter, r *http.Reques
 
 	var req createProjectRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		respondJSONError(w, http.StatusBadRequest, "Corpo da requisição inválido.")
+		apiresponse.Error(w, http.StatusBadRequest, "Corpo da requisição inválido.")
 		return
 	}
 	req.Name = strings.TrimSpace(req.Name)
 	if req.Name == "" {
-		respondJSONError(w, http.StatusBadRequest, "O campo 'name' é obrigatório.")
+		apiresponse.Error(w, http.StatusBadRequest, "O campo 'name' é obrigatório.")
 		return
 	}
 
 	project, masterKey, err := models.CreateProject(h.db, req.Name)
 	if err != nil {
-		respondJSONError(w, http.StatusInternalServerError, "Erro ao criar o projeto.")
+		apiresponse.Error(w, http.StatusInternalServerError, "Erro ao criar o projeto.")
 		return
 	}
 
-	w.Header().Set("Content-Type", "application/json; charset=utf-8")
-	w.WriteHeader(http.StatusCreated)
-	_ = json.NewEncoder(w).Encode(createProjectResponse{
+	apiresponse.Success(w, http.StatusCreated, createProjectResponse{
 		ID:        project.ID,
 		Name:      project.Name,
 		Slug:      project.Slug,
@@ -133,7 +124,7 @@ func (h *AdminHandler) HandleListProjects(w http.ResponseWriter, r *http.Request
 
 	projects, err := models.ListProjects(h.db)
 	if err != nil {
-		respondJSONError(w, http.StatusInternalServerError, "Erro ao listar projetos.")
+		apiresponse.Error(w, http.StatusInternalServerError, "Erro ao listar projetos.")
 		return
 	}
 
@@ -145,9 +136,7 @@ func (h *AdminHandler) HandleListProjects(w http.ResponseWriter, r *http.Request
 		resp.Projects = append(resp.Projects, toProjectResponse(p))
 	}
 
-	w.Header().Set("Content-Type", "application/json; charset=utf-8")
-	w.WriteHeader(http.StatusOK)
-	_ = json.NewEncoder(w).Encode(resp)
+	apiresponse.Success(w, http.StatusOK, resp)
 }
 
 // HandleGetProject devolve o detalhe de um projeto pelo seu slug, sem expor
@@ -160,17 +149,15 @@ func (h *AdminHandler) HandleGetProject(w http.ResponseWriter, r *http.Request) 
 	slug := chi.URLParam(r, "slug")
 	project, err := models.GetProjectBySlug(h.db, slug)
 	if errors.Is(err, sql.ErrNoRows) {
-		respondJSONError(w, http.StatusNotFound, "Projeto não encontrado.")
+		apiresponse.Error(w, http.StatusNotFound, "Projeto não encontrado.")
 		return
 	}
 	if err != nil {
-		respondJSONError(w, http.StatusInternalServerError, "Erro ao consultar o projeto.")
+		apiresponse.Error(w, http.StatusInternalServerError, "Erro ao consultar o projeto.")
 		return
 	}
 
-	w.Header().Set("Content-Type", "application/json; charset=utf-8")
-	w.WriteHeader(http.StatusOK)
-	_ = json.NewEncoder(w).Encode(toProjectResponse(project))
+	apiresponse.Success(w, http.StatusOK, toProjectResponse(project))
 }
 
 // issueUploadTokenRequest é o corpo opcional de
@@ -213,21 +200,21 @@ func (h *AdminHandler) HandleIssueUploadToken(w http.ResponseWriter, r *http.Req
 
 	projectKey := r.Header.Get("X-Project-Key")
 	if projectKey == "" {
-		respondJSONError(w, http.StatusUnauthorized, "Header X-Project-Key é obrigatório.")
+		apiresponse.Error(w, http.StatusUnauthorized, "Header X-Project-Key é obrigatório.")
 		return
 	}
 
 	project, err := models.GetProjectByMasterKeyHash(h.db, models.HashMasterKey(projectKey))
 	if errors.Is(err, sql.ErrNoRows) {
-		respondJSONError(w, http.StatusUnauthorized, "Chave de projeto inválida.")
+		apiresponse.Error(w, http.StatusUnauthorized, "Chave de projeto inválida.")
 		return
 	}
 	if err != nil {
-		respondJSONError(w, http.StatusInternalServerError, "Falha ao validar a chave de projeto.")
+		apiresponse.Error(w, http.StatusInternalServerError, "Falha ao validar a chave de projeto.")
 		return
 	}
 	if project.Slug != slug {
-		respondJSONError(w, http.StatusForbidden, "A chave informada não pertence a este projeto.")
+		apiresponse.Error(w, http.StatusForbidden, "A chave informada não pertence a este projeto.")
 		return
 	}
 
@@ -235,12 +222,12 @@ func (h *AdminHandler) HandleIssueUploadToken(w http.ResponseWriter, r *http.Req
 	var req issueUploadTokenRequest
 	if r.ContentLength != 0 {
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-			respondJSONError(w, http.StatusBadRequest, "Corpo da requisição inválido.")
+			apiresponse.Error(w, http.StatusBadRequest, "Corpo da requisição inválido.")
 			return
 		}
 	}
 	if req.DeclaredSizeBytes < 0 {
-		respondJSONError(w, http.StatusBadRequest, "declared_size_bytes não pode ser negativo.")
+		apiresponse.Error(w, http.StatusBadRequest, "declared_size_bytes não pode ser negativo.")
 		return
 	}
 
@@ -248,38 +235,25 @@ func (h *AdminHandler) HandleIssueUploadToken(w http.ResponseWriter, r *http.Req
 	// UUID v7 ao gerar ids (ordenável por tempo, melhora localidade no SQLite).
 	videoID, err := models.NewVideoID()
 	if err != nil {
-		respondJSONError(w, http.StatusInternalServerError, "Falha ao gerar video_id.")
+		apiresponse.Error(w, http.StatusInternalServerError, "Falha ao gerar video_id.")
 		return
 	}
 	if err := models.InsertVideoForProject(h.db, videoID, req.DeclaredSizeBytes, &project.ID); err != nil {
-		respondJSONError(w, http.StatusInternalServerError, "Falha ao registrar o vídeo.")
+		apiresponse.Error(w, http.StatusInternalServerError, "Falha ao registrar o vídeo.")
 		return
 	}
 
 	token := auth.GenerateUploadToken(projectKey, videoID)
 	expiresAt := time.Now().Add(h.cfg.UploadTokenScopedTTL)
 	if err := models.InsertUploadTokenForProject(h.db, token, videoID, expiresAt, &project.ID); err != nil {
-		respondJSONError(w, http.StatusInternalServerError, "Falha ao registrar o token de upload.")
+		apiresponse.Error(w, http.StatusInternalServerError, "Falha ao registrar o token de upload.")
 		return
 	}
 
-	scheme := "https"
-	if r.TLS == nil {
-		if fwdProto := r.Header.Get("X-Forwarded-Proto"); fwdProto != "" {
-			scheme = fwdProto
-		} else {
-			scheme = "http"
-		}
-	}
-	host := r.Host
-	if fwdHost := r.Header.Get("X-Forwarded-Host"); fwdHost != "" {
-		host = fwdHost
-	}
-	uploadURL := fmt.Sprintf("%s://%s/files/%s", scheme, host, videoID)
+	// Constrói a URL de upload usando a função centralizada (httputil).
+	uploadURL := httputil.PublicUploadURL(r, videoID)
 
-	w.Header().Set("Content-Type", "application/json; charset=utf-8")
-	w.WriteHeader(http.StatusCreated)
-	_ = json.NewEncoder(w).Encode(issueUploadTokenResponse{
+	apiresponse.Success(w, http.StatusCreated, issueUploadTokenResponse{
 		VideoID:   videoID,
 		UploadURL: uploadURL,
 		Token:     token,

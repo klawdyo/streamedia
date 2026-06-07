@@ -12,6 +12,7 @@ import (
 	chimw "github.com/go-chi/chi/v5/middleware"
 
 	"github.com/klawdyo/streamedia/internal/admin"
+	"github.com/klawdyo/streamedia/internal/apiresponse"
 	"github.com/klawdyo/streamedia/internal/config"
 	"github.com/klawdyo/streamedia/internal/docs"
 	"github.com/klawdyo/streamedia/internal/middleware"
@@ -81,8 +82,11 @@ func NewRouter(
 	r := chi.NewRouter()
 
 	// Middlewares globais aplicados a todas as rotas.
-	r.Use(chimw.Recoverer) // recupera de panics, evitando derrubar o servidor
-	r.Use(chimw.Logger)    // loga cada requisição
+	// RecoveryMiddleware recupera de panics e responde no envelope padrão
+	// da API ({error, message, data, status_code}), substituindo o
+	// chimw.Recoverer que respondia com texto puro (quebrava o contrato JSON).
+	r.Use(middleware.RecoveryMiddleware)
+	r.Use(chimw.Logger) // loga cada requisição
 	if telemetryProvider != nil {
 		r.Use(telemetryProvider.Middleware) // instrumenta requisições HTTP (T29)
 	}
@@ -135,9 +139,7 @@ func NewRouter(
 
 	// --- Health check ---
 	r.Get("/healthz", func(w http.ResponseWriter, _ *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusOK)
-		_, _ = w.Write([]byte(`{"status":"ok"}`))
+		apiresponse.Success(w, http.StatusOK, map[string]string{"status": "ok"})
 	})
 
 	// --- Métricas (OpenTelemetry/Prometheus, T29, issue #1) ---

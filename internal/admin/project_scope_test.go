@@ -8,6 +8,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
+	"github.com/klawdyo/streamedia/internal/apiresponse"
 	"github.com/klawdyo/streamedia/internal/models"
 )
 
@@ -90,10 +91,13 @@ func doVideosRequest(t *testing.T, wrapped http.Handler, bearerToken string) vid
 		t.Fatalf("esperava 200, obteve %d: %s", rec.Code, rec.Body.String())
 	}
 
-	var resp videosResponse
+	var env apiresponse.Envelope
 	body, _ := io.ReadAll(rec.Body)
-	if err := json.Unmarshal(body, &resp); err != nil {
+	if err := json.Unmarshal(body, &env); err != nil {
 		t.Fatalf("erro ao fazer unmarshal da resposta: %v", err)
 	}
+	dataJSON, _ := json.Marshal(env.Data)
+	var resp videosResponse
+	json.Unmarshal(dataJSON, &resp)
 	return resp
 }

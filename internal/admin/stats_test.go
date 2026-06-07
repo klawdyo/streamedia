@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
+	"github.com/klawdyo/streamedia/internal/apiresponse"
 	"github.com/klawdyo/streamedia/internal/models"
 )
 
@@ -78,10 +79,13 @@ func TestStatsRoute_GlobalAggregation(t *testing.T) {
 		t.Fatalf("esperado 200, obtido %d (body: %s)", rec.Code, rec.Body.String())
 	}
 
-	var resp statsTestResponse
-	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+	var env apiresponse.Envelope
+	if err := json.Unmarshal(rec.Body.Bytes(), &env); err != nil {
 		t.Fatalf("erro ao decodificar resposta: %v", err)
 	}
+	dataJSON, _ := json.Marshal(env.Data)
+	var resp statsTestResponse
+	json.Unmarshal(dataJSON, &resp)
 
 	if resp.VideoID != nil {
 		t.Errorf("esperava video_id nulo na agregação global, obteve %v", *resp.VideoID)
@@ -120,10 +124,13 @@ func TestStatsRoute_FilteredByVideoID(t *testing.T) {
 		t.Fatalf("esperado 200, obtido %d (body: %s)", rec.Code, rec.Body.String())
 	}
 
-	var resp statsTestResponse
-	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+	var env apiresponse.Envelope
+	if err := json.Unmarshal(rec.Body.Bytes(), &env); err != nil {
 		t.Fatalf("erro ao decodificar resposta: %v", err)
 	}
+	dataJSON, _ := json.Marshal(env.Data)
+	var resp statsTestResponse
+	json.Unmarshal(dataJSON, &resp)
 
 	if resp.VideoID == nil || *resp.VideoID != "vid-1" {
 		t.Fatalf("esperava video_id = \"vid-1\", obteve %v", resp.VideoID)
@@ -166,10 +173,13 @@ func TestStatsRoute_EmptyDataset(t *testing.T) {
 		t.Fatalf("esperado 200 mesmo sem eventos, obtido %d (body: %s)", rec.Code, rec.Body.String())
 	}
 
-	var resp statsTestResponse
-	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+	var env apiresponse.Envelope
+	if err := json.Unmarshal(rec.Body.Bytes(), &env); err != nil {
 		t.Fatalf("erro ao decodificar resposta: %v", err)
 	}
+	dataJSON, _ := json.Marshal(env.Data)
+	var resp statsTestResponse
+	json.Unmarshal(dataJSON, &resp)
 
 	if resp.Totals["playback"] != 0 || resp.Totals["download_segment"] != 0 || resp.Totals["upload_complete"] != 0 {
 		t.Errorf("esperava totals zerados, obteve %+v", resp.Totals)
@@ -211,10 +221,13 @@ func TestHandleStats_IncludesStorageSection(t *testing.T) {
 		t.Fatalf("esperado 200, obtido %d (body: %s)", rec.Code, rec.Body.String())
 	}
 
-	var resp statsTestResponse
-	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+	var env apiresponse.Envelope
+	if err := json.Unmarshal(rec.Body.Bytes(), &env); err != nil {
 		t.Fatalf("erro ao decodificar resposta: %v", err)
 	}
+	dataJSON, _ := json.Marshal(env.Data)
+	var resp statsTestResponse
+	json.Unmarshal(dataJSON, &resp)
 
 	if resp.Storage == nil {
 		t.Fatalf("esperava seção 'storage' presente na agregação global, obteve nil")
@@ -247,10 +260,13 @@ func TestHandleStats_StorageSectionConsistentWithQueueRoute(t *testing.T) {
 	statsRec := httptest.NewRecorder()
 	handler.HandleStats(statsRec, statsReq)
 
-	var statsResp statsTestResponse
-	if err := json.Unmarshal(statsRec.Body.Bytes(), &statsResp); err != nil {
+	var statsEnv apiresponse.Envelope
+	if err := json.Unmarshal(statsRec.Body.Bytes(), &statsEnv); err != nil {
 		t.Fatalf("erro ao decodificar resposta de /admin/stats: %v", err)
 	}
+	statsDataJSON, _ := json.Marshal(statsEnv.Data)
+	var statsResp statsTestResponse
+	json.Unmarshal(statsDataJSON, &statsResp)
 	if statsResp.Storage == nil {
 		t.Fatalf("esperava seção 'storage' presente, obteve nil")
 	}
@@ -260,10 +276,13 @@ func TestHandleStats_StorageSectionConsistentWithQueueRoute(t *testing.T) {
 	queueRec := httptest.NewRecorder()
 	handler.HandleQueue(queueRec, queueReq)
 
-	var queueResp queueResponse
-	if err := json.Unmarshal(queueRec.Body.Bytes(), &queueResp); err != nil {
+	var queueEnv apiresponse.Envelope
+	if err := json.Unmarshal(queueRec.Body.Bytes(), &queueEnv); err != nil {
 		t.Fatalf("erro ao decodificar resposta de /admin/queue: %v", err)
 	}
+	queueDataJSON, _ := json.Marshal(queueEnv.Data)
+	var queueResp queueResponse
+	json.Unmarshal(queueDataJSON, &queueResp)
 
 	if statsResp.Storage.QueuePending != queueResp.QueueLength {
 		t.Errorf("queue_pending (%d) divergente de /admin/queue queue_length (%d)",

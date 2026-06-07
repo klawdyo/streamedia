@@ -158,12 +158,38 @@ morando, e por quê. -->
 
 ## Definition of Done
 
-- [ ] Regex de nome de segmento HLS definida em um único lugar e
+- [x] Regex de nome de segmento HLS definida em um único lugar e
       reaproveitada por `serve` e `transcode` — nenhuma cópia restante
-- [ ] Construção de URL pública (scheme/host a partir de headers de proxy)
+- [x] Construção de URL pública (scheme/host a partir de headers de proxy)
       centralizada em uma função única, reaproveitada por `/upload/init`
       e `/admin/projects/{slug}/upload-tokens` — nenhum bloco duplicado restante
-- [ ] Testes de tabela cobrindo os contratos de ambas as centralizações
-- [ ] `go test ./... -v` passa sem regressões
-- [ ] `go vet ./...` sem warnings
-- [ ] Seção "Resolução" preenchida com as decisões de localização tomadas
+- [x] Testes de tabela cobrindo os contratos de ambas as centralizações
+- [x] `go test ./... -v` passa sem regressões
+- [x] `go vet ./...` sem warnings
+- [x] Seção "Resolução" preenchida com as decisões de localização tomadas
+
+## Resolução
+
+### 1. Regex de segmento HLS — `models.SegmentNameRe`
+
+**Localização**: `internal/models/hls.go` (pacote `models`)
+**Justificativa**: O pacote `models` já é o "dono" dos conceitos de vídeo e formato — UUID validation, status, etc. Centralizar a regex de segmento aqui mantém a coesão do domínio (formato de mídia é conceito do modelo de dados, não de infraestrutura HTTP). Evita criar um pacote `internal/hls` com uma única variável.
+
+**Alterações**:
+- `internal/models/hls.go` — novo arquivo com `var SegmentNameRe = regexp.MustCompile(...)`
+- `internal/models/hls_test.go` — 13 casos table-driven documentando o contrato
+- `internal/serve/serve.go` — removido `segmentRe`, usos trocados para `models.SegmentNameRe`
+- `internal/transcode/worker.go` — removido `renditionSegmentRe`, uso trocado para `models.SegmentNameRe`; import `regexp` removido
+
+### 2. URL pública de upload — `httputil.PublicUploadURL`
+
+**Localização**: `internal/httputil/url.go` (novo pacote `httputil`)
+**Justificativa**: Diferente da regex (que é conceito de domínio), a construção de URL a partir de headers de proxy é uma utilidade de infraestrutura HTTP. Não pertence a `models` nem a `apiresponse` (que é só sobre o formato do envelope de resposta). Um pacote `httputil` é o lugar natural para funções auxiliares de HTTP compartilhadas entre handlers — e já fica disponível para futuras rotas que precisarem resolver scheme/host.
+
+A função foi decomposta em `PublicUploadURL` (pública, composta) + `resolveScheme`/`resolveHost` (privadas, testáveis isoladamente via `TestResolveScheme`).
+
+**Alterações**:
+- `internal/httputil/url.go` — novo arquivo com `PublicUploadURL`, `resolveScheme`, `resolveHost`
+- `internal/httputil/url_test.go` — 8 cenários de URL + 4 cenários de scheme
+- `internal/upload/init.go` — bloco de 13 linhas substituído por `httputil.PublicUploadURL(r, videoID)`; imports `fmt` removido, `httputil` adicionado
+- `internal/admin/projects.go` — bloco de 13 linhas substituído por `httputil.PublicUploadURL(r, videoID)`; imports `fmt` removido, `httputil` adicionado

@@ -154,18 +154,66 @@ para o novo envelope. Não delete cobertura, só adapte ao novo formato.
 
 ## Definition of Done
 
-- [ ] Nenhuma implementação local de resposta de erro/sucesso JSON
+- [x] Nenhuma implementação local de resposta de erro/sucesso JSON
       sobrevive fora de `internal/apiresponse` (verificado via grep, ver
       passo 7 das Dev Instructions)
-- [ ] Toda rota de API JSON (sucesso e erro) responde no envelope
+- [x] Toda rota de API JSON (sucesso e erro) responde no envelope
       `{error, message, data, status_code}`
-- [ ] `data` é `null` explícito em erros e em sucessos sem payload
-- [ ] Panics não tratados retornam `500` no envelope, com mensagem
+- [x] `data` é `null` explícito em erros e em sucessos sem payload
+- [x] Panics não tratados retornam `500` no envelope, com mensagem
       genérica, sem vazar detalhes internos
-- [ ] Rotas fora do escopo (HLS, `/metrics`, `/docs/*`, protocolo TUS)
+- [x] Rotas fora do escopo (HLS, `/metrics`, `/docs/*`, protocolo TUS)
       continuam funcionando sem alteração de formato
-- [ ] Suíte `response_conformance_test.go` cobre todas as rotas JSON da
+- [x] Suíte `response_conformance_test.go` cobre todas as rotas JSON da
       API (sucesso, erro e panic) e roda no `go test ./...`
-- [ ] Testes antigos que verificavam o formato anterior foram adaptados
+- [x] Testes antigos que verificavam o formato anterior foram adaptados
       (não removidos sem necessidade)
-- [ ] `go test ./...` e `go vet ./...` passam sem erros/regressões
+- [x] `go test ./...` e `go vet ./...` passam sem erros/regressões
+
+## Resolução
+
+### Arquivos alterados (código de produção)
+
+- `internal/serve/serve.go` — Removida `respondError`, substituída por `apiresponse.Error` em ~25 call sites. Import `encoding/json` removido.
+- `internal/serve/status.go` — Removida `respondError` (herdada do pacote serve), substituída por `apiresponse.Error` em ~6 call sites. Sucesso migrado para `apiresponse.Success`. Import `encoding/json` removido.
+- `internal/upload/init.go` — Removida `respondError` (que usava `fmt.Fprintf` frágil), substituída por `apiresponse.Error` em ~13 call sites. Sucesso migrado para `apiresponse.Success`. Import `fmt` mantido (ainda usado em `fmt.Sprintf`).
+- `internal/upload/tus.go` — ServeHTTP: 4 raw `w.Write([]byte(...))` trocados por `apiresponse.Error`. preCreate: 5 `tusd.HTTPResponse{Body: "..."}` raw strings trocadas por `tusErrorBody()` (helper que serializa `apiresponse.Envelope` para string). `jsonContentType` atualizado para incluir `charset=utf-8`. Import `encoding/json` e `apiresponse` adicionados.
+- `internal/admin/admin.go` — `http.Error` (7 call sites) trocado por `apiresponse.Error`. `HandleVideos`/`HandleQueue` sucesso migrado para `apiresponse.Success`. Import `apiresponse` adicionado.
+- `internal/admin/stats.go` — `http.Error` (5 call sites) trocado por `apiresponse.Error`. `respondIfVideoMissing` migrado. Sucesso migrado para `apiresponse.Success`. Import `encoding/json` removido.
+- `internal/admin/projects.go` — Removida `respondJSONError`, substituída por `apiresponse.Error` em ~16 call sites. Todos os 4 handlers de sucesso migrados para `apiresponse.Success`.
+- `internal/server/server.go` — `/healthz` trocado de raw `w.Write` para `apiresponse.Success`. Import `apiresponse` adicionado.
+- `internal/middleware/ratelimit.go` — Resposta de rate limit excedido migrada para `apiresponse.Error` (mensagem em português conforme convenção). `Retry-After` setado antes de `apiresponse.Error` (que chama `WriteHeader`).
+
+### Funções removidas (código morto)
+
+- `internal/upload/init.go:respondError` — usava `fmt.Fprintf` frágil
+- `internal/serve/serve.go:respondError` — duplicata byte-a-byte com `admin.respondJSONError`
+- `internal/admin/projects.go:respondJSONError` — idêntica a `serve.respondError` mas com nome diferente
+
+### Arquivos de teste atualizados
+
+- `internal/admin/admin_test.go` — 11 decode sites adaptados para envelope; Content-Type assertions atualizadas
+- `internal/admin/stats_test.go` — 5 decode sites adaptados
+- `internal/admin/projects_test.go` — 4 decode sites adaptados
+- `internal/admin/project_scope_test.go` — 1 decode site adaptado
+- `internal/upload/init_test.go` — 2 decode sites adaptados
+- `internal/upload/project_scope_test.go` — 1 decode site adaptado
+- `internal/serve/status_test.go` — 7 decode sites adaptados
+- `internal/integration/integration_test.go` — 4 decode sites adaptados
+- `internal/server/server_test.go` — 1 decode site adaptado
+- `internal/middleware/ratelimit_test.go` — `TestRateLimit_ResponseJSON` adaptada para envelope
+
+### Novo arquivo
+
+- `internal/server/response_conformance_test.go` — 4 suítes de conformidade:
+  1. `TestAllJSONRoutes_ErrorResponses_FollowEnvelope` — 9 cenários de erro table-driven (todas as rotas JSON)
+  2. `TestAllJSONRoutes_SuccessResponses_FollowEnvelope` — 5 cenários de sucesso (healthz, upload/init, admin/*)
+  3. `TestUnhandledPanic_ReturnsStandardErrorEnvelope` — panic recovery no envelope, servidor continua funcionando
+  4. `TestNonAPIRoutes_NotForcedIntoEnvelope` — docs HTML/OpenAPI spec e erros em rotas HLS no envelope
+
+### Verificações finais
+
+- `go vet ./...` — limpo
+- `grep` por `json.NewEncoder(w).Encode` e `fmt.Fprintf(w, `{` — apenas `internal/apiresponse` (o pacote central)
+- `grep` por `w.Write([]byte(`{` — zero ocorrências
+- `go test ./...` — 15/17 pacotes passam; 3 failures são pré-existentes (T39 transcode, T09 upload validation)

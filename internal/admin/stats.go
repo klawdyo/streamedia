@@ -2,9 +2,9 @@ package admin
 
 import (
 	"database/sql"
-	"encoding/json"
 	"net/http"
 
+	"github.com/klawdyo/streamedia/internal/apiresponse"
 	"github.com/klawdyo/streamedia/internal/models"
 )
 
@@ -60,7 +60,7 @@ func (h *AdminHandler) HandleStats(w http.ResponseWriter, r *http.Request) {
 	for _, eventType := range eventTypes {
 		count, err := models.CountEventsByType(h.db, eventType, videoID)
 		if err != nil {
-			http.Error(w, "Erro ao agregar estatísticas por tipo de evento", http.StatusInternalServerError)
+			apiresponse.Error(w, http.StatusInternalServerError, "Erro ao agregar estatísticas por tipo de evento.")
 			return
 		}
 		totals[eventType] = count
@@ -68,19 +68,19 @@ func (h *AdminHandler) HandleStats(w http.ResponseWriter, r *http.Request) {
 
 	byResolution, err := models.AggregateByResolution(h.db, videoID)
 	if err != nil {
-		http.Error(w, "Erro ao agregar estatísticas por resolução", http.StatusInternalServerError)
+		apiresponse.Error(w, http.StatusInternalServerError, "Erro ao agregar estatísticas por resolução.")
 		return
 	}
 
 	byOS, err := models.AggregateByOS(h.db, videoID)
 	if err != nil {
-		http.Error(w, "Erro ao agregar estatísticas por sistema operacional", http.StatusInternalServerError)
+		apiresponse.Error(w, http.StatusInternalServerError, "Erro ao agregar estatísticas por sistema operacional.")
 		return
 	}
 
 	byDayOfWeek, err := models.AggregateByDayOfWeek(h.db, videoID)
 	if err != nil {
-		http.Error(w, "Erro ao agregar estatísticas por dia da semana", http.StatusInternalServerError)
+		apiresponse.Error(w, http.StatusInternalServerError, "Erro ao agregar estatísticas por dia da semana.")
 		return
 	}
 
@@ -101,17 +101,13 @@ func (h *AdminHandler) HandleStats(w http.ResponseWriter, r *http.Request) {
 	if videoIDPtr == nil {
 		storage, err := buildStorageStats(h.db, h.queue)
 		if err != nil {
-			http.Error(w, "Erro ao agregar estatísticas de armazenamento", http.StatusInternalServerError)
+			apiresponse.Error(w, http.StatusInternalServerError, "Erro ao agregar estatísticas de armazenamento.")
 			return
 		}
 		resp.Storage = storage
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusOK)
-	if err := json.NewEncoder(w).Encode(resp); err != nil {
-		// Log silencioso de erros de encoding - cliente já desconectou
-	}
+	apiresponse.Success(w, http.StatusOK, resp)
 }
 
 // buildStorageStats monta a seção "storage" da resposta de /admin/stats
@@ -152,11 +148,11 @@ func respondIfVideoMissing(w http.ResponseWriter, db *sql.DB, videoID string) bo
 	var exists int
 	err := db.QueryRow(`SELECT 1 FROM videos WHERE video_id = ?`, videoID).Scan(&exists)
 	if err == sql.ErrNoRows {
-		http.Error(w, "Vídeo não encontrado", http.StatusNotFound)
+		apiresponse.Error(w, http.StatusNotFound, "Vídeo não encontrado.")
 		return false
 	}
 	if err != nil {
-		http.Error(w, "Erro ao consultar o vídeo", http.StatusInternalServerError)
+		apiresponse.Error(w, http.StatusInternalServerError, "Erro ao consultar o vídeo.")
 		return false
 	}
 	return true

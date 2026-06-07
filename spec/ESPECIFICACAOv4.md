@@ -8,7 +8,7 @@ Mudanças da V2 em relação à V1: variáveis de ambiente migradas do docker-co
 
 Mudanças da V3 em relação à V2: correção da estratégia de variáveis de ambiente para o padrão correto do Coolify. O Coolify, após o build, gera automaticamente um arquivo `.env` no host a partir das variáveis configuradas no seu painel e o carrega no container. Para que o painel do Coolify descubra quais variáveis existem e crie os campos editáveis, a fonte de verdade precisa ser o bloco `environment` do `docker-compose.yml` usando a sintaxe `${VAR}`. Em desenvolvimento, o mesmo `.env` (criado manualmente a partir do `.env.example`) preenche esses `${VAR}` por interpolação. Assim o mesmo compose funciona em dev e em produção, e o painel do Coolify se popula sozinho a partir dele.
 
-Mudanças da V4 em relação à V3: adição da convenção de idioma do código (seção 20). Código em inglês, comentários e mensagens ao usuário em português, com comentários abundantes mesmo nos trechos óbvios.
+Mudanças da V4 em relação à V3: adição da convenção de idioma do código (seção 21). Código em inglês, comentários e mensagens ao usuário em português, com comentários abundantes mesmo nos trechos óbvios.
 
 ## Sumário
 
@@ -21,17 +21,18 @@ Mudanças da V4 em relação à V3: adição da convenção de idioma do código
 7. Fila de transcodificação
 8. Jobs de manutenção
 9. Rotas da API
-10. Estrutura de arquivos no disco
-11. Variáveis de ambiente e arquivo .env
-12. Catálogo de falhas, bugs e mitigações
-13. Validações
-14. Plano de testes automatizados
-15. Configuração Docker e Coolify
-16. Conteúdo do README
-17. GitHub Actions
-18. Decisões fechadas
-19. Payload do webhook
-20. Convenção de idioma do código
+10. Formato padrão de resposta da API
+11. Estrutura de arquivos no disco
+12. Variáveis de ambiente e arquivo .env
+13. Catálogo de falhas, bugs e mitigações
+14. Validações
+15. Plano de testes automatizados
+16. Configuração Docker e Coolify
+17. Conteúdo do README
+18. GitHub Actions
+19. Decisões fechadas
+20. Payload do webhook
+21. Convenção de idioma do código
 
 ## 1. Visão geral e responsabilidades
 
@@ -319,7 +320,53 @@ GET    /api/play/{postId}
        responde 302 para o media server.
 ```
 
-## 10. Estrutura de arquivos no disco
+## 10. Formato padrão de resposta da API
+
+Toda resposta JSON da API segue um envelope único e centralizado, definido pelo pacote `internal/apiresponse`. Nenhuma rota escreve JSON manualmente — qualquer resposta de sucesso ou erro passa pelas funções `apiresponse.Success` e `apiresponse.Error`.
+
+### Estrutura do envelope
+
+```json
+{
+  "error": false,
+  "message": "ok",
+  "data": { },
+  "status_code": 200
+}
+```
+
+### Significado de cada campo
+
+| Campo | Tipo | Sucesso | Erro |
+|-------|------|---------|------|
+| `error` | `bool` | `false` | `true` |
+| `message` | `string` | `"ok"` | Mensagem descritiva do problema, em português |
+| `data` | `object \| array \| null` | Payload da resposta | `null` (sempre — campo nunca é omitido) |
+| `status_code` | `int` | Código HTTP 2xx | Código HTTP 4xx ou 5xx |
+
+O `status_code` é repetido tanto no header HTTP quanto no corpo JSON, para facilitar o consumo por clientes que não inspecionam headers.
+
+O `Content-Type` de toda resposta é `application/json; charset=utf-8`.
+
+### Rotas que seguem o envelope
+
+- Toda resposta de erro JSON da API (`400`, `401`, `403`, `404`, `409`, `413`, `429`, `500`, etc.) — em **qualquer** rota, inclusive as que servem conteúdo binário/streaming (ex.: um `401` em `GET /videos/{id}/master.m3u8` usa o envelope, mesmo que a resposta de sucesso daquela rota seja um arquivo `.m3u8`)
+- Toda resposta de sucesso das rotas que respondem JSON estruturado: `/upload/init`, `/api/status/{id}`, `/admin/*` (videos, queue, stats, projects, upload-tokens), `/healthz`
+- Panics não tratados (qualquer rota): o middleware de recovery (`RecoveryMiddleware`) responde `500` no envelope com mensagem genérica em português (`"Erro interno desconhecido."`), sem vazar stack trace ao cliente
+- Handler TUS (`/files/*`): os pontos onde o código do projeto intercepta e responde antes de delegar ao tusd (autenticação) usam o envelope; o protocolo TUS em si (headers `Tus-*`, corpos vazios) mantém seu formato próprio
+
+### Rotas que NÃO seguem o envelope
+
+- Conteúdo HLS (`master.m3u8`, `playlist.m3u8`, segmentos `.ts`/`.m4s`) — corpo binário/texto de mídia, não é resposta de API
+- `/metrics` — formato Prometheus/OpenTelemetry (texto), padrão externo imutável
+- `/docs/` (UI do Scalar) — HTML
+- `/docs/openapi.json` — documento de especificação OpenAPI (schema), não resposta de API
+
+### Regra para novas rotas
+
+Toda nova rota deve usar `apiresponse.Success` e `apiresponse.Error` — nunca escrever JSON de resposta manualmente com `json.NewEncoder` ou `fmt.Fprintf` inline. Isso garante que qualquer mudança futura no formato do envelope (ex.: adicionar um campo `request_id`) aconteça em um único lugar.
+
+## 11. Estrutura de arquivos no disco
 
 ```
 /media/
@@ -367,7 +414,7 @@ Bitrates alvo de cada resolução (valores padrão, configuráveis):
 
 O master.m3u8 só lista as resoluções efetivamente geradas. Não há upscaling: uma origem 720p gera só 480p e 720p, e o master lista apenas essas duas.
 
-## 11. Variáveis de ambiente e arquivo .env
+## 12. Variáveis de ambiente e arquivo .env
 
 A estratégia de variáveis de ambiente segue o padrão do Coolify. Entender o mecanismo é importante para não duplicar configuração nem quebrar o deploy.
 
@@ -483,7 +530,7 @@ Variáveis obrigatórias, que fazem o serviço falhar na inicialização se ause
 
 Nota sobre o caractere `$` em secrets no Coolify: ao colar secrets gerados no painel do Coolify, marque a opção "Is Literal" para evitar que caracteres especiais como `$` sejam interpretados como interpolação. Secrets hex gerados com `openssl rand -hex 32` não contêm `$`, então o risco é baixo, mas a recomendação vale como boa prática.
 
-## 12. Catálogo de falhas, bugs e mitigações
+## 13. Catálogo de falhas, bugs e mitigações
 
 ### 12.1 Segurança
 
@@ -526,7 +573,7 @@ Nota sobre o caractere `$` em secrets no Coolify: ao colar secrets gerados no pa
 | Atualização do backend apaga estáticos | Vídeos somem em deploy | Volumes desacoplados do código do container; o deploy só troca a imagem. |
 | Migração de schema quebra | Banco incompatível após update | Migrações versionadas executadas na inicialização, idempotentes. |
 
-## 13. Validações
+## 14. Validações
 
 Validações de entrada, aplicadas em ordem, com rejeição imediata na primeira que falhar:
 
@@ -556,7 +603,7 @@ Na resolução do transcode:
 - não fazer upscaling: gerar apenas resoluções menores ou iguais à origem
 - um vídeo 720p gera 480p e 720p, nunca 1080p
 
-## 14. Plano de testes automatizados
+## 15. Plano de testes automatizados
 
 Testes unitários e de integração com a biblioteca padrão `testing` do Go, usando um SQLite em memória ou temporário por teste.
 
@@ -621,7 +668,7 @@ Testes unitários e de integração com a biblioteca padrão `testing` do Go, us
 - falha de entrega registra em webhook_log com success=0 e tenta retry
 - a assinatura do webhook é verificável com o WEBHOOK_SECRET
 
-## 15. Configuração Docker e Coolify
+## 16. Configuração Docker e Coolify
 
 ### docker-compose.yml
 
@@ -701,7 +748,7 @@ O driver SQLite em Go puro (modernc.org/sqlite) permite CGO_ENABLED=0, gerando u
 - O health check em `/healthz` permite ao Coolify saber se o serviço está saudável.
 - Deploys trocam apenas a imagem do container; os volumes permanecem intactos, então atualizar o backend não mexe nos arquivos estáticos nem no banco.
 
-## 16. Conteúdo do README
+## 17. Conteúdo do README
 
 O README a ser gerado na implementação deve conter:
 
@@ -716,14 +763,14 @@ O README a ser gerado na implementação deve conter:
 - Explicação da estrutura de pastas no disco
 - Documentação de cada rota da API com exemplos de request e response
 - Como gerar um token de reprodução do lado do backend principal (exemplo de código do HMAC)
-- Formato do payload dos webhooks enviados e como validar a assinatura (referência à seção 19)
+- Formato do payload dos webhooks enviados e como validar a assinatura (referência à seção 20)
 - Como rodar os testes (go test ./...)
 - Seção de deploy no Coolify passo a passo, explicando que o painel é a fonte das variáveis e que o Coolify gera o `.env` automaticamente a partir dos `${VAR}` do compose
 - Seção de troubleshooting (transcode travado, disco cheio, banco locked)
 - Tabela de estados do vídeo e seus significados
-- Nota sobre a convenção de idioma do projeto (código em inglês, comentários e mensagens ao usuário em português), referenciando a seção 20
+- Nota sobre a convenção de idioma do projeto (código em inglês, comentários e mensagens ao usuário em português), referenciando a seção 21
 
-## 17. GitHub Actions
+## 18. GitHub Actions
 
 Dois workflows:
 
@@ -752,18 +799,18 @@ A imagem publicada no ghcr.io pode então ser referenciada diretamente no Coolif
 
 Nenhum secret de ambiente da aplicação entra nos workflows. Os secrets do GitHub usados são apenas os de publicação (o GITHUB_TOKEN nativo já cobre o push para ghcr.io).
 
-## 18. Decisões fechadas
+## 19. Decisões fechadas
 
 Todos os pontos antes em aberto agora estão confirmados:
 
 1. Roteador HTTP: `chi`.
 2. Geração do master.m3u8: manual, é texto simples, controle total.
 3. Arquivo original após transcode: deletado por padrão (`KEEP_ORIGINAL=false`).
-4. Bitrates por resolução: valores padrão definidos na seção 10 (480p ~900k, 720p ~2000k, 1080p ~3500k), configuráveis.
+4. Bitrates por resolução: valores padrão definidos na seção 11 (480p ~900k, 720p ~2000k, 1080p ~3500k), configuráveis.
 5. Dashboard mínimo: entra na primeira versão como rotas `/admin/videos` e `/admin/queue`, protegidas por token de role admin.
-6. Payload do webhook: especificado na seção 19.
+6. Payload do webhook: especificado na seção 20.
 
-## 19. Payload do webhook
+## 20. Payload do webhook
 
 O media server envia um POST ao `WEBHOOK_URL` em cada transição relevante de estado. O corpo é JSON e vai assinado.
 
@@ -799,7 +846,7 @@ O backend principal valida recalculando o HMAC sobre o corpo bruto recebido e co
 
 Entrega e retry: cada tentativa é registrada na tabela `webhook_log` com a flag `success`. Em caso de falha de entrega (timeout ou status não-2xx), o media server tenta novamente com backoff. Se todas as tentativas falharem, o registro fica com `success=0` e a rota `/api/status/{video_id}` permite ao backend principal reconciliar o estado por polling.
 
-## 20. Convenção de idioma do código
+## 21. Convenção de idioma do código
 
 O código segue uma separação estrita entre idioma de identificadores e idioma de comunicação.
 

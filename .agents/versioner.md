@@ -126,6 +126,34 @@ O resumo deve ser uma frase objetiva descrevendo o conteúdo do release (ex.:
 commit é o checkpoint que todo cálculo futuro vai usar como base — um valor
 errado aqui propaga erro para todas as versões seguintes.
 
+## Integração com o pacote `internal/version`
+
+A versão calculada por este agente é consumida pelo build via `-ldflags`:
+
+- **Pacote**: `internal/version` (criado na T55)
+- **Variáveis**: `Version`, `Commit`, `BuildTime` — declaradas com defaults
+  (`"0.0.0-dev"`, `"unknown"`, `"unknown"`) e sobrescritas no `go build`
+- **Rota**: `GET /api/version` expõe esses valores em JSON no envelope padrão
+
+### Fluxo completo
+
+```
+Versioner calcula versão → usuário confirma → commit release: vX.Y.Z
+→ CI/build usa vX.Y.Z no -ldflags → binário responde em GET /api/version
+```
+
+### Exemplo de injeção
+
+```bash
+go build -ldflags="
+  -X github.com/klawdyo/streamedia/internal/version.Version=0.1.0
+  -X github.com/klawdyo/streamedia/internal/version.Commit=$(git rev-parse --short HEAD)
+" -o mediaserver ./cmd/server
+```
+
+O valor `0.1.0` acima é exatamente o que este agente calcula e o usuário
+confirma antes do commit `release:`.
+
 ## Definition of Done
 
 - [ ] Checkpoint `release:` mais recente localizado (ou `0.0.0` se nenhum existir)

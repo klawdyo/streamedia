@@ -11,7 +11,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -241,10 +240,9 @@ func parseDurationSeconds(s string) int {
 	return int(f)
 }
 
-// renditionSegmentRe casa nomes de segmento gerados pelo FFmpeg para HLS:
-// um ou mais dígitos seguidos de ".ts" (mesmo padrão usado no serving,
-// ver internal/serve.segmentRe).
-var renditionSegmentRe = regexp.MustCompile(`^[0-9]+\.ts$`)
+// renditionSegmentRe foi removido — usar models.SegmentNameRe (definição
+// única, centralizada em internal/models/hls.go, reaproveitada pelo serving
+// estático e pelo worker de transcodificação).
 
 // scanRenditionDir varre o diretório de uma variante HLS recém-gerada e
 // soma o tamanho dos segmentos .ts, contando-os — alimenta video_renditions
@@ -258,7 +256,7 @@ func scanRenditionDir(resDir string) (sizeBytes int64, segmentCount int, err err
 	}
 
 	for _, entry := range entries {
-		if entry.IsDir() || !renditionSegmentRe.MatchString(entry.Name()) {
+		if entry.IsDir() || !models.SegmentNameRe.MatchString(entry.Name()) {
 			continue
 		}
 		info, err := entry.Info()

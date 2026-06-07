@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/klawdyo/streamedia/internal/apiresponse"
 	"github.com/klawdyo/streamedia/internal/auth"
 	"github.com/klawdyo/streamedia/internal/config"
 	"github.com/klawdyo/streamedia/internal/db"
@@ -65,14 +66,21 @@ func TestUploadInit_Success(t *testing.T) {
 		t.Fatalf("esperava 200, obteve %d: %s", rec.Code, rec.Body.String())
 	}
 
-	var resp map[string]string
-	if err := json.NewDecoder(rec.Body).Decode(&resp); err != nil {
+	var env apiresponse.Envelope
+	if err := json.NewDecoder(rec.Body).Decode(&env); err != nil {
 		t.Fatalf("falha ao decodificar resposta: %v", err)
 	}
-	if resp["upload_url"] == "" {
+	// Extrai o payload de data — o envelope agora envolve a resposta.
+	data, ok := env.Data.(map[string]interface{})
+	if !ok {
+		t.Fatalf("data não é um objeto: %T", env.Data)
+	}
+	uploadURL, _ := data["upload_url"].(string)
+	token, _ := data["token"].(string)
+	if uploadURL == "" {
 		t.Error("upload_url ausente na resposta")
 	}
-	if resp["token"] == "" {
+	if token == "" {
 		t.Error("token ausente na resposta")
 	}
 }
@@ -560,11 +568,14 @@ func TestUploadInit_AnyUUIDVersionAccepted(t *testing.T) {
 				t.Errorf("UUID %s deveria ser aceito, mas retornou %d", tc.name, rec.Code)
 			}
 
-			// Verifica que o video_id na resposta é o mesmo informado
-			var resp map[string]string
-			json.NewDecoder(rec.Body).Decode(&resp)
-			if resp["video_id"] != tc.videoID {
-				t.Errorf("video_id na resposta: esperado %s, obtido %s", tc.videoID, resp["video_id"])
+			// Verifica que o video_id na resposta é o mesmo informado.
+			// O payload agora está dentro do envelope {error, message, data, status_code}.
+			var env apiresponse.Envelope
+			json.NewDecoder(rec.Body).Decode(&env)
+			data, _ := env.Data.(map[string]interface{})
+			videoID, _ := data["video_id"].(string)
+			if videoID != tc.videoID {
+				t.Errorf("video_id na resposta: esperado %s, obtido %s", tc.videoID, videoID)
 			}
 		})
 	}

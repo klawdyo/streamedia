@@ -13,7 +13,6 @@ package serve
 
 import (
 	"database/sql"
-	"encoding/json"
 	"log"
 	"net/http"
 	"os"
@@ -22,6 +21,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/klawdyo/streamedia/internal/apiresponse"
 	"github.com/klawdyo/streamedia/internal/auth"
 	"github.com/klawdyo/streamedia/internal/config"
 	"github.com/klawdyo/streamedia/internal/models"
@@ -39,17 +39,9 @@ var allowedResolutions = map[string]bool{
 	"1080": true,
 }
 
-// segmentRe casa nomes de segmento: um ou mais dígitos seguidos de ".ts".
-var segmentRe = regexp.MustCompile(`^[0-9]+\.ts$`)
-
-// respondError escreve uma resposta JSON de erro com o status informado.
-// Mensagens em português, conforme convenção do projeto para a API.
-func respondError(w http.ResponseWriter, status int, msg string) {
-	w.Header().Set("Content-Type", "application/json; charset=utf-8")
-	w.WriteHeader(status)
-	// Ignoramos o erro de Encode: o header e o status já foram enviados.
-	_ = json.NewEncoder(w).Encode(map[string]string{"error": msg})
-}
+// models.SegmentNameRe foi removido — usar models.SegmentNameRe (definição única,
+// centralizada em internal/models/hls.go, reaproveitada pelo worker de
+// transcodificação e pelo serving estático).
 
 // recordPlaybackAsync grava um evento de estatística de uso (T26/T27) sem
 // bloquear a resposta ao cliente: a gravação ocorre em uma goroutine separada
@@ -103,7 +95,7 @@ func (h *MasterHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	// 1. Extrai o video_id do path: /videos/{videoID}/master.m3u8
 	parts := pathParts(r.URL.Path)
 	if len(parts) < 2 {
-		respondError(w, http.StatusBadRequest, "Caminho inválido.")
+		apiresponse.Error(w, http.StatusBadRequest, "Caminho inválido.")
 		return
 	}
 	videoID := parts[0]
@@ -111,7 +103,7 @@ func (h *MasterHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	// 2. Valida o video_id como UUID v4 estrito. Isso, por si só, já bloqueia
 	// qualquer tentativa de path traversal (ex.: "../etc/passwd").
 	if !uuidV4Re.MatchString(videoID) {
-		respondError(w, http.StatusBadRequest, "video_id inválido.")
+		apiresponse.Error(w, http.StatusBadRequest, "video_id inválido.")
 		return
 	}
 
@@ -119,7 +111,7 @@ func (h *MasterHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	q := r.URL.Query()
 	expires, err := strconv.ParseInt(q.Get("expires"), 10, 64)
 	if err != nil {
-		respondError(w, http.StatusUnauthorized, "Parâmetro expires inválido.")
+		apiresponse.Error(w, http.StatusUnauthorized, "Parâmetro expires inválido.")
 		return
 	}
 	token := q.Get("token")
@@ -127,7 +119,7 @@ func (h *MasterHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	// 4. Valida o token de reprodução (expiração, TTL máximo e assinatura HMAC).
 	// O secret de reprodução é o secret HMAC compartilhado (UPLOAD_TOKEN_SECRET).
 	if err := auth.ValidatePlayToken(h.cfg.UploadTokenSecret, videoID, expires, token, h.cfg.PlayTokenMaxTTL); err != nil {
-		respondError(w, http.StatusUnauthorized, err.Error())
+		apiresponse.Error(w, http.StatusUnauthorized, err.Error())
 		return
 	}
 
@@ -136,15 +128,15 @@ func (h *MasterHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	var projectID sql.NullInt64
 	err = h.db.QueryRow("SELECT status, project_id FROM videos WHERE video_id = ?", videoID).Scan(&status, &projectID)
 	if err == sql.ErrNoRows {
-		respondError(w, http.StatusNotFound, "Vídeo não encontrado.")
+		apiresponse.Error(w, http.StatusNotFound, "Vídeo não encontrado.")
 		return
 	}
 	if err != nil {
-		respondError(w, http.StatusInternalServerError, "Erro ao consultar o vídeo.")
+		apiresponse.Error(w, http.StatusInternalServerError, "Erro ao consultar o vídeo.")
 		return
 	}
 	if status != "ready" {
-		respondError(w, http.StatusNotFound, "Vídeo não está disponível para reprodução.")
+		apiresponse.Error(w, http.StatusNotFound, "Vídeo não está disponível para reprodução.")
 		return
 	}
 
@@ -157,7 +149,7 @@ func (h *MasterHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	// master.m3u8 de <MEDIA_DIR>/<slug-do-projeto>/<video_id>/master.m3u8.
 	rootDir, err := models.ResolveVideoRootDir(h.db, nullableInt64(projectID))
 	if err != nil {
-		respondError(w, http.StatusInternalServerError, "Erro ao resolver o diretório do projeto.")
+		apiresponse.Error(w, http.StatusInternalServerError, "Erro ao resolver o diretório do projeto.")
 		return
 	}
 	masterPath := filepath.Join(h.cfg.MediaDir, rootDir, videoID, "master.m3u8")
@@ -198,7 +190,7 @@ func (h *StaticHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	// 1. Extrai os componentes do path: /videos/{videoID}/{resolution}/{filename}
 	parts := pathParts(r.URL.Path)
 	if len(parts) < 3 {
-		respondError(w, http.StatusBadRequest, "Caminho inválido.")
+		apiresponse.Error(w, http.StatusBadRequest, "Caminho inválido.")
 		return
 	}
 	videoID := parts[0]
@@ -209,27 +201,27 @@ func (h *StaticHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	// 2. Valida o video_id como UUID v4 estrito.
 	if !uuidV4Re.MatchString(videoID) {
-		respondError(w, http.StatusBadRequest, "video_id inválido.")
+		apiresponse.Error(w, http.StatusBadRequest, "video_id inválido.")
 		return
 	}
 
 	// 3. Valida a resolução contra a lista permitida.
 	if !allowedResolutions[resolution] {
-		respondError(w, http.StatusBadRequest, "Resolução inválida.")
+		apiresponse.Error(w, http.StatusBadRequest, "Resolução inválida.")
 		return
 	}
 
 	// 4. Filename vazio (path terminando em "/", ex.: /videos/{id}/480/) é uma
 	// tentativa de listar o diretório da resolução. Nunca listamos: 404.
 	if filename == "" {
-		respondError(w, http.StatusNotFound, "Arquivo não encontrado.")
+		apiresponse.Error(w, http.StatusNotFound, "Arquivo não encontrado.")
 		return
 	}
 
 	// 5. Valida o filename: só segmentos "{digitos}.ts" ou "playlist.m3u8".
 	// Qualquer ".." ou barra extra reprova aqui.
-	if filename != "playlist.m3u8" && !segmentRe.MatchString(filename) {
-		respondError(w, http.StatusBadRequest, "Nome de arquivo inválido.")
+	if filename != "playlist.m3u8" && !models.SegmentNameRe.MatchString(filename) {
+		apiresponse.Error(w, http.StatusBadRequest, "Nome de arquivo inválido.")
 		return
 	}
 
@@ -242,12 +234,12 @@ func (h *StaticHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	var projectID sql.NullInt64
 	err := h.db.QueryRow("SELECT project_id FROM videos WHERE video_id = ?", videoID).Scan(&projectID)
 	if err != nil && err != sql.ErrNoRows {
-		respondError(w, http.StatusInternalServerError, "Erro ao consultar o vídeo.")
+		apiresponse.Error(w, http.StatusInternalServerError, "Erro ao consultar o vídeo.")
 		return
 	}
 	rootDir, err := models.ResolveVideoRootDir(h.db, nullableInt64(projectID))
 	if err != nil {
-		respondError(w, http.StatusInternalServerError, "Erro ao resolver o diretório do projeto.")
+		apiresponse.Error(w, http.StatusInternalServerError, "Erro ao resolver o diretório do projeto.")
 		return
 	}
 	path := filepath.Join(h.cfg.MediaDir, rootDir, videoID, resolution, filename)
@@ -257,7 +249,7 @@ func (h *StaticHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	mediaRoot := filepath.Clean(h.cfg.MediaDir)
 	cleanPath := filepath.Clean(path)
 	if cleanPath != mediaRoot && !strings.HasPrefix(cleanPath, mediaRoot+string(os.PathSeparator)) {
-		respondError(w, http.StatusBadRequest, "Caminho fora do diretório de mídia.")
+		apiresponse.Error(w, http.StatusBadRequest, "Caminho fora do diretório de mídia.")
 		return
 	}
 
@@ -265,14 +257,14 @@ func (h *StaticHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	info, err := os.Stat(cleanPath)
 	if err != nil {
 		if os.IsNotExist(err) {
-			respondError(w, http.StatusNotFound, "Arquivo não encontrado.")
+			apiresponse.Error(w, http.StatusNotFound, "Arquivo não encontrado.")
 			return
 		}
-		respondError(w, http.StatusInternalServerError, "Erro ao acessar o arquivo.")
+		apiresponse.Error(w, http.StatusInternalServerError, "Erro ao acessar o arquivo.")
 		return
 	}
 	if info.IsDir() {
-		respondError(w, http.StatusNotFound, "Arquivo não encontrado.")
+		apiresponse.Error(w, http.StatusNotFound, "Arquivo não encontrado.")
 		return
 	}
 
@@ -281,7 +273,7 @@ func (h *StaticHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	// dados de vídeo). Não registramos playlist.m3u8 aqui para evitar
 	// duplicidade com o evento "playback" já gerado no acesso ao master.
 	// Gravado de forma assíncrona para não atrasar a entrega do arquivo.
-	if segmentRe.MatchString(filename) {
+	if models.SegmentNameRe.MatchString(filename) {
 		resInt, err := strconv.Atoi(resolution)
 		if err == nil {
 			recordPlaybackAsync(h.db, videoID, "download_segment", &resInt, r.Header.Get("User-Agent"), h.onStatsRecorded)

@@ -11,6 +11,7 @@ import (
 
 	"github.com/go-chi/chi/v5"
 
+	"github.com/klawdyo/streamedia/internal/apiresponse"
 	"github.com/klawdyo/streamedia/internal/models"
 )
 
@@ -54,10 +55,13 @@ func TestCreateProject_ReturnsSlugAndMasterKey(t *testing.T) {
 		t.Fatalf("esperava 201, obteve %d: %s", rec.Code, rec.Body.String())
 	}
 
-	var resp createProjectResponse
-	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+	var env apiresponse.Envelope
+	if err := json.Unmarshal(rec.Body.Bytes(), &env); err != nil {
 		t.Fatalf("erro ao fazer unmarshal: %v", err)
 	}
+	dataJSON, _ := json.Marshal(env.Data)
+	var resp createProjectResponse
+	json.Unmarshal(dataJSON, &resp)
 
 	if resp.Slug != "acme-studios" {
 		t.Errorf("esperava slug 'acme-studios', obteve %q", resp.Slug)
@@ -143,10 +147,13 @@ func TestListProjects_OmitsMasterKeyHash(t *testing.T) {
 		t.Errorf("a resposta de listagem não deveria conter 'master_key' (hash ou texto puro): %s", bodyStr)
 	}
 
-	var resp listProjectsResponse
-	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+	var env apiresponse.Envelope
+	if err := json.Unmarshal(rec.Body.Bytes(), &env); err != nil {
 		t.Fatalf("erro ao fazer unmarshal: %v", err)
 	}
+	dataJSON, _ := json.Marshal(env.Data)
+	var resp listProjectsResponse
+	json.Unmarshal(dataJSON, &resp)
 	if resp.Total != 2 {
 		t.Errorf("esperava 2 projetos, obteve %d", resp.Total)
 	}
@@ -230,10 +237,13 @@ func TestIssueUploadToken_RequiresProjectMasterKey(t *testing.T) {
 		t.Fatalf("com a própria chave mestra: esperava 201, obteve %d: %s", recOK.Code, recOK.Body.String())
 	}
 
-	var resp issueUploadTokenResponse
-	if err := json.Unmarshal(recOK.Body.Bytes(), &resp); err != nil {
+	var env apiresponse.Envelope
+	if err := json.Unmarshal(recOK.Body.Bytes(), &env); err != nil {
 		t.Fatalf("erro ao fazer unmarshal: %v", err)
 	}
+	dataJSON, _ := json.Marshal(env.Data)
+	var resp issueUploadTokenResponse
+	json.Unmarshal(dataJSON, &resp)
 	if resp.VideoID == "" || resp.Token == "" {
 		t.Errorf("esperava video_id e token preenchidos na resposta: %+v", resp)
 	}
@@ -272,10 +282,13 @@ func TestIssueUploadToken_ShortTTL(t *testing.T) {
 		t.Fatalf("esperava 201, obteve %d: %s", rec.Code, rec.Body.String())
 	}
 
-	var resp issueUploadTokenResponse
-	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+	var env apiresponse.Envelope
+	if err := json.Unmarshal(rec.Body.Bytes(), &env); err != nil {
 		t.Fatalf("erro ao fazer unmarshal: %v", err)
 	}
+	dataJSON, _ := json.Marshal(env.Data)
+	var resp issueUploadTokenResponse
+	json.Unmarshal(dataJSON, &resp)
 
 	expiresAt, err := time.Parse(time.RFC3339, resp.ExpiresAt)
 	if err != nil {

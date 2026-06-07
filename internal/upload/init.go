@@ -3,14 +3,15 @@ package upload
 import (
 	"database/sql"
 	"encoding/json"
-	"fmt"
 	"io"
 	"net/http"
 	"strings"
 	"time"
 
+	"github.com/klawdyo/streamedia/internal/apiresponse"
 	"github.com/klawdyo/streamedia/internal/auth"
 	"github.com/klawdyo/streamedia/internal/config"
+	"github.com/klawdyo/streamedia/internal/httputil"
 	"github.com/klawdyo/streamedia/internal/models"
 )
 
@@ -51,7 +52,7 @@ func (h *InitHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	// 1. Lê o corpo da requisição com limite de 1MB.
 	bodyBytes, err := io.ReadAll(io.LimitReader(r.Body, 1<<20))
 	if err != nil {
-		respondError(w, http.StatusBadRequest, "Corpo da requisição inválido.")
+		apiresponse.Error(w, http.StatusBadRequest, "Corpo da requisição inválido.")
 		return
 	}
 
@@ -64,16 +65,16 @@ func (h *InitHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		project, err = models.GetProjectByMasterKeyHash(h.db, models.HashMasterKey(projectKey))
 		if err != nil {
 			if err == sql.ErrNoRows {
-				respondError(w, http.StatusUnauthorized, "Chave de projeto inválida.")
+				apiresponse.Error(w, http.StatusUnauthorized, "Chave de projeto inválida.")
 				return
 			}
-			respondError(w, http.StatusInternalServerError, "Falha ao validar a chave de projeto.")
+			apiresponse.Error(w, http.StatusInternalServerError, "Falha ao validar a chave de projeto.")
 			return
 		}
 	} else {
 		sig := r.Header.Get("X-Upload-Auth")
 		if sig == "" || !auth.ValidateBackendAuth(h.cfg.UploadTokenSecret, bodyBytes, sig) {
-			respondError(w, http.StatusUnauthorized, "Autorização inválida.")
+			apiresponse.Error(w, http.StatusUnauthorized, "Autorização inválida.")
 			return
 		}
 	}
@@ -81,7 +82,7 @@ func (h *InitHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	// 3. Faz o parse do JSON do corpo.
 	var req initRequest
 	if err := json.Unmarshal(bodyBytes, &req); err != nil {
-		respondError(w, http.StatusBadRequest, "JSON inválido.")
+		apiresponse.Error(w, http.StatusBadRequest, "JSON inválido.")
 		return
 	}
 
@@ -94,23 +95,23 @@ func (h *InitHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		var err error
 		videoID, err = models.NewVideoID()
 		if err != nil {
-			respondError(w, http.StatusInternalServerError, "Falha ao gerar video_id.")
+			apiresponse.Error(w, http.StatusInternalServerError, "Falha ao gerar video_id.")
 			return
 		}
 	} else if !models.IsValidVideoIDFormat(videoID) {
 		// video_id informado mas não é um UUID bem-formado — rejeita.
 		// Continua barrando path traversal: só UUIDs passam.
-		respondError(w, http.StatusBadRequest, "video_id inválido: deve ser um UUID bem-formado.")
+		apiresponse.Error(w, http.StatusBadRequest, "video_id inválido: deve ser um UUID bem-formado.")
 		return
 	}
 
 	// 5. Valida declared_size_bytes: deve ser positivo e dentro do limite.
 	if req.DeclaredSizeBytes <= 0 {
-		respondError(w, http.StatusBadRequest, "declared_size_bytes deve ser maior que zero.")
+		apiresponse.Error(w, http.StatusBadRequest, "declared_size_bytes deve ser maior que zero.")
 		return
 	}
 	if req.DeclaredSizeBytes > h.cfg.MaxUploadSizeBytes {
-		respondError(w, http.StatusRequestEntityTooLarge, "declared_size_bytes acima do limite permitido.")
+		apiresponse.Error(w, http.StatusRequestEntityTooLarge, "declared_size_bytes acima do limite permitido.")
 		return
 	}
 
@@ -122,10 +123,10 @@ func (h *InitHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	if err := models.InsertVideoForProject(h.db, videoID, req.DeclaredSizeBytes, projectID); err != nil {
 		if strings.Contains(err.Error(), "UNIQUE") {
-			respondError(w, http.StatusConflict, "video_id já existe.")
+			apiresponse.Error(w, http.StatusConflict, "video_id já existe.")
 			return
 		}
-		respondError(w, http.StatusInternalServerError, "Falha ao registrar o vídeo.")
+		apiresponse.Error(w, http.StatusInternalServerError, "Falha ao registrar o vídeo.")
 		return
 	}
 
@@ -147,40 +148,20 @@ func (h *InitHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	expiresAt := time.Now().Add(ttl)
 	if err := models.InsertUploadTokenForProject(h.db, token, videoID, expiresAt, projectID); err != nil {
-		respondError(w, http.StatusInternalServerError, "Falha ao registrar o token de upload.")
+		apiresponse.Error(w, http.StatusInternalServerError, "Falha ao registrar o token de upload.")
 		return
 	}
 
-	// 8. Constrói a URL de upload respeitando proxies (X-Forwarded-*).
-	scheme := "https"
-	if r.TLS == nil {
-		if fwdProto := r.Header.Get("X-Forwarded-Proto"); fwdProto != "" {
-			scheme = fwdProto
-		} else {
-			scheme = "http"
-		}
-	}
-	host := r.Host
-	if fwdHost := r.Header.Get("X-Forwarded-Host"); fwdHost != "" {
-		host = fwdHost
-	}
-	uploadURL := fmt.Sprintf("%s://%s/files/%s", scheme, host, videoID)
+	// 8. Constrói a URL de upload usando a função centralizada (httputil),
+	// que resolve scheme/host a partir dos headers de proxy (X-Forwarded-*).
+	uploadURL := httputil.PublicUploadURL(r, videoID)
 
 	// 9. Responde 200 com video_id, URL de upload e o token.
 	// video_id sempre está presente na resposta: gerado pelo servidor ou
 	// ecoado do que o cliente informou.
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusOK)
-	_ = json.NewEncoder(w).Encode(map[string]string{
+	apiresponse.Success(w, http.StatusOK, map[string]string{
 		"video_id":   videoID,
 		"upload_url": uploadURL,
 		"token":      token,
 	})
-}
-
-// respondError escreve uma resposta de erro JSON com o status e mensagem dados.
-func respondError(w http.ResponseWriter, status int, msg string) {
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(status)
-	fmt.Fprintf(w, `{"error":%q}`, msg)
 }

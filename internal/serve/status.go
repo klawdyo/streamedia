@@ -2,11 +2,11 @@ package serve
 
 import (
 	"database/sql"
-	"encoding/json"
 	"net/http"
 	"strings"
 	"time"
 
+	"github.com/klawdyo/streamedia/internal/apiresponse"
 	"github.com/klawdyo/streamedia/internal/auth"
 	"github.com/klawdyo/streamedia/internal/config"
 	"github.com/klawdyo/streamedia/internal/models"
@@ -49,37 +49,37 @@ func (h *StatusHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if videoID == "" {
-		respondError(w, http.StatusBadRequest, "video_id inválido.")
+		apiresponse.Error(w, http.StatusBadRequest, "video_id inválido.")
 		return
 	}
 
 	// 2. Valida o video_id como UUID v4 estrito.
 	if !uuidV4Re.MatchString(videoID) {
-		respondError(w, http.StatusBadRequest, "video_id inválido.")
+		apiresponse.Error(w, http.StatusBadRequest, "video_id inválido.")
 		return
 	}
 
 	// 3. Valida o HMAC da requisição usando X-Status-Auth header.
 	signature := r.Header.Get("X-Status-Auth")
 	if signature == "" {
-		respondError(w, http.StatusUnauthorized, "Header X-Status-Auth ausente.")
+		apiresponse.Error(w, http.StatusUnauthorized, "Header X-Status-Auth ausente.")
 		return
 	}
 
 	// Valida a assinatura HMAC com o video_id como body
 	if !auth.ValidateBackendAuth(h.cfg.UploadTokenSecret, []byte(videoID), signature) {
-		respondError(w, http.StatusUnauthorized, "Autenticação inválida.")
+		apiresponse.Error(w, http.StatusUnauthorized, "Autenticação inválida.")
 		return
 	}
 
 	// 4. Busca o vídeo no banco.
 	video, err := models.GetVideo(h.db, videoID)
 	if err == sql.ErrNoRows {
-		respondError(w, http.StatusNotFound, "Vídeo não encontrado.")
+		apiresponse.Error(w, http.StatusNotFound, "Vídeo não encontrado.")
 		return
 	}
 	if err != nil {
-		respondError(w, http.StatusInternalServerError, "Erro ao consultar o vídeo.")
+		apiresponse.Error(w, http.StatusInternalServerError, "Erro ao consultar o vídeo.")
 		return
 	}
 
@@ -113,8 +113,6 @@ func (h *StatusHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		UpdatedAt:         video.UpdatedAt,
 	}
 
-	// 6. Escreve a resposta JSON.
-	w.Header().Set("Content-Type", "application/json; charset=utf-8")
-	w.WriteHeader(http.StatusOK)
-	_ = json.NewEncoder(w).Encode(resp)
+	// 6. Escreve a resposta JSON no envelope padrão.
+	apiresponse.Success(w, http.StatusOK, resp)
 }
