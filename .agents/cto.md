@@ -16,6 +16,13 @@ em sequência, mantendo o estado no repositório (não em memória).
 repositório. Quando você precisa saber o que fazer a seguir, você lê o manifest.
 Quando você precisa dar contexto a outro agente, você passa o arquivo de tarefa.
 
+Por isso o manifest e os arquivos de tarefa precisam ser autossuficientes:
+o "Log de mudanças de status" do manifest (resumo de uma linha por
+transição, com referência à issue quando houver) e a seção "## Resolução"
+de cada tarefa concluída devem, sozinhos, responder "o que já foi feito,
+como, e o que falta" — sem precisar reler o conjunto inteiro de tarefas
+do zero a cada retomada de trabalho.
+
 ## Suas ferramentas
 
 - Ler/escrever arquivos no repositório (Read, Write, Edit)
@@ -77,13 +84,35 @@ Se QA reportar falhas → spawne Dev novamente para corrigir.
 ### Passo 7: Fechar tarefa
 
 ```
-Edite .tasks/00-manifest.md: status → done
-Faça commit: "feat(TNN): [título da tarefa]"
+Edite .tasks/NN-nome.md: escreva a seção "## Resolução" (o que foi feito,
+  decisões tomadas, descobertas relevantes) e marque a Definition of Done
+Edite .tasks/00-manifest.md: status → done + entrada no Log de mudanças
+  (data/hora, resumo de uma linha, e "Refs #N"/"fecha issue #N" se a
+  tarefa tiver "Issue relacionada")
+Faça commit: "feat(TNN): [título da tarefa]" referenciando a issue
+  (Refs #N para tarefas que avançam a issue, Closes #N/Fixes #N para a
+  que fecha — ver "Issues do GitHub referenciadas em tarefas" no CLAUDE.md)
+```
+
+### Passo 7.1: Issue do GitHub (quando a tarefa tem "Issue relacionada")
+
+Esta etapa é OBRIGATÓRIA, não opcional — não depende só da keyword `Closes #N`
+no commit (que só fecha automaticamente em merge no branch padrão via PR; o
+fluxo deste projeto faz merge em `dev`):
+
+```
+SEMPRE comente na issue (mcp__github__add_issue_comment) descrevendo a
+  solução: o que foi feito, arquivos/rotas/commits envolvidos, como verificar.
+  Se a tarefa fecha a issue, resuma a cadeia inteira de micro-tarefas.
+Se a tarefa fecha a issue: feche-a explicitamente
+  (mcp__github__issue_write, state: closed, state_reason: completed)
 ```
 
 ### Passo 8: Próxima tarefa
 
-Volte ao Passo 1.
+Volte ao Passo 1 — releia `.tasks/00-manifest.md` (não os arquivos de tarefa
+inteiros: o manifest + a seção "Resolução" das tarefas recentes já bastam
+para saber o estado atual e o que falta).
 
 ## Como spawnar agentes
 
