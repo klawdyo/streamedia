@@ -12,6 +12,7 @@ import (
 
 	"github.com/klawdyo/streamedia/internal/admin"
 	"github.com/klawdyo/streamedia/internal/config"
+	"github.com/klawdyo/streamedia/internal/docs"
 	"github.com/klawdyo/streamedia/internal/middleware"
 	"github.com/klawdyo/streamedia/internal/models"
 	"github.com/klawdyo/streamedia/internal/serve"
@@ -54,6 +55,7 @@ func NewRouter(
 	staticHandler := serve.NewStaticHandler(cfg)
 	statusHandler := serve.NewStatusHandler(cfg, database)
 	adminHandler := admin.NewAdminHandler(cfg, database, queue)
+	docsHandler := docs.NewHandler()
 	rateLimiter := middleware.NewRateLimiter(cfg.RateLimitPerMin)
 
 	r := chi.NewRouter()
@@ -92,6 +94,10 @@ func NewRouter(
 		r.Get("/admin/videos", adminHandler.HandleVideos)
 		r.Get("/admin/queue", adminHandler.HandleQueue)
 	})
+
+	// --- Documentação da API (pública, spec OpenAPI estática + UI Scalar via CDN) ---
+	r.Get("/docs", docsHandler.ServePage)
+	r.Get("/docs/openapi.json", docsHandler.ServeSpec)
 
 	// --- Health check ---
 	r.Get("/healthz", func(w http.ResponseWriter, _ *http.Request) {

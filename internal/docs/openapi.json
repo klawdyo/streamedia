@@ -1,0 +1,299 @@
+{
+  "openapi": "3.0.3",
+  "info": {
+    "title": "Streamedia Media Server API",
+    "description": "Serviço de upload, transcodificação e entrega de vídeo em HLS. Documentação de referência das rotas expostas pelo servidor.",
+    "version": "1.0.0"
+  },
+  "servers": [
+    { "url": "/", "description": "Servidor atual" }
+  ],
+  "components": {
+    "securitySchemes": {
+      "uploadHmac": {
+        "type": "apiKey",
+        "in": "header",
+        "name": "X-Upload-Auth",
+        "description": "HMAC-SHA256 (em hex) do corpo da requisição, assinado com UPLOAD_TOKEN_SECRET. Usado para chamadas server-to-server do backend principal."
+      },
+      "uploadBearer": {
+        "type": "http",
+        "scheme": "bearer",
+        "description": "Token retornado por POST /upload/init, usado para autenticar o upload TUS do arquivo."
+      },
+      "playToken": {
+        "type": "apiKey",
+        "in": "query",
+        "name": "token",
+        "description": "Token de reprodução: HMAC-SHA256 sobre \"{video_id}:{expires_unix}\", assinado com UPLOAD_TOKEN_SECRET. Acompanhado do query param `expires`."
+      },
+      "adminBearer": {
+        "type": "http",
+        "scheme": "bearer",
+        "description": "Token administrativo fixo (ADMIN_TOKEN), comparado em tempo constante."
+      }
+    },
+    "schemas": {
+      "Video": {
+        "type": "object",
+        "properties": {
+          "video_id": { "type": "string", "format": "uuid" },
+          "status": {
+            "type": "string",
+            "enum": ["pending_upload", "uploading", "upload_complete", "transcoding", "ready", "failed_upload", "failed_transcode"]
+          },
+          "declared_size_bytes": { "type": "integer" },
+          "actual_size_bytes": { "type": "integer", "nullable": true },
+          "duration_s": { "type": "integer", "nullable": true },
+          "resolutions": { "type": "array", "items": { "type": "integer" } },
+          "transcode_attempts": { "type": "integer" },
+          "error_message": { "type": "string", "nullable": true },
+          "created_at": { "type": "string", "format": "date-time" },
+          "updated_at": { "type": "string", "format": "date-time" }
+        }
+      },
+      "Error": {
+        "type": "object",
+        "properties": {
+          "error": { "type": "string" }
+        }
+      }
+    }
+  },
+  "paths": {
+    "/upload/init": {
+      "post": {
+        "summary": "Inicializa um upload",
+        "description": "Chamada exclusivamente pelo backend principal (server-to-server) para registrar um novo vídeo e obter a URL de upload TUS.",
+        "security": [{ "uploadHmac": [] }],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["video_id", "declared_size_bytes"],
+                "properties": {
+                  "video_id": { "type": "string", "format": "uuid" },
+                  "declared_size_bytes": { "type": "integer" }
+                }
+              },
+              "example": {
+                "video_id": "550e8400-e29b-41d4-a716-446655440000",
+                "declared_size_bytes": 52428800
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Upload inicializado com sucesso",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "upload_url": { "type": "string" },
+                    "token": { "type": "string" }
+                  }
+                },
+                "example": {
+                  "upload_url": "https://media.exemplo.com/files/550e8400-e29b-41d4-a716-446655440000",
+                  "token": "a3f1c9..."
+                }
+              }
+            }
+          },
+          "400": { "description": "JSON inválido ou video_id não é UUID v4", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } },
+          "401": { "description": "Assinatura HMAC inválida", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } },
+          "409": { "description": "video_id já existe", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } },
+          "413": { "description": "declared_size_bytes acima do limite", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } }
+        }
+      }
+    },
+    "/files/": {
+      "post": {
+        "summary": "Cria upload TUS (sem video_id)",
+        "description": "Protocolo TUS v1 para upload resumível. Raramente usado diretamente — o fluxo normal cria o upload em /files/{video_id}.",
+        "security": [{ "uploadBearer": [] }],
+        "responses": {
+          "201": { "description": "Upload TUS criado" }
+        }
+      }
+    },
+    "/files/{video_id}": {
+      "parameters": [
+        { "name": "video_id", "in": "path", "required": true, "schema": { "type": "string", "format": "uuid" } }
+      ],
+      "post": {
+        "summary": "Cria upload TUS para o video_id",
+        "security": [{ "uploadBearer": [] }],
+        "responses": { "201": { "description": "Upload TUS criado" } }
+      },
+      "patch": {
+        "summary": "Envia chunk de dados (TUS)",
+        "description": "Requer headers TUS: Tus-Resumable, Content-Type: application/offset+octet-stream, Upload-Offset.",
+        "security": [{ "uploadBearer": [] }],
+        "responses": { "204": { "description": "Chunk recebido, offset atualizado" } }
+      },
+      "head": {
+        "summary": "Consulta offset atual do upload (para retomada)",
+        "security": [{ "uploadBearer": [] }],
+        "responses": { "200": { "description": "Offset atual retornado em Upload-Offset" } }
+      },
+      "delete": {
+        "summary": "Cancela e remove o upload",
+        "security": [{ "uploadBearer": [] }],
+        "responses": { "204": { "description": "Upload cancelado e removido" } }
+      }
+    },
+    "/videos/{video_id}/master.m3u8": {
+      "get": {
+        "summary": "Playlist HLS master",
+        "description": "Retorna o playlist HLS master do vídeo. Requer token de reprodução assinado.",
+        "security": [{ "playToken": [] }],
+        "parameters": [
+          { "name": "video_id", "in": "path", "required": true, "schema": { "type": "string", "format": "uuid" } },
+          { "name": "token", "in": "query", "required": true, "schema": { "type": "string" }, "description": "Token de reprodução HMAC-SHA256" },
+          { "name": "expires", "in": "query", "required": true, "schema": { "type": "integer" }, "description": "Timestamp Unix de expiração do token" }
+        ],
+        "responses": {
+          "200": {
+            "description": "Playlist HLS master",
+            "content": {
+              "application/vnd.apple.mpegurl": {
+                "schema": { "type": "string" },
+                "example": "#EXTM3U\n#EXT-X-VERSION:3\n#EXT-X-STREAM-INF:BANDWIDTH=800000,RESOLUTION=640x360\n360/playlist.m3u8\n#EXT-X-STREAM-INF:BANDWIDTH=1400000,RESOLUTION=1280x720\n720/playlist.m3u8"
+              }
+            }
+          },
+          "401": { "description": "Token inválido, expirado ou ausente" },
+          "404": { "description": "Vídeo não encontrado ou ainda não disponível" }
+        }
+      }
+    },
+    "/videos/{video_id}/{res}/playlist.m3u8": {
+      "get": {
+        "summary": "Playlist HLS de uma resolução específica",
+        "description": "Servida estaticamente, sem autenticação adicional além do conhecimento da URL.",
+        "parameters": [
+          { "name": "video_id", "in": "path", "required": true, "schema": { "type": "string", "format": "uuid" } },
+          { "name": "res", "in": "path", "required": true, "schema": { "type": "integer" }, "description": "Resolução vertical (ex: 360, 720)" }
+        ],
+        "responses": {
+          "200": { "description": "Playlist HLS da resolução", "content": { "application/vnd.apple.mpegurl": { "schema": { "type": "string" } } } },
+          "404": { "description": "Playlist não encontrada" }
+        }
+      }
+    },
+    "/videos/{video_id}/{res}/{segment}": {
+      "get": {
+        "summary": "Segmento de vídeo HLS (.ts)",
+        "description": "Servida estaticamente, sem autenticação adicional além do conhecimento da URL.",
+        "parameters": [
+          { "name": "video_id", "in": "path", "required": true, "schema": { "type": "string", "format": "uuid" } },
+          { "name": "res", "in": "path", "required": true, "schema": { "type": "integer" } },
+          { "name": "segment", "in": "path", "required": true, "schema": { "type": "string" }, "description": "Nome do arquivo do segmento (ex: segment_000.ts)" }
+        ],
+        "responses": {
+          "200": { "description": "Segmento de vídeo", "content": { "video/mp2t": { "schema": { "type": "string", "format": "binary" } } } },
+          "404": { "description": "Segmento não encontrado" }
+        }
+      }
+    },
+    "/api/status/{video_id}": {
+      "get": {
+        "summary": "Consulta o status de um vídeo",
+        "description": "Chamada pelo backend principal (server-to-server) para acompanhar o progresso do upload/transcodificação.",
+        "security": [{ "uploadHmac": [] }],
+        "parameters": [
+          { "name": "video_id", "in": "path", "required": true, "schema": { "type": "string", "format": "uuid" } }
+        ],
+        "responses": {
+          "200": {
+            "description": "Status do vídeo",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/Video" },
+                "example": {
+                  "video_id": "550e8400-e29b-41d4-a716-446655440000",
+                  "status": "ready",
+                  "duration_s": 120,
+                  "resolutions": [360, 720],
+                  "declared_size_bytes": 52428800,
+                  "actual_size_bytes": 51200000
+                }
+              }
+            }
+          },
+          "401": { "description": "Assinatura HMAC inválida" },
+          "404": { "description": "video_id não encontrado" }
+        }
+      }
+    },
+    "/admin/videos": {
+      "get": {
+        "summary": "Lista vídeos (admin)",
+        "description": "Retorna a lista paginada de vídeos no banco.",
+        "security": [{ "adminBearer": [] }],
+        "parameters": [
+          { "name": "status", "in": "query", "schema": { "type": "string" }, "description": "Filtra por status" },
+          { "name": "limit", "in": "query", "schema": { "type": "integer", "default": 50, "maximum": 200 } },
+          { "name": "offset", "in": "query", "schema": { "type": "integer", "default": 0 } }
+        ],
+        "responses": {
+          "200": {
+            "description": "Lista de vídeos",
+            "content": {
+              "application/json": {
+                "schema": { "type": "array", "items": { "$ref": "#/components/schemas/Video" } }
+              }
+            }
+          },
+          "401": { "description": "Token admin ausente ou inválido" }
+        }
+      }
+    },
+    "/admin/queue": {
+      "get": {
+        "summary": "Estado da fila de transcodificação (admin)",
+        "security": [{ "adminBearer": [] }],
+        "responses": {
+          "200": {
+            "description": "Estado atual da fila",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "pending": { "type": "integer" },
+                    "capacity": { "type": "integer" }
+                  }
+                },
+                "example": { "pending": 3, "capacity": 50 }
+              }
+            }
+          },
+          "401": { "description": "Token admin ausente ou inválido" }
+        }
+      }
+    },
+    "/healthz": {
+      "get": {
+        "summary": "Health check",
+        "description": "Usado por Docker e load balancers. Não requer autenticação.",
+        "responses": {
+          "200": {
+            "description": "Servidor saudável",
+            "content": {
+              "application/json": {
+                "schema": { "type": "object", "properties": { "status": { "type": "string" } } },
+                "example": { "status": "ok" }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

@@ -137,6 +137,13 @@ Variáveis como `MAX_UPLOAD_SIZE_MB`, `PORT`, etc. têm padrão definido no `doc
 
 ## Rotas da API
 
+> **Documentação interativa:** acesse `GET /docs` para uma interface visual
+> (gerada com [Scalar](https://scalar.com/) carregado via CDN) que consome a
+> especificação OpenAPI 3.x servida em `GET /docs/openapi.json`. Ambas as
+> rotas são públicas e não exigem autenticação. A spec é escrita manualmente
+> em `internal/docs/openapi.json` — não há geração automática a partir de
+> comentários nas rotas.
+
 ### POST /upload/init
 
 Inicializa um upload. Chamada exclusivamente pelo **backend principal** (server-to-server).

@@ -6,8 +6,8 @@ Status possíveis: `pending` | `in-progress` | `done` | `blocked`
 ## Progresso geral
 
 ```
-Total: 25 tarefas
-Done:  25
+Total: 26 tarefas
+Done:  26
 ```
 
 ## Lista de tarefas
@@ -39,6 +39,7 @@ Done:  25
 | T23 | `.tasks/23-github-actions.md` | GitHub Actions: ci.yml + release.yml | done | depende T22 |
 | T24 | `.tasks/24-readme.md` | README.md completo | done | depende T22 |
 | T25 | `.tasks/25-integration-tests.md` | Suite de testes de integração completa | done | depende T20 |
+| T26 | `.tasks/26-api-docs.md` | Documentação interativa da API (/docs com Scalar via CDN) | done | issue #12, depende T20 |
 
 ## Log de mudanças de status
 
@@ -82,3 +83,5 @@ Done:  25
 [2026-06-07 02:45] T24: in-progress → done
 [2026-06-07 02:45] T25: pending → in-progress
 [2026-06-07 03:00] T25: in-progress → done
+[2026-06-07 03:15] T26: pending → in-progress
+[2026-06-07 03:30] T26: in-progress → done
