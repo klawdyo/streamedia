@@ -56,6 +56,13 @@ Resumo das regras, aplicadas em ordem cronológica desde a última tag:
 Exemplo: `fix, fix, feat, fix` a partir de `0.0.0` → `0.0.1` → `0.0.2` → `0.1.0` → `0.1.1`.
 Se vier outro `feat` em seguida, o ciclo reinicia: `feat, fix` → `0.2.0` → `0.2.1`.
 
+### Commit-checkpoint `release:`
+
+Para não precisar reler todo o histórico a cada cálculo, o agente Versioner usa
+o commit `release: vX.Y.Z - resumo das mudanças` mais recente como ponto de
+partida e analisa apenas os commits posteriores a ele. Esse commit é criado
+SOMENTE mediante confirmação explícita do usuário — ver `.agents/versioner.md`.
+
 
 ## Convenção de idioma
 
