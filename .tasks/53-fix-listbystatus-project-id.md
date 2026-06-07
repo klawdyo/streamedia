@@ -18,10 +18,17 @@ A função `ListByStatus` em `internal/models/video.go:263` faz uma query
 
 O resultado é que **todo vídeo obtido via `ListByStatus` sempre terá
 `ProjectID = nil`**, mesmo que a linha no banco tenha `project_id`
-preenchido (FK para `projects`). Isso afeta qualquer código que chame
-`ListByStatus` e dependa do `ProjectID` do vídeo — ex.: filtro por
-escopo de projeto em rotas admin, resolução de diretório raiz do
-projeto no serving/transcodificação.
+preenchido (FK para `projects`, seja o projeto "default" ou outro).
+Isso afeta qualquer código que chame `ListByStatus` e dependa do
+`ProjectID` — ex.: filtro por escopo de projeto em rotas admin,
+resolução de diretório raiz em `ResolveVideoRootDir` (que depende
+de `project_id` para achar o slug e montar o path correto no disco).
+
+**Não existe "path legado" neste projeto** — o serviço nunca foi
+lançado e `project_id` deve sempre estar preenchido (todo vídeo
+pertence a um projeto, seja o "default" ou outro criado pelo
+usuário). Portanto `ProjectID = nil` é sempre um bug, nunca um
+fallback válido.
 
 Nenhum teste existente flagrou o bug porque os testes não populam
 `project_id` nas fixtures de `ListByStatus`.
@@ -32,17 +39,11 @@ Estenda `internal/models/video_test.go`:
 
 ```
 TestListByStatus_IncludesProjectID
-  - Cria um projeto (com slug e chave mestra)
+  - Cria um projeto (ex.: "default", ou um projeto arbitrário)
   - Insere um vídeo com project_id = id do projeto
   - Chama models.ListByStatus(db, StatusPendingUpload)
   - Verifica que o vídeo retornado tem ProjectID != nil
   - Verifica que *ProjectID é igual ao id do projeto criado
-
-TestListByStatus_ProjectID_NilParaVideoSemProjeto
-  - Insere um vídeo sem project_id (NULL no banco)
-  - Chama models.ListByStatus(db, StatusPendingUpload)
-  - Verifica que o vídeo retornado tem ProjectID == nil
-  - Garante que o comportamento não quebrou para vídeos legados
 
 TestGetVideo_IncludesProjectID (se ainda não existir)
   - Confirma que GetVideo JÁ retorna ProjectID corretamente
@@ -90,9 +91,7 @@ qualquer outra query da função. Só adicione a coluna que faltava.
 ## Definition of Done
 
 - [ ] `ListByStatus` inclui `project_id` no SELECT, Scan e conversão
-- [ ] Testes novos comprovam que `ProjectID` é populado quando o vídeo
-      tem projeto e `nil` quando não tem
-- [ ] `GetVideo` continua retornando `ProjectID` corretamente (baseline
-      não regrediu)
+- [ ] Teste novo comprova que `ProjectID` é populado com o id correto do projeto
+- [ ] `GetVideo` continua retornando `ProjectID` corretamente (baseline não regrediu)
 - [ ] `go test ./...` passa sem regressões
 - [ ] `go vet ./...` sem warnings
