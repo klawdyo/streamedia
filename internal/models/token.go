@@ -43,7 +43,7 @@ func parseDateTime(s string) time.Time {
 func InsertUploadToken(db *sql.DB, token, videoID string, expiresAt time.Time) error {
 	_, err := db.Exec(
 		`INSERT INTO upload_tokens (token, video_id, expires_at) VALUES (?, ?, ?)`,
-		token, videoID, expiresAt.UTC(),
+		token, videoID, expiresAt.UTC().Format("2006-01-02 15:04:05"),
 	)
 	return err
 }
@@ -89,7 +89,7 @@ func DeleteUploadToken(db *sql.DB, token string) error {
 // DeleteExpiredTokens remove todos os tokens com expires_at no passado.
 // Retorna o número de tokens deletados.
 func DeleteExpiredTokens(db *sql.DB) (int64, error) {
-	result, err := db.Exec(`DELETE FROM upload_tokens WHERE expires_at < CURRENT_TIMESTAMP`)
+	result, err := db.Exec(`DELETE FROM upload_tokens WHERE datetime(expires_at) < datetime('now')`)
 	if err != nil {
 		return 0, err
 	}
