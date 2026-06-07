@@ -7,7 +7,7 @@ Status possíveis: `pending` | `in-progress` | `done` | `blocked`
 
 ```
 Total: 25 tarefas
-Done:  19
+Done:  20
 ```
 
 ## Lista de tarefas
@@ -33,8 +33,8 @@ Done:  19
 | T17 | `.tasks/17-webhook-client.md` | Cliente de webhook com retry | done | |
 | T18 | `.tasks/18-admin-routes.md` | Rotas admin (/admin/videos, /admin/queue) | done | |
 | T19 | `.tasks/19-rate-limit.md` | Middleware de rate limiting por IP | done | |
-| T20 | `.tasks/20-server-assembly.md` | Montagem do servidor: chi + todas as rotas | in-progress | depende T08-T19 |
-| T21 | `.tasks/21-startup-recovery.md` | Recuperação de crash na inicialização | pending | depende T10 |
+| T20 | `.tasks/20-server-assembly.md` | Montagem do servidor: chi + todas as rotas | done | |
+| T21 | `.tasks/21-startup-recovery.md` | Recuperação de crash na inicialização | in-progress | depende T10 |
 | T22 | `.tasks/22-docker-config.md` | Dockerfile + docker-compose + .env.example | pending | depende T20 |
 | T23 | `.tasks/23-github-actions.md` | GitHub Actions: ci.yml + release.yml | pending | depende T22 |
 | T24 | `.tasks/24-readme.md` | README.md completo | pending | depende T22 |
@@ -71,3 +71,5 @@ Done:  19
 [2026-06-07 01:10] T18: in-progress → done
 [2026-06-07 01:10] T19: in-progress → done
 [2026-06-07 01:10] T20: pending → in-progress
+[2026-06-07 01:25] T20: in-progress → done
+[2026-06-07 01:25] T21: pending → in-progress
