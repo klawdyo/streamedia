@@ -215,6 +215,25 @@ func GetProjectByMasterKeyHash(db *sql.DB, hash string) (*Project, error) {
 	return scanProject(row.Scan)
 }
 
+// ResolveVideoRootDir devolve o diretório raiz (relativo a MEDIA_DIR) onde
+// os arquivos de um vídeo devem ser gravados/lidos — issue #6, T34: cada
+// projeto isola seus vídeos sob <MEDIA_DIR>/<slug>/<video_id>/...
+//
+// projectID nil devolve "" (layout legado: <MEDIA_DIR>/<video_id>/...) —
+// preserva compatibilidade para o raríssimo caso de um vídeo ainda não
+// migrado (ver internal/jobs.MigrateLegacyVideos, que assume todos os
+// vídeos antigos para um projeto "legacy" na inicialização).
+func ResolveVideoRootDir(db *sql.DB, projectID *int64) (string, error) {
+	if projectID == nil {
+		return "", nil
+	}
+	project, err := GetProjectByID(db, *projectID)
+	if err != nil {
+		return "", err
+	}
+	return project.RootDir, nil
+}
+
 // ListProjects retorna todos os projetos cadastrados, ordenados pelo nome.
 func ListProjects(db *sql.DB) ([]*Project, error) {
 	rows, err := db.Query(`SELECT ` + selectProjectColumns + ` FROM projects ORDER BY name ASC`)

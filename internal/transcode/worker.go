@@ -245,8 +245,14 @@ func (w *Worker) Transcode(videoID string) error {
 	// 5. Determina quais resoluções gerar.
 	resolutions := determineResolutions(probe.width, probe.height)
 
-	// 6. Diretório de saída base do vídeo.
-	outputDir := filepath.Join(w.cfg.MediaDir, videoID)
+	// 6. Diretório de saída base do vídeo — isolado por projeto (issue #6,
+	// T34): <MEDIA_DIR>/<slug-do-projeto>/<video_id>/. ProjectID nil
+	// resolve para "" (layout legado, sem prefixo de projeto).
+	rootDir, err := models.ResolveVideoRootDir(w.db, video.ProjectID)
+	if err != nil {
+		return fmt.Errorf("erro ao resolver diretório do projeto para %s: %w", videoID, err)
+	}
+	outputDir := filepath.Join(w.cfg.MediaDir, rootDir, videoID)
 	if err := os.MkdirAll(outputDir, 0755); err != nil {
 		return w.handleTranscodeFailure(videoID, video.TranscodeAttempts,
 			fmt.Sprintf("erro ao criar diretório de saída: %v", err))

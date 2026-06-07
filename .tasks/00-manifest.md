@@ -7,8 +7,8 @@ Status possíveis: `pending` | `in-progress` | `done` | `blocked`
 
 ```
 Total: 37 tarefas
-Done:  33
-Pending: 4
+Done:  34
+Pending: 3
 ```
 
 ## Lista de tarefas
@@ -48,7 +48,7 @@ Pending: 4
 | T31 | `.tasks/31-env-vars-seconds.md` | Padronizar variáveis de tempo das envs em segundos | done | sem dependências — issue #4 — fecha a issue #4 |
 | T32 | `.tasks/32-project-model.md` | Model de Projeto (slug, diretório raiz, chave mestra) | done | depende T03, T31 — issue #6 |
 | T33 | `.tasks/33-scoped-api-keys.md` | Chaves de API escopadas por projeto (upload/listagem/admin) | done | depende T32 — issue #6 |
-| T34 | `.tasks/34-project-storage-layout.md` | Layout de armazenamento por projeto (diretórios isolados) | pending | depende T32, T33 — issue #6 |
+| T34 | `.tasks/34-project-storage-layout.md` | Layout de armazenamento por projeto (diretórios isolados) | done | depende T32, T33 — issue #6 |
 | T35 | `.tasks/35-project-management-routes.md` | Rotas de gerenciamento de projetos | pending | depende T32, T33 — issue #6 — fecha a issue #6 |
 | T36 | `.tasks/36-storage-stats-model.md` | Model de armazenamento por vídeo (bytes, duração, status) | pending | depende T03, T04 (recomendado após T34) — issue #5 |
 | T37 | `.tasks/37-storage-stats-route.md` | Expor estatísticas de armazenamento e fila em `/admin/stats` | pending | depende T36, T28 — issue #5 — fecha a issue #5 |
@@ -142,3 +142,5 @@ Resumo por issue:
 [2026-06-07 08:20] T32: in-progress → done (model de Projeto: slug, chave mestra com hash, CRUD básico — fundação da issue #6)
 [2026-06-07 08:35] T33: pending → in-progress
 [2026-06-07 09:10] T33: in-progress → done (chaves escopadas por projeto: X-Project-Key em /upload/init com TTL curto, leitura já escopada por video_id, admin com escopo por projeto via opção (a) — Refs #6)
+[2026-06-07 09:30] T34: pending → in-progress
+[2026-06-07 09:55] T34: in-progress → done (layout de armazenamento isolado por projeto: ResolveVideoRootDir unifica worker/serving, migração idempotente de vídeos legados para o projeto "Legacy" no startup — Refs #6)

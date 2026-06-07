@@ -52,6 +52,14 @@ func main() {
 		log.Printf("recovery: %v", err)
 	}
 
+	// Migração de armazenamento por projeto (issue #6, T34): garante que
+	// todo vídeo tenha um projeto associado, movendo vídeos antigos
+	// (sem project_id) para o projeto "Legacy" — único layout de
+	// armazenamento, idempotente, seguro para rodar a cada start.
+	if _, err := jobs.MigrateLegacyVideos(database, cfg.MediaDir); err != nil {
+		log.Printf("migration: %v", err)
+	}
+
 	queue.Start()
 	defer queue.Stop()
 

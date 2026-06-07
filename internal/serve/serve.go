@@ -131,7 +131,8 @@ func (h *MasterHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	// 5. Busca o vídeo no banco e exige status "ready".
 	var status string
-	err = h.db.QueryRow("SELECT status FROM videos WHERE video_id = ?", videoID).Scan(&status)
+	var projectID sql.NullInt64
+	err = h.db.QueryRow("SELECT status, project_id FROM videos WHERE video_id = ?", videoID).Scan(&status, &projectID)
 	if err == sql.ErrNoRows {
 		respondError(w, http.StatusNotFound, "Vídeo não encontrado.")
 		return
@@ -150,9 +151,25 @@ func (h *MasterHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	// Gravado de forma assíncrona para não atrasar a entrega do conteúdo.
 	recordPlaybackAsync(h.db, videoID, "playback", nil, r.Header.Get("User-Agent"), h.onStatsRecorded)
 
-	// 7. Serve o arquivo master.m3u8 do diretório do vídeo.
-	masterPath := filepath.Join(h.cfg.MediaDir, videoID, "master.m3u8")
+	// 7. Resolve o diretório raiz do projeto (issue #6, T34) e serve o
+	// master.m3u8 de <MEDIA_DIR>/<slug-do-projeto>/<video_id>/master.m3u8.
+	rootDir, err := models.ResolveVideoRootDir(h.db, nullableInt64(projectID))
+	if err != nil {
+		respondError(w, http.StatusInternalServerError, "Erro ao resolver o diretório do projeto.")
+		return
+	}
+	masterPath := filepath.Join(h.cfg.MediaDir, rootDir, videoID, "master.m3u8")
 	http.ServeFile(w, r, masterPath)
+}
+
+// nullableInt64 converte um sql.NullInt64 em *int64 (nil se NULL) — usado
+// para repassar project_id a models.ResolveVideoRootDir.
+func nullableInt64(n sql.NullInt64) *int64 {
+	if !n.Valid {
+		return nil
+	}
+	v := n.Int64
+	return &v
 }
 
 // StaticHandler serve playlists de resolução e segmentos .ts como arquivos
@@ -214,8 +231,24 @@ func (h *StaticHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// 5. Constrói o path final dentro do MediaDir.
-	path := filepath.Join(h.cfg.MediaDir, videoID, resolution, filename)
+	// 5. Resolve o diretório raiz do projeto do vídeo (issue #6, T34) e
+	// constrói o path final dentro do MediaDir:
+	// <MEDIA_DIR>/<slug-do-projeto>/<video_id>/<resolution>/<filename>.
+	// Vídeo inexistente aqui não é erro de autorização — os segmentos são
+	// públicos e "opacos"; tratamos como arquivo não encontrado (404),
+	// igual a qualquer outro caminho inválido nesta rota.
+	var projectID sql.NullInt64
+	err := h.db.QueryRow("SELECT project_id FROM videos WHERE video_id = ?", videoID).Scan(&projectID)
+	if err != nil && err != sql.ErrNoRows {
+		respondError(w, http.StatusInternalServerError, "Erro ao consultar o vídeo.")
+		return
+	}
+	rootDir, err := models.ResolveVideoRootDir(h.db, nullableInt64(projectID))
+	if err != nil {
+		respondError(w, http.StatusInternalServerError, "Erro ao resolver o diretório do projeto.")
+		return
+	}
+	path := filepath.Join(h.cfg.MediaDir, rootDir, videoID, resolution, filename)
 
 	// 6. Proteção extra contra traversal: o path resolvido precisa estar
 	// contido no MediaDir. Usamos filepath.Clean nas duas pontas.
