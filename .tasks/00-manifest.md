@@ -8,7 +8,7 @@ Status possíveis: `pending` | `in-progress` | `done` | `blocked`
 ```
 Total: 46 tarefas
 Done:  37
-Pending: 9 (T38-T43, issues #7/#8; T44, T45, T46, solicitações diretas)
+Pending: 9 (T38-T43: issues #7/#8; T44: solicitação direta; T45-T46: issue #9)
 ```
 
 ## Lista de tarefas
@@ -59,8 +59,8 @@ Pending: 9 (T38-T43, issues #7/#8; T44, T45, T46, solicitações diretas)
 | T42 | `.tasks/42-security-upload-processing.md` | Auditoria de segurança — upload, validação e execução de processos (FFmpeg) | pending | origem: issue #8; depende logicamente de T41 (não bloqueante) |
 | T43 | `.tasks/43-security-network-infra.md` | Auditoria de segurança — rede, rate limiting, webhooks e configuração | pending | origem: issue #8; fecha o sumário executivo de T41+T42+T43 |
 | T44 | `.tasks/44-optional-video-id-uuidv7.md` | video_id opcional em /upload/init — gera UUID v7 quando ausente, aceita qualquer versão quando informado | pending | origem: solicitação direta (não vinculada a issue); depende T08, T35 |
-| T45 | `.tasks/45-standard-response-envelope.md` | Pacote central de resposta padronizada `{error, message, data, status_code}` | pending | origem: solicitação direta (não vinculada a issue); fundação — T46 depende desta |
-| T46 | `.tasks/46-migrate-routes-standard-response.md` | Migrar todas as rotas para o envelope padrão + testes de conformidade | pending | origem: solicitação direta (não vinculada a issue); depende T45 |
+| T45 | `.tasks/45-standard-response-envelope.md` | Pacote central de resposta padronizada `{error, message, data, status_code}` | pending | origem: issue #9; fundação — T46 depende desta |
+| T46 | `.tasks/46-migrate-routes-standard-response.md` | Migrar todas as rotas para o envelope padrão + testes de conformidade | pending | origem: issue #9; depende T45 |
 
 ## Próxima onda — ordem de prioridade sugerida (T31-T37)
 
@@ -173,8 +173,9 @@ Resumo por issue:
   UUID quando informado pelo cliente, e padronizar para que TODA geração
   de id pelo próprio sistema (incluindo /admin/projects/*/upload-token,
   T35) sempre privilegie UUID v7. Status inicial: pending.
-[2026-06-07] CTO: geradas T45 e T46 a partir de solicitação direta do
-  usuário (não vinculada a issue): padronizar TODAS as respostas JSON da
+[2026-06-07] CTO: geradas T45 e T46 a partir da issue #9 ("Padronização
+  das respostas" — pedido feito também diretamente na sessão antes da
+  issue ser aberta): padronizar TODAS as respostas JSON da
   API no envelope {error, message, data, status_code}, centralizado em um
   único pacote (mesmo princípio da T44 — eliminar reinvenções paralelas;
   hoje há 4+ implementações divergentes de respondError). T45 cria a

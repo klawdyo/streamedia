@@ -3,8 +3,8 @@
 **Status:** pending
 **Dependências:** nenhuma (cria a fundação; T46 depende desta)
 **Estimativa:** média
-**Origem:** solicitação direta do usuário (sessão de 2026-06-07, não vinculada
-a issue do GitHub)
+**Origem:** Issue #9 — "Padronização das respostas" (pedida também
+diretamente na sessão de 2026-06-07, antes da issue ser aberta)
 
 ## Contexto
 

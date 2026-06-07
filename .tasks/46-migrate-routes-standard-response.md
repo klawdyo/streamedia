@@ -3,8 +3,8 @@
 **Status:** pending
 **Dependências:** T45 (cria o pacote `apiresponse` e o middleware de recovery)
 **Estimativa:** grande
-**Origem:** solicitação direta do usuário (sessão de 2026-06-07, não vinculada
-a issue do GitHub) — segunda metade do pedido de padronização de respostas
+**Origem:** Issue #9 — "Padronização das respostas" — segunda metade da
+implementação (T45 cria a fundação, esta tarefa migra e testa)
 
 ## Contexto
 
