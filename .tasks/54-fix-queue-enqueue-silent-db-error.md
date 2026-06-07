@@ -1,4 +1,4 @@
-# T55: Corrigir `Queue.Enqueue` — ignora erro de banco silenciosamente
+# T54: Corrigir `Queue.Enqueue` — ignora erro de banco silenciosamente
 
 **Status:** pending
 **Dependências:** T10
