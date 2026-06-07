@@ -53,8 +53,8 @@ func TestCIWorkflowHasGoVet(t *testing.T) {
 	}
 }
 
-// TestCIWorkflowHasGolangciLint verifica se o workflow de CI contém golangci-lint
-func TestCIWorkflowHasGolangciLint(t *testing.T) {
+// TestCIWorkflowHasBuild verifica se o workflow de CI contém step de build
+func TestCIWorkflowHasBuild(t *testing.T) {
 	path := filepath.Join("../../.github/workflows/ci.yml")
 	content, err := os.ReadFile(path)
 	if err != nil {
@@ -62,8 +62,8 @@ func TestCIWorkflowHasGolangciLint(t *testing.T) {
 	}
 
 	text := string(content)
-	if !strings.Contains(text, "golangci-lint") {
-		t.Error("'golangci-lint' não encontrado no workflow CI")
+	if !strings.Contains(text, "go build") {
+		t.Error("'go build' não encontrado no workflow CI")
 	}
 }
 
