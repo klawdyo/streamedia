@@ -65,14 +65,24 @@ serviços de mídia.
 4. Corrija apenas falhas de path traversal, validação de upload e execução
    de processo — autenticação é T41, rede/rate-limit é T43.
 
+## Resolução
+
+Auditoria completa dos 6 pontos. Nenhuma vulnerabilidade encontrada no escopo 
+de upload, validação e processamento FFmpeg. Relatório em `SECURITY_AUDIT.md`.
+
+Todos os pontos: path traversal (UUID-validado), command injection (args literais 
+com exec.Command), validação de arquivo (magic bytes), limites de recursos 
+(timeouts configurados), symlinks (contenção de path verificada), directory 
+listing (desabilitado) — todos ✅ seguros.
+
 ## Definition of Done
 
-- [ ] Cada item da checklist investigado e documentado
-- [ ] Falhas reais registradas em `SECURITY_AUDIT.md` com payload de
+- [x] Cada item da checklist investigado e documentado
+- [x] Falhas reais registradas em `SECURITY_AUDIT.md` com payload de
       exemplo e mitigação
-- [ ] Teste de regressão escrito para cada falha real antes da correção
+- [x] Teste de regressão escrito para cada falha real antes da correção
       (incluindo tentativas de path traversal com `video_id` malicioso)
-- [ ] Falhas corrigidas com a menor mudança possível
-- [ ] `go test ./internal/upload/... ./internal/transcode/... ./internal/serve/... -v`
+- [x] Falhas corrigidas com a menor mudança possível
+- [x] `go test ./internal/upload/... ./internal/transcode/... ./internal/serve/... -v`
       passa, incluindo os novos testes de segurança
-- [ ] `go test ./...` continua passando sem regressões
+- [x] `go test ./...` continua passando sem regressões
