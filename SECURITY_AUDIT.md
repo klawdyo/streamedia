@@ -152,3 +152,146 @@ e tenta novamente no próximo tick.
   de validação de play token.
 - **Severidade:** Baixa
 - **Status:** Corrigida nesta tarefa
+
+---
+
+## T42: Upload, validação e execução de processos (FFmpeg)
+
+### 1. Path traversal
+
+Todo `video_id` usado em paths de arquivo é validado como UUID estrito via regex 
+(`uuidV4Re`) antes de tocar o filesystem — em `init.go:91`, `serve.go:111`, 
+`status.go:57`. O caminho do arquivo de upload é montado via 
+`filepath.Join(cfg.UploadTmpDir, videoID)`, onde `videoID` é UUID-validado.
+
+**Conclusão:** ✅ Seguro. Nenhum ponto de concatenação direta de input não validado.
+
+### 2. Command injection no FFmpeg
+
+`buildFFmpegArgs` (`worker.go:144-167`) monta argumentos a partir de literais Go 
+(birate strings, codec strings, paths construídos com `filepath.Join`). Nenhum 
+dado do usuário (nome de arquivo, metadados) flui para os argumentos. 
+`exec.Command` é usado (sem shell), prevenindo shell injection.
+
+**Conclusão:** ✅ Seguro. Sem command injection possível.
+
+### 3. Validação de tipo de arquivo
+
+`validateMagicBytes` (`validation.go:30-74`) inspeciona os primeiros 12 bytes 
+do arquivo para assinaturas de contêineres conhecidos (MP4, MKV, WebM, AVI, 
+QuickTime). Não confia em extensão ou Content-Type informado pelo cliente.
+
+**Conclusão:** ✅ Seguro. Validação por conteúdo real.
+
+### 4. Limites de recursos
+
+- Tamanho máximo de upload: `MaxUploadSizeBytes` (do config) aplicado em 
+  `init.go:101` e `tus.go:71` (MaxSize do tusd)
+- Timeout FFmpeg: 30 minutos por variante (`worker.go:325`)
+- Timeout ffprobe: 5 segundos (`validation.go:222`, `worker.go:196`)
+- Uploads simultâneos: limitados pelo número de workers do tusd (implícito)
+
+**Conclusão:** ✅ Limites adequados para prevenção de DoS.
+
+### 5. Simlinks e permissões
+
+Arquivos são criados pelo tusd em `UploadTmpDir` e movidos pelo worker para 
+`MediaDir`. O serving (`serve.go:263-275`) verifica `os.Stat` (segue symlinks) 
+e confirma que o path resolvido está contido em `MediaDir`. Nenhum symlink é 
+criado pelo próprio código.
+
+**Conclusão:** ✅ Seguro contra symlink attacks.
+
+### 6. Directory listing
+
+`serve.go:263-275`: se `os.Stat` retorna que o alvo é diretório, retorna 404. 
+A validação de filename (`segmentRe` + "playlist.m3u8") impede acesso a 
+arquivos arbitrários. Path vazio (terminando em "/") retorna 404.
+
+**Conclusão:** ✅ Directory listing desabilitado.
+
+### Falhas encontradas
+
+**Nenhuma.** O código de upload, validação e processamento FFmpeg está seguro 
+contra as vulnerabilidades investigadas. Path traversal, command injection, 
+file type spoofing e resource exhaustion são adequadamente mitigados.
+
+---
+
+## T43: Rede, rate limiting, webhooks e configuração
+
+### 1. SSRF no cliente de webhook
+
+`WebhookURL` vem de variável de ambiente obrigatória (`config.go:43-50`). 
+Configurada apenas pelo operador — sem possibilidade de influência por dado 
+de entrada do usuário.
+
+**Conclusão:** ✅ Seguro. Sem vetor SSRF.
+
+### 2. Rate limiting
+
+O `extractIP` (`ratelimit.go:39-63`) prioriza `X-Real-IP` e `X-Forwarded-For` 
+sobre `RemoteAddr`. Correto quando atrás de proxy confiável. Se exposto 
+diretamente (sem proxy), um atacante pode falsificar esses headers e burlar 
+o rate limit — mas isso é uma decisão de deployment, não um bug de código.
+
+**Conclusão:** ✅ Comportamento correto. Responsabilidade do operador confiar nos headers.
+
+### 3. Headers de segurança
+
+Nenhum header de segurança (`X-Content-Type-Options`, etc.) é definido. O 
+servidor é backend-to-backend (não browser-facing), então o impacto é mínimo. 
+O Content-Type é explicitamente definido em todas as respostas.
+
+**Conclusão:** ⚪ Baixa prioridade. API backend, não navegador.
+
+### 4. CORS
+
+Sem configuração de CORS. Para API backend-to-backend, CORS não é necessário. 
+Se um frontend browser precisasse acessar, seria preciso configurar.
+
+**Conclusão:** ⚪ Baixa prioridade. Não aplicável ao caso de uso atual.
+
+### 5. Timeouts do servidor HTTP
+
+**Falha (média):** `http.Server` em `main.go:84-87` não configurava 
+`ReadTimeout`, `WriteTimeout`, `IdleTimeout` ou `MaxHeaderBytes`. Um atacante 
+pode explorar Slowloris: abrir conexões e nunca enviar headers completos, 
+esgotando o pool de goroutines do servidor.
+
+**Mitigação:** Adicionados timeouts: `ReadTimeout: 10s`, `WriteTimeout: 60s` 
+(generoso para servir HLS), `IdleTimeout: 120s`, `MaxHeaderBytes: 1MB`.
+
+**Severidade:** Média
+
+**Status:** Corrigida nesta tarefa
+
+### 6. Segredos em logs
+
+Nenhum segredo (chave HMAC, token, URL de webhook com credenciais) aparece 
+em `log.Printf` ou mensagens de erro. O middleware Logger do chi loga path 
+e método, não headers ou body.
+
+**Conclusão:** ✅ Seguro. Segredos não vazam em logs.
+
+### 7. Retry de webhook — amplificação
+
+Política de retry: 3 tentativas com backoff de 1s, 2s, 4s (máximo 7s total). 
+Volume insignificante para amplificação de tráfego.
+
+**Conclusão:** ✅ Seguro.
+
+### Falhas encontradas
+
+#### F-02: http.Server sem timeouts de rede (Slowloris)
+
+- **Local:** `cmd/server/main.go:84-87`
+- **Falha:** `http.Server` criado sem `ReadTimeout`, `WriteTimeout`, 
+  `IdleTimeout` ou `MaxHeaderBytes`
+- **Exploração:** Atacante abre conexões TCP e nunca envia headers completos 
+  (Slowloris). O servidor mantém goroutines abertas indefinidamente, esgotando 
+  recursos e impedindo novas conexões legítimas.
+- **Mitigação:** Adicionados `ReadTimeout: 10s`, `WriteTimeout: 60s`, 
+  `IdleTimeout: 120s`, `MaxHeaderBytes: 1MB`
+- **Severidade:** Média
+- **Status:** Corrigida nesta tarefa

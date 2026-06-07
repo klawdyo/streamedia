@@ -84,6 +84,15 @@ func main() {
 	srv := &http.Server{
 		Addr:    ":" + strconv.Itoa(cfg.Port),
 		Handler: router,
+		// Timeouts de rede: protegem contra Slowloris (ReadTimeout), clientes
+		// lentos (WriteTimeout) e conexões ociosas (IdleTimeout). Sem esses
+		// timeouts, um atacante pode abrir conexões e nunca enviar headers,
+		// esgotando o pool de goroutines do servidor.
+		ReadTimeout:  10 * time.Second,
+		WriteTimeout: 60 * time.Second, // generoso para servir segmentos HLS longos
+		IdleTimeout:  120 * time.Second,
+		// Limita o tamanho dos headers para prevenir ataques de header grande.
+		MaxHeaderBytes: 1 << 20, // 1MB
 	}
 
 	// Contexto cancelado em SIGINT/SIGTERM para shutdown gracioso.
