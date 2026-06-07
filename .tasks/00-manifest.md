@@ -7,8 +7,8 @@ Status possíveis: `pending` | `in-progress` | `done` | `blocked`
 
 ```
 Total: 54 tarefas
-Done:  43
-Pending: 10 (T41-T43: issue #8; T44, T47: solicitações diretas; T45-T46: issue #9; T48-T50: issue #10; T52: issue #13)
+Done:  46
+Pending: 7 (T44, T47: solicitações diretas; T45-T46: issue #9; T48-T50: issue #10; T52: issue #13)
 ```
 
 ## Lista de tarefas
@@ -55,9 +55,9 @@ Pending: 10 (T41-T43: issue #8; T44, T47: solicitações diretas; T45-T46: issue
 | T38 | `.tasks/38-coverage-data-layer.md` | Cobertura de testes — camada de dados (models + db) | done | origem: issue #7 — cobertura models 56.6%→80.8%, db 57.1%→58.0%, 27 testes novos, nenhum bug real encontrado |
 | T39 | `.tasks/39-coverage-jobs-transcode.md` | Cobertura de testes — jobs de manutenção e transcodificação | done | origem: issue #7 — cobertura jobs 56.3%→78.6%, transcode 72.5%→82.8%; corrigido bug de rollback em requeue.go e adicionada abstração FFprobeExecutor |
 | T40 | `.tasks/40-coverage-upload-auth-config.md` | Cobertura de testes — upload, autenticação e configuração | done | origem: issue #7 — cobertura upload 69.0%→72.0%, auth 74.4%→93.0%, config 74.5%→82.8%; nenhum bug real confirmado — fecha a issue #7 (T38→T39→T40) |
-| T41 | `.tasks/41-security-auth-tokens.md` | Auditoria de segurança — autenticação, autorização e tokens | pending | origem: issue #8 |
-| T42 | `.tasks/42-security-upload-processing.md` | Auditoria de segurança — upload, validação e execução de processos (FFmpeg) | pending | origem: issue #8; depende logicamente de T41 (não bloqueante) |
-| T43 | `.tasks/43-security-network-infra.md` | Auditoria de segurança — rede, rate limiting, webhooks e configuração | pending | origem: issue #8; fecha o sumário executivo de T41+T42+T43 |
+| T41 | `.tasks/41-security-auth-tokens.md` | Auditoria de segurança — autenticação, autorização e tokens | done | origem: issue #8 |
+| T42 | `.tasks/42-security-upload-processing.md` | Auditoria de segurança — upload, validação e execução de processos (FFmpeg) | done | origem: issue #8; depende logicamente de T41 (não bloqueante) |
+| T43 | `.tasks/43-security-network-infra.md` | Auditoria de segurança — rede, rate limiting, webhooks e configuração | done | origem: issue #8; fecha o sumário executivo de T41+T42+T43 — fecha a issue #8 |
 | T44 | `.tasks/44-optional-video-id-uuidv7.md` | video_id opcional em /upload/init — gera UUID v7 quando ausente, aceita qualquer versão quando informado | pending | origem: solicitação direta (não vinculada a issue); depende T08, T35 |
 | T45 | `.tasks/45-standard-response-envelope.md` | Pacote central de resposta padronizada `{error, message, data, status_code}` | pending | origem: issue #9; fundação — T46 depende desta |
 | T46 | `.tasks/46-migrate-routes-standard-response.md` | Migrar todas as rotas para o envelope padrão + testes de conformidade | pending | origem: issue #9; depende T45 |
@@ -115,6 +115,9 @@ Resumo por issue:
 [2026-06-07 19:36] T53: in-progress → done (adiciona project_id na query SELECT e Scan de ListByStatus — coluna e conversão estavam ausentes, vídeos sempre voltavam com ProjectID=nil)
 [2026-06-07 19:37] T54: pending → in-progress
 [2026-06-07 19:38] T54: in-progress → done (Enqueue captura erro do db.Exec em vez de ignorar com _, _ — evita estado inconsistente de vídeo na fila sem status transcoding no banco)
+[2026-06-07 19:42] T41: pending → done (auditoria auth/tokens: F-01 corrigida — mensagens de erro de play token unificadas)
+[2026-06-07 19:42] T42: pending → done (auditoria upload/FFmpeg: nenhuma falha encontrada)
+[2026-06-07 19:42] T43: pending → done (auditoria rede/infra: F-02 corrigida — timeouts HTTP adicionados contra Slowloris; fecha issue #8)
 
 <!-- CTO registra aqui cada transição com data/hora -->
 <!-- Formato: [YYYY-MM-DD HH:MM] TNN: pending → in-progress -->
