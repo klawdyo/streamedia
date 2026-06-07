@@ -598,3 +598,45 @@ func TestQueue_EnqueueAfterStop(t *testing.T) {
 	queue.Enqueue("v1")
 	// Se não travou, o teste passa
 }
+
+// TestEnqueue_DBErrorReturnsError verifica que Enqueue retorna erro quando
+// a atualização de status no banco falha, e NÃO enfileira o vídeo no canal.
+func TestEnqueue_DBErrorReturnsError(t *testing.T) {
+	database, err := db.Open(":memory:")
+	if err != nil {
+		t.Fatalf("erro ao abrir banco: %v", err)
+	}
+
+	// Insere um vídeo para que a query tenha o que atualizar.
+	_, err = database.Exec(
+		"INSERT INTO videos (video_id, status) VALUES (?, ?)",
+		"v-db-error", "upload_complete",
+	)
+	if err != nil {
+		database.Close()
+		t.Fatalf("erro ao inserir vídeo: %v", err)
+	}
+
+	cfg := &config.Config{
+		QueueMaxSize:     50,
+		TranscodeWorkers: 1,
+	}
+
+	queue := NewQueue(cfg, database, func(videoID string) error {
+		return nil
+	})
+
+	// Fecha o banco para forçar erro no Exec dentro de Enqueue.
+	database.Close()
+
+	// Enqueue deve retornar erro (DB fechado).
+	err = queue.Enqueue("v-db-error")
+	if err == nil {
+		t.Error("esperava erro ao enfileirar com banco fechado, mas Enqueue() retornou nil")
+	}
+
+	// A fila NÃO deve conter o item (não foi enfileirado).
+	if queue.Len() != 0 {
+		t.Errorf("fila deveria estar vazia após erro de DB, mas Len()=%d", queue.Len())
+	}
+}

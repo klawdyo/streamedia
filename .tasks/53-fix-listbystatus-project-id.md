@@ -86,12 +86,36 @@ qualquer outra query da função. Só adicione a coluna que faltava.
 
 ## Resolução
 
-<!-- Preencher ao concluir -->
+Arquivos alterados:
+
+- `internal/models/video.go`:
+  - Adicionado `project_id` à cláusula SELECT da query em `ListByStatus`
+    (linha 267), entre `error_message` e `created_at` — mesma ordem de
+    colunas já usada por `GetVideo`
+  - Adicionado `projectID sql.NullInt64` ao bloco de variáveis do loop
+  - Adicionado `&projectID` à chamada `rows.Scan`, entre `&errorMessage` e
+    `&v.CreatedAt`
+  - Adicionado bloco de conversão `if projectID.Valid { v.ProjectID = &projectID.Int64 }`
+    após `v.ErrorMessage = errorMessage.String`, idêntico ao padrão de `GetVideo`
+- `internal/models/video_test.go`:
+  - `TestListByStatus_IncludesProjectID`: cria projeto, insere vídeo com
+    project_id, chama ListByStatus e verifica que ProjectID != nil e igual
+    ao id do projeto
+  - `TestGetVideo_IncludesProjectID`: baseline — confirma que GetVideo já
+    retornava project_id corretamente (teste passou sem alterações em GetVideo)
+
+Mudança mínima — apenas adicionada a coluna que faltava. Assinatura,
+contrato de retorno e demais queries inalterados.
+
+`go test ./internal/models/...` passa com 67 testes (2 novos).
+`go vet ./internal/models/...` limpo.
+Testes pré-existentes com falha em `internal/transcode` e
+`internal/upload` são não-relacionados (pré-existentes).
 
 ## Definition of Done
 
-- [ ] `ListByStatus` inclui `project_id` no SELECT, Scan e conversão
-- [ ] Teste novo comprova que `ProjectID` é populado com o id correto do projeto
-- [ ] `GetVideo` continua retornando `ProjectID` corretamente (baseline não regrediu)
-- [ ] `go test ./...` passa sem regressões
-- [ ] `go vet ./...` sem warnings
+- [x] `ListByStatus` inclui `project_id` no SELECT, Scan e conversão
+- [x] Teste novo comprova que `ProjectID` é populado com o id correto do projeto
+- [x] `GetVideo` continua retornando `ProjectID` corretamente (baseline não regrediu)
+- [x] `go test ./...` passa sem regressões
+- [x] `go vet ./...` sem warnings

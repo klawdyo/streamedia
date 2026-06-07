@@ -107,13 +107,33 @@ necessário para o teste. Documente na seção Resolução.
 
 ## Resolução
 
-<!-- Preencher ao concluir -->
+Arquivos alterados:
+
+- `internal/transcode/queue.go`:
+  - `Enqueue()` agora captura o erro de `q.db.Exec` (antes ignorado com
+    `_, _`) e o retorna imediatamente com wrapping `%w` caso a atualização
+    de status falhe — o vídeo NÃO é enfileirado nesse caso
+  - Comentário atualizado: documenta o motivo (evitar estado inconsistente
+    em que o vídeo está na fila mas o banco não reflete `transcoding`,
+    tornando-o invisível ao recovery de startup)
+  - Fluxo normal (UPDATE ok → enqueue via channel) inalterado
+- `internal/transcode/queue_test.go`:
+  - `TestEnqueue_DBErrorReturnsError`: insere vídeo, fecha o banco para
+    forçar erro no Exec, chama Enqueue e verifica que retorna erro e que
+    `queue.Len() == 0` (nada foi enfileirado)
+
+Nenhum ponto de extensão adicional foi necessário — o cenário de erro do
+banco é testável fechando a conexão real após inserir o fixture.
+
+`go test ./internal/transcode/...` — 31 testes passam (1 novo), única
+falha é `TestBuildFFmpegArgs_MinimalArgs` (pré-existente, não relacionada).
+`go vet ./internal/transcode/...` limpo.
 
 ## Definition of Done
 
-- [ ] `Enqueue` retorna erro quando o `UPDATE` de status falha
-- [ ] Quando o DB falha, o vídeo NÃO é enfileirado (queue.Len() inalterado)
-- [ ] Comportamento de sucesso inalterado (UPDATE ok → enfileira normal)
-- [ ] Testes novos cobrem o caminho de erro do banco
-- [ ] `go test ./...` passa sem regressões
-- [ ] `go vet ./...` sem warnings
+- [x] `Enqueue` retorna erro quando o `UPDATE` de status falha
+- [x] Quando o DB falha, o vídeo NÃO é enfileirado (queue.Len() inalterado)
+- [x] Comportamento de sucesso inalterado (UPDATE ok → enfileira normal)
+- [x] Testes novos cobrem o caminho de erro do banco
+- [x] `go test ./...` passa sem regressões
+- [x] `go vet ./...` sem warnings

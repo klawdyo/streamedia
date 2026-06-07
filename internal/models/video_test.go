@@ -738,3 +738,65 @@ func TestGetVideo_CoversAllNullableFields(t *testing.T) {
 		t.Errorf("resolutions inicial: esperado vazio, obtido %v", v.Resolutions)
 	}
 }
+
+// TestListByStatus_IncludesProjectID verifica que ListByStatus retorna o
+// project_id corretamente populado, sem o bug de omitir a coluna na query.
+func TestListByStatus_IncludesProjectID(t *testing.T) {
+	database := abreDB(t)
+
+	// Cria um projeto para vincular ao vídeo.
+	proj, _, err := CreateProject(database, "Projeto Teste T53")
+	if err != nil {
+		t.Fatalf("CreateProject falhou: %v", err)
+	}
+
+	// Insere um vídeo vinculado ao projeto.
+	videoID := "550e8400-e29b-41d4-a716-446655440053"
+	if err := InsertVideoForProject(database, videoID, 1024, &proj.ID); err != nil {
+		t.Fatalf("InsertVideoForProject falhou: %v", err)
+	}
+
+	// Chama ListByStatus e verifica que ProjectID veio populado.
+	results, err := ListByStatus(database, StatusPendingUpload)
+	if err != nil {
+		t.Fatalf("ListByStatus falhou: %v", err)
+	}
+	if len(results) != 1 {
+		t.Fatalf("esperava 1 vídeo, obteve %d", len(results))
+	}
+
+	v := results[0]
+	if v.ProjectID == nil {
+		t.Fatal("ProjectID é nil — ListByStatus não populou project_id (bug)")
+	}
+	if *v.ProjectID != proj.ID {
+		t.Errorf("ProjectID: esperado %d, obtido %d", proj.ID, *v.ProjectID)
+	}
+}
+
+// TestGetVideo_IncludesProjectID confirma que GetVideo já retorna project_id
+// corretamente (baseline: este teste passava antes da correção de ListByStatus).
+func TestGetVideo_IncludesProjectID(t *testing.T) {
+	database := abreDB(t)
+
+	proj, _, err := CreateProject(database, "Projeto Baseline")
+	if err != nil {
+		t.Fatalf("CreateProject falhou: %v", err)
+	}
+
+	videoID := "660e8400-e29b-41d4-a716-446655440054"
+	if err := InsertVideoForProject(database, videoID, 2048, &proj.ID); err != nil {
+		t.Fatalf("InsertVideoForProject falhou: %v", err)
+	}
+
+	v, err := GetVideo(database, videoID)
+	if err != nil {
+		t.Fatalf("GetVideo falhou: %v", err)
+	}
+	if v.ProjectID == nil {
+		t.Fatal("GetVideo: ProjectID é nil (regressão)")
+	}
+	if *v.ProjectID != proj.ID {
+		t.Errorf("GetVideo: ProjectID esperado %d, obtido %d", proj.ID, *v.ProjectID)
+	}
+}
