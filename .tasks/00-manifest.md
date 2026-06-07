@@ -6,8 +6,9 @@ Status possíveis: `pending` | `in-progress` | `done` | `blocked`
 ## Progresso geral
 
 ```
-Total: 30 tarefas
+Total: 37 tarefas
 Done:  30
+Pending: 7
 ```
 
 ## Lista de tarefas
@@ -44,6 +45,42 @@ Done:  30
 | T28 | `.tasks/28-stats-aggregation-route.md` | Rota administrativa de estatísticas agregadas (`/admin/stats`) | done | depende T26, T27, T18 — issue #2 — fecha a issue #2 |
 | T29 | `.tasks/29-opentelemetry-metrics-route.md` | Rota de métricas no padrão OpenTelemetry/Prometheus (`/metrics`) | done | depende T20, T26 — fecha issue #1 |
 | T30 | `.tasks/30-swagger-docs.md` | Documentação da API via Swagger/OpenAPI | done | depende T20, T13, T18, T28, T29 — issue #3 — fecha a issue #3 |
+| T31 | `.tasks/31-env-vars-seconds.md` | Padronizar variáveis de tempo das envs em segundos | pending | sem dependências — issue #4 — fecha a issue #4 |
+| T32 | `.tasks/32-project-model.md` | Model de Projeto (slug, diretório raiz, chave mestra) | pending | depende T03, T31 — issue #6 |
+| T33 | `.tasks/33-scoped-api-keys.md` | Chaves de API escopadas por projeto (upload/listagem/admin) | pending | depende T32 — issue #6 |
+| T34 | `.tasks/34-project-storage-layout.md` | Layout de armazenamento por projeto (diretórios isolados) | pending | depende T32, T33 — issue #6 |
+| T35 | `.tasks/35-project-management-routes.md` | Rotas de gerenciamento de projetos | pending | depende T32, T33 — issue #6 — fecha a issue #6 |
+| T36 | `.tasks/36-storage-stats-model.md` | Model de armazenamento por vídeo (bytes, duração, status) | pending | depende T03, T04 (recomendado após T34) — issue #5 |
+| T37 | `.tasks/37-storage-stats-route.md` | Expor estatísticas de armazenamento e fila em `/admin/stats` | pending | depende T36, T28 — issue #5 — fecha a issue #5 |
+
+## Próxima onda — ordem de prioridade sugerida (T31-T37)
+
+A ordem abaixo respeita as dependências técnicas reais entre as tarefas
+(uma micro-tarefa só aparece depois de tudo que ela precisa já estar pronto).
+Onde não há dependência direta, a ordem reflete risco/esforço — tarefas
+pequenas e independentes vêm primeiro para não bloquear o restante:
+
+1. **T31** (issue #4) — pequena, mecânica, sem dependências. Resolve antes
+   de mexer de novo em `config.go` nas tarefas maiores (T32+).
+2. **T32** (issue #6, fundação) — model de Projeto; tudo do "projetos" parte
+   daqui.
+3. **T33** (issue #6) — chaves escopadas por projeto; depende do model T32.
+4. **T34** (issue #6) — layout de armazenamento por projeto; só faz sentido
+   com chaves escopadas (T33) já resolvendo a qual projeto um upload pertence.
+5. **T35** (issue #6, fecha a issue) — rotas HTTP de gerenciamento de
+   projetos; expõe o que foi construído em T32/T33.
+6. **T36** (issue #5) — model de estatísticas de armazenamento; tecnicamente
+   só depende de T03/T04, mas fazer **depois de T34** evita recalcular paths
+   de armazenamento duas vezes (uma vez no layout antigo, outra no novo).
+7. **T37** (issue #5, fecha a issue) — expõe as agregações de T36 em
+   `/admin/stats`, reaproveitando a rota do T28.
+
+Resumo por issue:
+- **#4** → T31 (pequena, isolada)
+- **#6** → T32 → T33 → T34 → T35 (cadeia longa; é a maior mudança arquitetural)
+- **#5** → T36 → T37 (independente de #6, mas posicionada após T34 por
+  conveniência técnica — pode ser adiantada se a equipe preferir não esperar
+  a cadeia de projetos)
 
 ## Log de mudanças de status
 
@@ -98,3 +135,4 @@ Done:  30
 [2026-06-07 05:50] T29: in-progress → done (fecha issue #1: rota /metrics no padrão OpenTelemetry/Prometheus)
 [2026-06-07 06:50] T30: pending → in-progress
 [2026-06-07 07:05] T30: in-progress → done (fecha issue #3: documentação interativa Swagger/OpenAPI em /docs/)
+[2026-06-07 07:20] T31-T37 criadas a partir das issues #4, #5 e #6 (próxima onda: padronização de envs em segundos, sistema de projetos internos com chaves escopadas, e estatísticas de armazenamento) — ordem de prioridade documentada na seção "Próxima onda"
