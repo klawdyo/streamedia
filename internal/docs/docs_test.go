@@ -8,10 +8,10 @@ import (
 	"testing"
 )
 
-// TestSwaggerUIRouteServesHTML garante que a UI interativa do Swagger é
-// servida como HTML e referencia "swagger" — sinal de que carrega os
-// assets corretos.
-func TestSwaggerUIRouteServesHTML(t *testing.T) {
+// TestScalarUIRouteServesHTML garante que a UI interativa do Scalar é
+// servida como HTML, referencia "scalar" — sinal de que carrega o
+// componente correto — e aponta para a spec em /docs/openapi.json.
+func TestScalarUIRouteServesHTML(t *testing.T) {
 	h := NewHandler()
 
 	req := httptest.NewRequest(http.MethodGet, "/docs/", nil)
@@ -28,8 +28,11 @@ func TestSwaggerUIRouteServesHTML(t *testing.T) {
 	}
 
 	body := strings.ToLower(rec.Body.String())
-	if !strings.Contains(body, "swagger") {
-		t.Errorf("corpo da resposta não contém referência a 'swagger': %s", rec.Body.String())
+	if !strings.Contains(body, "scalar") {
+		t.Errorf("corpo da resposta não contém referência a 'scalar': %s", rec.Body.String())
+	}
+	if !strings.Contains(body, "/docs/openapi.json") {
+		t.Errorf("corpo da resposta não referencia /docs/openapi.json: %s", rec.Body.String())
 	}
 }
 
