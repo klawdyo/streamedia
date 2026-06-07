@@ -1,4 +1,4 @@
-# T55: Rota `GET /api/version` — nome, status e versão da API
+# T55: Rota `GET /api` — nome, status e versão da API
 
 **Status:** pending
 **Dependências:** nenhuma (cria o pacote `internal/version`; pode ser feita a qualquer momento)
@@ -104,7 +104,7 @@ vai para o `-ldflags`.
 
 Esta rota usa um **rate limiter separado**, com threshold baixo (10 req/min),
 diferente do rate limiter global (padrão 60 req/min). Isso evita que um
-scraper agressivo em `/api/version` consuma o orçamento de outras rotas
+scraper agressivo em `/api` consuma o orçamento de outras rotas
 públicas (healthz, upload, etc.).
 
 O middleware de rate limiting por IP já existe (`internal/middleware/ratelimit.go`)

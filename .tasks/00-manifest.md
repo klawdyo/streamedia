@@ -69,7 +69,7 @@ Pending: 5 (T48-T50: issue #10; T52: issue #13; T55: rota /api/version)
 | T52 | `.tasks/52-db-migrations.md` | Migrations versionadas (goose) substituindo schema.go monolítico | pending | depende T03 — origem: issue #13 — fecha a issue #13 |
 | T53 | `.tasks/53-fix-listbystatus-project-id.md` | Corrigir ListByStatus — omissão de project_id na query SELECT | done | depende T04, T33 — origem: análise de código — bug funcional |
 | T54 | `.tasks/54-fix-queue-enqueue-silent-db-error.md` | Corrigir Queue.Enqueue — ignora erro de banco silenciosamente | done | depende T10 — origem: análise de código — bug de consistência |
-| T55 | `.tasks/55-api-version-route.md` | Rota GET /api/version — nome, status e versão da API com rate limiting baixo | pending | origem: solicitação direta — cria pacote internal/version com ldflags, expõe versão sem autenticação |
+| T55 | `.tasks/55-api-version-route.md` | Rota GET /api — nome, status e versão da API com rate limiting baixo | pending | origem: solicitação direta — cria pacote internal/version com ldflags, expõe versão sem autenticação |
 
 ## Próxima onda — ordem de prioridade sugerida (T31-T37)
 
