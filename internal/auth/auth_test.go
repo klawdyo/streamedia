@@ -443,3 +443,51 @@ func TestGeneratePlayToken_EdgeCaseExpirations(t *testing.T) {
 		})
 	}
 }
+
+// TestValidatePlayToken_ErrorMessagesAreGeneric verifica que mensagens de erro
+// de play token não distinguem entre token expirado, TTL excessivo e assinatura
+// inválida — prevenindo enumeração de tokens (T41, F-01).
+func TestValidatePlayToken_ErrorMessagesAreGeneric(t *testing.T) {
+	secret := "secret-test"
+	videoID := "vid-abc"
+
+	// Caso 1: token expirado (expires no passado)
+	pastExpires := time.Now().Add(-1 * time.Hour).Unix()
+	pastToken := GeneratePlayToken(secret, videoID, pastExpires)
+	errExpired := ValidatePlayToken(secret, videoID, pastExpires, pastToken, 6*time.Hour)
+	if errExpired == nil {
+		t.Fatal("token expirado deveria retornar erro")
+	}
+	if !strings.Contains(errExpired.Error(), "inválido") {
+		t.Errorf("mensagem de token expirado deve ser genérica (conter 'inválido'), obtido: %q", errExpired.Error())
+	}
+
+	// Caso 2: TTL excessivo (expires muito no futuro)
+	farFuture := time.Now().Add(24 * time.Hour).Unix()
+	farToken := GeneratePlayToken(secret, videoID, farFuture)
+	errTTL := ValidatePlayToken(secret, videoID, farFuture, farToken, 1*time.Hour)
+	if errTTL == nil {
+		t.Fatal("token com TTL excessivo deveria retornar erro")
+	}
+	if !strings.Contains(errTTL.Error(), "inválido") {
+		t.Errorf("mensagem de TTL excessivo deve ser genérica (conter 'inválido'), obtido: %q", errTTL.Error())
+	}
+
+	// Caso 3: assinatura HMAC inválida (secret ou video_id diferente)
+	errInvalid := ValidatePlayToken(secret, "video-diferente", time.Now().Add(1*time.Hour).Unix(), farToken, 6*time.Hour)
+	if errInvalid == nil {
+		t.Fatal("token com video_id diferente deveria retornar erro")
+	}
+	if !strings.Contains(errInvalid.Error(), "inválido") {
+		t.Errorf("mensagem de assinatura inválida deve ser genérica (conter 'inválido'), obtido: %q", errInvalid.Error())
+	}
+
+	// Caso 4: token vazio ou malformado
+	errEmpty := ValidatePlayToken(secret, videoID, time.Now().Add(1*time.Hour).Unix(), "", 6*time.Hour)
+	if errEmpty == nil {
+		t.Fatal("token vazio deveria retornar erro")
+	}
+	if !strings.Contains(errEmpty.Error(), "inválido") {
+		t.Errorf("mensagem de token vazio deve ser genérica (conter 'inválido'), obtido: %q", errEmpty.Error())
+	}
+}
