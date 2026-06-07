@@ -7,8 +7,8 @@ Status possíveis: `pending` | `in-progress` | `done` | `blocked`
 
 ```
 Total: 37 tarefas
-Done:  30
-Pending: 7
+Done:  31
+Pending: 6
 ```
 
 ## Lista de tarefas
@@ -45,7 +45,7 @@ Pending: 7
 | T28 | `.tasks/28-stats-aggregation-route.md` | Rota administrativa de estatísticas agregadas (`/admin/stats`) | done | depende T26, T27, T18 — issue #2 — fecha a issue #2 |
 | T29 | `.tasks/29-opentelemetry-metrics-route.md` | Rota de métricas no padrão OpenTelemetry/Prometheus (`/metrics`) | done | depende T20, T26 — fecha issue #1 |
 | T30 | `.tasks/30-swagger-docs.md` | Documentação da API via Swagger/OpenAPI | done | depende T20, T13, T18, T28, T29 — issue #3 — fecha a issue #3 |
-| T31 | `.tasks/31-env-vars-seconds.md` | Padronizar variáveis de tempo das envs em segundos | pending | sem dependências — issue #4 — fecha a issue #4 |
+| T31 | `.tasks/31-env-vars-seconds.md` | Padronizar variáveis de tempo das envs em segundos | done | sem dependências — issue #4 — fecha a issue #4 |
 | T32 | `.tasks/32-project-model.md` | Model de Projeto (slug, diretório raiz, chave mestra) | pending | depende T03, T31 — issue #6 |
 | T33 | `.tasks/33-scoped-api-keys.md` | Chaves de API escopadas por projeto (upload/listagem/admin) | pending | depende T32 — issue #6 |
 | T34 | `.tasks/34-project-storage-layout.md` | Layout de armazenamento por projeto (diretórios isolados) | pending | depende T32, T33 — issue #6 |
@@ -136,3 +136,5 @@ Resumo por issue:
 [2026-06-07 06:50] T30: pending → in-progress
 [2026-06-07 07:05] T30: in-progress → done (fecha issue #3: documentação interativa Swagger/OpenAPI em /docs/)
 [2026-06-07 07:20] T31-T37 criadas a partir das issues #4, #5 e #6 (próxima onda: padronização de envs em segundos, sistema de projetos internos com chaves escopadas, e estatísticas de armazenamento) — ordem de prioridade documentada na seção "Próxima onda"
+[2026-06-07 07:35] T31: pending → in-progress
+[2026-06-07 07:50] T31: in-progress → done (fecha issue #4: variáveis de tempo padronizadas em segundos com sufixo _SECONDS)

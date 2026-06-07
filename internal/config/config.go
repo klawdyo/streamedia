@@ -21,10 +21,10 @@ type Config struct {
 	SQLitePath           string
 	QueueMaxSize         int
 	TranscodeWorkers     int
-	UploadTokenTTL       time.Duration // de horas
-	PlayTokenMaxTTL      time.Duration // de horas
-	UploadIdleTimeout    time.Duration // de minutos
-	TranscodeStuckTime   time.Duration // de minutos
+	UploadTokenTTL       time.Duration // de segundos (UPLOAD_TOKEN_TTL_SECONDS)
+	PlayTokenMaxTTL      time.Duration // de segundos (PLAY_TOKEN_MAX_TTL_SECONDS)
+	UploadIdleTimeout    time.Duration // de segundos (UPLOAD_IDLE_TIMEOUT_SECONDS)
+	TranscodeStuckTime   time.Duration // de segundos (TRANSCODE_STUCK_SECONDS)
 	MaxTranscodeAttempts int
 	KeepOriginal         bool
 	Port                 int
@@ -61,19 +61,24 @@ func Load() (*Config, error) {
 	if err != nil {
 		return nil, err
 	}
-	uploadTokenTTLH, err := getEnvInt("UPLOAD_TOKEN_TTL_H", 6)
+	// Padronização em segundos (issue #4): todas as variáveis de tempo usam
+	// o sufixo _SECONDS, eliminando a mistura de unidades (horas e minutos)
+	// que existia antes (UPLOAD_TOKEN_TTL_H, UPLOAD_IDLE_TIMEOUT_MIN, etc.).
+	// Defaults equivalentes aos valores anteriores: 6h = 21600s, 10min = 600s,
+	// 30min = 1800s.
+	uploadTokenTTLSeconds, err := getEnvInt("UPLOAD_TOKEN_TTL_SECONDS", 21600)
 	if err != nil {
 		return nil, err
 	}
-	playTokenMaxTTLH, err := getEnvInt("PLAY_TOKEN_MAX_TTL_H", 6)
+	playTokenMaxTTLSeconds, err := getEnvInt("PLAY_TOKEN_MAX_TTL_SECONDS", 21600)
 	if err != nil {
 		return nil, err
 	}
-	uploadIdleTimeoutMin, err := getEnvInt("UPLOAD_IDLE_TIMEOUT_MIN", 10)
+	uploadIdleTimeoutSeconds, err := getEnvInt("UPLOAD_IDLE_TIMEOUT_SECONDS", 600)
 	if err != nil {
 		return nil, err
 	}
-	transcodeStuckMin, err := getEnvInt("TRANSCODE_STUCK_MIN", 30)
+	transcodeStuckSeconds, err := getEnvInt("TRANSCODE_STUCK_SECONDS", 1800)
 	if err != nil {
 		return nil, err
 	}
@@ -101,10 +106,10 @@ func Load() (*Config, error) {
 		SQLitePath:           getEnvStr("SQLITE_PATH", "/data/media.db"),
 		QueueMaxSize:         queueMaxSize,
 		TranscodeWorkers:     transcodeWorkers,
-		UploadTokenTTL:       time.Hour * time.Duration(uploadTokenTTLH),
-		PlayTokenMaxTTL:      time.Hour * time.Duration(playTokenMaxTTLH),
-		UploadIdleTimeout:    time.Minute * time.Duration(uploadIdleTimeoutMin),
-		TranscodeStuckTime:   time.Minute * time.Duration(transcodeStuckMin),
+		UploadTokenTTL:       time.Second * time.Duration(uploadTokenTTLSeconds),
+		PlayTokenMaxTTL:      time.Second * time.Duration(playTokenMaxTTLSeconds),
+		UploadIdleTimeout:    time.Second * time.Duration(uploadIdleTimeoutSeconds),
+		TranscodeStuckTime:   time.Second * time.Duration(transcodeStuckSeconds),
 		MaxTranscodeAttempts: maxTranscodeAttempts,
 		KeepOriginal:         getEnvBool("KEEP_ORIGINAL", false),
 		Port:                 port,

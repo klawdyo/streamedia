@@ -3,6 +3,7 @@ package config
 import (
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestLoad_RequiredVarsMissing(t *testing.T) {
@@ -101,6 +102,104 @@ func TestLoad_InvalidInt(t *testing.T) {
 	_, err := Load()
 	if err == nil {
 		t.Fatal("esperava erro para MAX_UPLOAD_SIZE_MB inválido, mas Load() retornou nil")
+	}
+}
+
+func TestLoad_TimeVarsDefaultsAreInSeconds(t *testing.T) {
+	// issue #4: as variáveis de tempo devem ser lidas em segundos, com
+	// defaults equivalentes aos valores anteriores (6h, 10min, 30min).
+	t.Setenv("UPLOAD_TOKEN_SECRET", "s")
+	t.Setenv("WEBHOOK_URL", "https://x.com")
+	t.Setenv("WEBHOOK_SECRET", "s2")
+	t.Setenv("UPLOAD_TOKEN_TTL_SECONDS", "")
+	t.Setenv("PLAY_TOKEN_MAX_TTL_SECONDS", "")
+	t.Setenv("UPLOAD_IDLE_TIMEOUT_SECONDS", "")
+	t.Setenv("TRANSCODE_STUCK_SECONDS", "")
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load() retornou erro inesperado: %v", err)
+	}
+
+	cases := []struct {
+		name string
+		got  time.Duration
+		want time.Duration
+	}{
+		{"UploadTokenTTL", cfg.UploadTokenTTL, 6 * time.Hour},
+		{"PlayTokenMaxTTL", cfg.PlayTokenMaxTTL, 6 * time.Hour},
+		{"UploadIdleTimeout", cfg.UploadIdleTimeout, 10 * time.Minute},
+		{"TranscodeStuckTime", cfg.TranscodeStuckTime, 30 * time.Minute},
+	}
+	for _, c := range cases {
+		if c.got != c.want {
+			t.Errorf("%s: esperado %v, obtido %v", c.name, c.want, c.got)
+		}
+	}
+}
+
+func TestLoad_TimeVarsReadInSeconds(t *testing.T) {
+	// issue #4: definir as novas variáveis _SECONDS deve refletir
+	// diretamente em time.Duration via time.Second, sem conversões ocultas.
+	t.Setenv("UPLOAD_TOKEN_SECRET", "s")
+	t.Setenv("WEBHOOK_URL", "https://x.com")
+	t.Setenv("WEBHOOK_SECRET", "s2")
+	t.Setenv("UPLOAD_TOKEN_TTL_SECONDS", "900")
+	t.Setenv("PLAY_TOKEN_MAX_TTL_SECONDS", "1200")
+	t.Setenv("UPLOAD_IDLE_TIMEOUT_SECONDS", "120")
+	t.Setenv("TRANSCODE_STUCK_SECONDS", "300")
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load() retornou erro inesperado: %v", err)
+	}
+
+	if cfg.UploadTokenTTL != 900*time.Second {
+		t.Errorf("UploadTokenTTL: esperado %v, obtido %v", 900*time.Second, cfg.UploadTokenTTL)
+	}
+	if cfg.PlayTokenMaxTTL != 1200*time.Second {
+		t.Errorf("PlayTokenMaxTTL: esperado %v, obtido %v", 1200*time.Second, cfg.PlayTokenMaxTTL)
+	}
+	if cfg.UploadIdleTimeout != 120*time.Second {
+		t.Errorf("UploadIdleTimeout: esperado %v, obtido %v", 120*time.Second, cfg.UploadIdleTimeout)
+	}
+	if cfg.TranscodeStuckTime != 300*time.Second {
+		t.Errorf("TranscodeStuckTime: esperado %v, obtido %v", 300*time.Second, cfg.TranscodeStuckTime)
+	}
+}
+
+func TestLoad_OldTimeVarNamesAreIgnored(t *testing.T) {
+	// issue #4: os nomes antigos (sufixos _H e _MIN) não devem mais ser
+	// lidos — é uma mudança incompatível intencional. Defini-los não deve
+	// influenciar o resultado; os defaults em segundos devem prevalecer.
+	t.Setenv("UPLOAD_TOKEN_SECRET", "s")
+	t.Setenv("WEBHOOK_URL", "https://x.com")
+	t.Setenv("WEBHOOK_SECRET", "s2")
+	t.Setenv("UPLOAD_TOKEN_TTL_H", "1")
+	t.Setenv("PLAY_TOKEN_MAX_TTL_H", "1")
+	t.Setenv("UPLOAD_IDLE_TIMEOUT_MIN", "1")
+	t.Setenv("TRANSCODE_STUCK_MIN", "1")
+	t.Setenv("UPLOAD_TOKEN_TTL_SECONDS", "")
+	t.Setenv("PLAY_TOKEN_MAX_TTL_SECONDS", "")
+	t.Setenv("UPLOAD_IDLE_TIMEOUT_SECONDS", "")
+	t.Setenv("TRANSCODE_STUCK_SECONDS", "")
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load() retornou erro inesperado: %v", err)
+	}
+
+	if cfg.UploadTokenTTL != 6*time.Hour {
+		t.Errorf("UploadTokenTTL: variável antiga UPLOAD_TOKEN_TTL_H não deveria ser lida; esperado default %v, obtido %v", 6*time.Hour, cfg.UploadTokenTTL)
+	}
+	if cfg.PlayTokenMaxTTL != 6*time.Hour {
+		t.Errorf("PlayTokenMaxTTL: variável antiga PLAY_TOKEN_MAX_TTL_H não deveria ser lida; esperado default %v, obtido %v", 6*time.Hour, cfg.PlayTokenMaxTTL)
+	}
+	if cfg.UploadIdleTimeout != 10*time.Minute {
+		t.Errorf("UploadIdleTimeout: variável antiga UPLOAD_IDLE_TIMEOUT_MIN não deveria ser lida; esperado default %v, obtido %v", 10*time.Minute, cfg.UploadIdleTimeout)
+	}
+	if cfg.TranscodeStuckTime != 30*time.Minute {
+		t.Errorf("TranscodeStuckTime: variável antiga TRANSCODE_STUCK_MIN não deveria ser lida; esperado default %v, obtido %v", 30*time.Minute, cfg.TranscodeStuckTime)
 	}
 }
 

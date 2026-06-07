@@ -85,6 +85,14 @@ curl http://localhost:3000/healthz
 
 ## Variáveis de Ambiente
 
+> **Mudança incompatível (issue #4):** todas as variáveis de tempo agora usam
+> o sufixo `_SECONDS` e valores em segundos — antes misturavam horas
+> (`UPLOAD_TOKEN_TTL_H`, `PLAY_TOKEN_MAX_TTL_H`) e minutos
+> (`UPLOAD_IDLE_TIMEOUT_MIN`, `TRANSCODE_STUCK_MIN`). Quem atualiza uma
+> instalação existente precisa renomear essas variáveis e converter os
+> valores para segundos (ex. `UPLOAD_TOKEN_TTL_H=6` →
+> `UPLOAD_TOKEN_TTL_SECONDS=21600`); os nomes antigos não são mais lidos.
+
 | Variável | Obrigatória | Padrão | Descrição |
 |---|---|---|---|
 | `UPLOAD_TOKEN_SECRET` | Sim | — | Segredo HMAC-SHA256 para tokens de upload. Gere com `openssl rand -hex 32`. |
@@ -97,10 +105,10 @@ curl http://localhost:3000/healthz
 | `SQLITE_PATH` | Não | `/data/media.db` | Caminho do arquivo SQLite. |
 | `QUEUE_MAX_SIZE` | Não | `50` | Capacidade máxima da fila de transcodificação. |
 | `TRANSCODE_WORKERS` | Não | `1` | Número de workers paralelos de transcodificação. |
-| `UPLOAD_TOKEN_TTL_H` | Não | `6` | TTL do token de upload em horas. |
-| `PLAY_TOKEN_MAX_TTL_H` | Não | `6` | TTL máximo do token de reprodução em horas. |
-| `UPLOAD_IDLE_TIMEOUT_MIN` | Não | `10` | Timeout de inatividade de upload em minutos. |
-| `TRANSCODE_STUCK_MIN` | Não | `30` | Timeout de transcodificação travada em minutos. |
+| `UPLOAD_TOKEN_TTL_SECONDS` | Não | `21600` | TTL do token de upload em segundos (21600 = 6h). |
+| `PLAY_TOKEN_MAX_TTL_SECONDS` | Não | `21600` | TTL máximo do token de reprodução em segundos (21600 = 6h). |
+| `UPLOAD_IDLE_TIMEOUT_SECONDS` | Não | `600` | Timeout de inatividade de upload em segundos (600 = 10min). |
+| `TRANSCODE_STUCK_SECONDS` | Não | `1800` | Timeout de transcodificação travada em segundos (1800 = 30min). |
 | `MAX_TRANSCODE_ATTEMPTS` | Não | `3` | Número máximo de tentativas de transcodificação por vídeo. |
 | `KEEP_ORIGINAL` | Não | `false` | Se `true`, mantém o arquivo original após transcodificação. |
 | `PORT` | Não | `3000` | Porta HTTP do servidor. |
@@ -396,7 +404,7 @@ playURL := fmt.Sprintf(
 )
 ```
 
-O TTL máximo do token é controlado por `PLAY_TOKEN_MAX_TTL_H` (padrão: 6 horas). Tokens com expiração além desse limite são rejeitados.
+O TTL máximo do token é controlado por `PLAY_TOKEN_MAX_TTL_SECONDS` (padrão: 21600 segundos = 6 horas). Tokens com expiração além desse limite são rejeitados.
 
 ## Webhook
 
@@ -520,13 +528,13 @@ O servidor não iniciou porque as variáveis obrigatórias não estão definidas
 
 ### Upload trava e não progride
 
-- Verifique `UPLOAD_IDLE_TIMEOUT_MIN` — o job `killer` cancela uploads sem atividade.
+- Verifique `UPLOAD_IDLE_TIMEOUT_SECONDS` — o job `killer` cancela uploads sem atividade.
 - Verifique se o Flutter Client está enviando `Tus-Resumable: 1.0.0` e `Content-Length`.
 
 ### Vídeo fica em "transcoding" para sempre
 
 - Verifique os logs do worker: `docker compose logs -f mediaserver`
-- O job `recovery` recoloca na fila uploads travados por mais de `TRANSCODE_STUCK_MIN` minutos.
+- O job `recovery` recoloca na fila uploads travados por mais de `TRANSCODE_STUCK_SECONDS` segundos.
 - Verifique se o FFmpeg está instalado na imagem: `docker compose exec mediaserver ffmpeg -version`
 
 ### Webhook não está sendo recebido

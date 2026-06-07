@@ -1,6 +1,6 @@
 # T31: Padronizar variáveis de tempo das envs em segundos
 
-**Status:** pending
+**Status:** done
 **Dependências:** nenhuma
 **Estimativa:** pequena
 **Issue relacionada:** #4
@@ -56,8 +56,43 @@ mexer em `config.go` duas vezes.
 
 ## Definition of Done
 
-- [ ] Todas as variáveis de tempo usam sufixo `_SECONDS` e valores em segundos
-- [ ] Defaults documentados batem com os valores reais
-- [ ] `.env.example` e README atualizados, com nota de breaking change
-- [ ] Testes cobrindo os novos nomes e os defaults
-- [ ] Todos os testes passam
+- [x] Todas as variáveis de tempo usam sufixo `_SECONDS` e valores em segundos
+- [x] Defaults documentados batem com os valores reais
+- [x] `.env.example` e README atualizados, com nota de breaking change
+- [x] Testes cobrindo os novos nomes e os defaults
+- [x] Todos os testes passam
+
+## Resolução
+
+Renomeadas as quatro variáveis de tempo para o sufixo `_SECONDS`, com
+defaults convertidos para o equivalente em segundos dos valores antigos
+(sem mudar o comportamento padrão da aplicação):
+
+| Antiga | Nova | Default antigo | Default novo |
+|---|---|---|---|
+| `UPLOAD_TOKEN_TTL_H` | `UPLOAD_TOKEN_TTL_SECONDS` | `6` (horas) | `21600` |
+| `PLAY_TOKEN_MAX_TTL_H` | `PLAY_TOKEN_MAX_TTL_SECONDS` | `6` (horas) | `21600` |
+| `UPLOAD_IDLE_TIMEOUT_MIN` | `UPLOAD_IDLE_TIMEOUT_SECONDS` | `10` (min) | `600` |
+| `TRANSCODE_STUCK_MIN` | `TRANSCODE_STUCK_SECONDS` | `30` (min) | `1800` |
+
+Mudanças:
+
+- `internal/config/config.go`: lê as novas variáveis com `getEnvInt(..._SECONDS, <default em s>)`
+  e monta os `time.Duration` com `time.Second * time.Duration(...)` (em vez de
+  `time.Hour`/`time.Minute`). Os nomes antigos não são mais lidos —
+  mudança incompatível intencional, sem aliases de compatibilidade.
+- `internal/config/config_test.go`: três testes novos —
+  `TestLoad_TimeVarsDefaultsAreInSeconds` (defaults batem com os valores
+  antigos convertidos), `TestLoad_TimeVarsReadInSeconds` (valores
+  customizados são lidos diretamente em segundos) e
+  `TestLoad_OldTimeVarNamesAreIgnored` (nomes antigos definidos no ambiente
+  não têm efeito — prevalecem os defaults novos).
+- `.env.example` e `docker-compose.yml`: variáveis renomeadas com os novos
+  valores-padrão em segundos.
+- `README.md`: tabela de variáveis de ambiente atualizada + nota de
+  **mudança incompatível** explicando a migração para quem tem instalação
+  existente, e as três menções avulsas às variáveis antigas (TTL de
+  reprodução, troubleshooting de upload/transcode travados) atualizadas
+  para os novos nomes/unidades.
+
+Issue #4 fechada pelo commit que acompanha esta tarefa.
