@@ -31,6 +31,38 @@ do zero a cada retomada de trabalho.
 
 ## Workflow por sessão
 
+### Passo 0: SEMPRE partir de `dev` — nunca de `main` (regra inegociável)
+
+**Antes de criar qualquer branch de trabalho**, garanta que a base é a
+`dev` atualizada — não `main`, não a branch em que a sessão happened to
+começar, não o estado local "do jeito que está".
+
+```bash
+git fetch origin dev
+git checkout -b <nome-da-branch> origin/dev
+```
+
+Por quê isso importa tanto: `main` reflete produção e pode estar **muitas
+dezenas de commits atrás** de `dev` (na prática, já chegou a ficar 35
+commits defasada). Criar uma branch a partir de `main` desatualizada faz
+o agente:
+
+1. **Duplicar trabalho já feito** — ex.: reimplementar do zero uma feature
+   que já existe em `dev` (já aconteceu: a issue #12 pedia uma alternativa
+   de UI para `/docs`, mas o agente, partindo de `main`, não enxergou que
+   `/docs` já tinha sido criado em `dev` pelo T30/issue #3 — e recriou o
+   pacote inteiro em paralelo, gerando conflito).
+2. **Perder o histórico de decisões** — tarefas, manifest e `CLAUDE.md` em
+   `dev` podem conter informação que `main` ainda não tem.
+3. **Gerar PRs com diffs gigantes e poluídos** por commits de sincronização
+   que não têm nada a ver com a mudança pretendida.
+
+Se a sessão começar em `main` (ou em qualquer outra branch), **troque para
+`dev` antes de criar a branch de trabalho** — não assuma que o checkout
+local já está correto. E **sempre confira o manifest e os arquivos de
+tarefa relevantes em `dev`** (não em `main`) antes de planejar qualquer
+coisa nova: pode ser que o que parece "a fazer" já tenha sido feito lá.
+
 ### Passo 1: Verificar estado atual
 
 ```

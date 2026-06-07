@@ -511,16 +511,21 @@ quando `?video_id=` é informado (não faria sentido, por exemplo, devolver
 `queue_pending` "filtrado por vídeo"; isso poderia ser mal interpretado como
 o tamanho da fila relativo àquele vídeo específico).
 
-## Documentação interativa da API (Swagger)
+## Documentação interativa da API (Scalar)
 
-A API tem documentação interativa no padrão OpenAPI/Swagger, acessível pelo
+A API tem documentação interativa no padrão OpenAPI, acessível pelo
 navegador:
 
-- `GET /docs/` — UI interativa do Swagger (carrega os assets do
-  [Swagger UI](https://github.com/swagger-api/swagger-ui) via CDN)
+- `GET /docs/` — UI interativa do [Scalar](https://scalar.com/) (carrega o
+  componente `@scalar/api-reference` via CDN), consumindo a spec abaixo
 - `GET /docs/openapi.json` — especificação OpenAPI 3.0 em JSON, consumida
   pela UI acima e por outras ferramentas (geração de clients, importação no
   Postman/Insomnia, etc.)
+
+> Nota: a UI já foi servida com Swagger UI (T30/issue #3). Trocamos para o
+> Scalar a pedido da issue #12 — o autor considerou o Swagger UI pouco
+> agradável visualmente. A spec OpenAPI continua a mesma; só a página HTML
+> de `/docs/` mudou.
 
 ```bash
 # abrir no navegador

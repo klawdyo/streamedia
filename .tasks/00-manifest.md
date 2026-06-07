@@ -7,8 +7,8 @@ Status possíveis: `pending` | `in-progress` | `done` | `blocked`
 
 ```
 Total: 51 tarefas
-Done:  40
-Pending: 10 (T41-T43: issue #8; T44, T47: solicitações diretas; T45-T46: issue #9; T48-T50: issue #10; T51: issue #13)
+Done:  41
+Pending: 9 (T41-T43: issue #8; T44, T47: solicitações diretas; T45-T46: issue #9; T48-T50: issue #10)
 ```
 
 ## Lista de tarefas
@@ -65,7 +65,7 @@ Pending: 10 (T41-T43: issue #8; T44, T47: solicitações diretas; T45-T46: issue
 | T48 | `.tasks/48-default-project-always-assigned.md` | Todo upload sempre pertence a um projeto — projeto padrão automático | pending | origem: issue #10; depende de T32-T35; fundação — T49 e T50 dependem desta |
 | T49 | `.tasks/49-remove-legacy-upload-auth-flow.md` | Remover fluxo de autenticação legado (HMAC global) de /upload/init | pending | origem: issue #10; depende T48 — preserva UploadTokenSecret/ValidateBackendAuth/ValidatePlayToken (usados fora do upload) |
 | T50 | `.tasks/50-unify-upload-token-ttl.md` | Unificar UPLOAD_TOKEN_TTL_SECONDS e UPLOAD_TOKEN_SCOPED_TTL_SECONDS em uma única variável | pending | origem: issue #10; depende T49; fecha a issue #10 (cadeia T48→T49→T50) |
-| T51 | `.tasks/51-db-migrations.md` | Migrations versionadas (goose) substituindo schema.go monolítico | pending | depende T03 — origem: issue #13 — fecha a issue #13 |
+| T51 | `.tasks/51-docs-ui-scalar.md` | Trocar UI de documentação da API de Swagger para Scalar | done | origem: issue #12 (continuação da issue #3/T30); troca só a UI, spec OpenAPI inalterada |
 
 ## Próxima onda — ordem de prioridade sugerida (T31-T37)
 
@@ -221,20 +221,9 @@ Resumo por issue:
   variável não deve conter "scoped"; sem necessidade de retrocompatibilidade
   (projeto ainda não está em uso — "quero ele limpo e sem vestígios de
   coisa velha antes de lançar"). Status inicial de todas: pending.
-[2026-06-07] CTO: gerada T51 a partir da issue #13 ("Como a lib trata
-  as migrações de banco de dados?"). O usuário apontou que o schema
-  hoje é uma string DDL única (internal/db/schema.go) reaplicada via
-  CREATE TABLE IF NOT EXISTS a cada boot — modelo que não suporta
-  alterações estruturais reais (rename/drop/alter de coluna) e não
-  versiona o histórico de mudanças, e citou o PocketBase como
-  inspiração (gera migrations comparando structs com o schema).
-  Estudo de alternativas no ecossistema Go (golang-migrate, goose,
-  atlas, GORM AutoMigrate, ent, sqlc) concluiu que o caminho de
-  struct→diff→migration automática (PocketBase/Ent/Atlas) é
-  desproporcional ao tamanho do projeto (3 tabelas, SQLite, filosofia
-  de SQL puro já documentada na spec). Recomendação registrada na
-  issue: adotar pressly/goose como biblioteca embutida — migrations
-  SQL versionadas em internal/db/migrations/, embutidas via go:embed,
-  executadas automaticamente em db.Open() a cada inicialização do
-  servidor (idempotente via tabela goose_db_version), substituindo
-  schema.go. T51 fecha a issue #13. Status inicial: pending.
+
+[2026-06-07 14:00] T51: criada e concluída — troca da UI de documentação de
+  Swagger para Scalar (issue #12, continuação da issue #3/T30 — o autor
+  achou o Swagger feio e pediu alternativas). pending → in-progress → done.
+  Spec OpenAPI inalterada; só `internal/docs/docs.go` (página HTML) e
+  `docs_test.go` foram ajustados. Refs #12.
