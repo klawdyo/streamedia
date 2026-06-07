@@ -7,8 +7,8 @@ Status possíveis: `pending` | `in-progress` | `done` | `blocked`
 
 ```
 Total: 37 tarefas
-Done:  35
-Pending: 2
+Done:  36
+Pending: 1
 ```
 
 ## Lista de tarefas
@@ -50,7 +50,7 @@ Pending: 2
 | T33 | `.tasks/33-scoped-api-keys.md` | Chaves de API escopadas por projeto (upload/listagem/admin) | done | depende T32 — issue #6 |
 | T34 | `.tasks/34-project-storage-layout.md` | Layout de armazenamento por projeto (diretórios isolados) | done | depende T32, T33 — issue #6 |
 | T35 | `.tasks/35-project-management-routes.md` | Rotas de gerenciamento de projetos | done | depende T32, T33 — issue #6 — fecha a issue #6 |
-| T36 | `.tasks/36-storage-stats-model.md` | Model de armazenamento por vídeo (bytes, duração, status) | pending | depende T03, T04 (recomendado após T34) — issue #5 |
+| T36 | `.tasks/36-storage-stats-model.md` | Model de armazenamento por vídeo (bytes, duração, status) | done | depende T03, T04 (recomendado após T34) — issue #5 |
 | T37 | `.tasks/37-storage-stats-route.md` | Expor estatísticas de armazenamento e fila em `/admin/stats` | pending | depende T36, T28 — issue #5 — fecha a issue #5 |
 
 ## Próxima onda — ordem de prioridade sugerida (T31-T37)
@@ -146,3 +146,5 @@ Resumo por issue:
 [2026-06-07 09:55] T34: in-progress → done (layout de armazenamento isolado por projeto: ResolveVideoRootDir unifica worker/serving, migração idempotente de vídeos legados para o projeto "Legacy" no startup — Refs #6)
 [2026-06-07 10:10] T35: pending → in-progress
 [2026-06-07 10:45] T35: in-progress → done (rotas de gerenciamento de projetos: CRUD via /admin/projects* protegido por super-admin, emissão de token de upload via X-Project-Key — fecha issue #6, encerrando a cadeia T32→T33→T34→T35)
+[2026-06-07 11:00] T36: pending → in-progress
+[2026-06-07 11:30] T36: in-progress → done (model de armazenamento: tabela video_renditions com UPSERT por (video_id, resolution), scanRenditionDir no worker FFmpeg, e funções de agregação TotalStorageBytes/TotalDurationSeconds/CountVideosByStatus/StorageByVideo em internal/models/storage.go — descoberta: actual_size_bytes/duration_s já existiam em videos — Refs #5)

@@ -69,12 +69,31 @@ CREATE TABLE IF NOT EXISTS projects (
   created_at      DATETIME DEFAULT CURRENT_TIMESTAMP
 );
 
+-- Variantes HLS geradas por vídeo (issue #5, T36): uma linha por
+-- combinação (video_id, resolution), preenchida pelo worker FFmpeg (T11)
+-- ao concluir cada variante — soma dos tamanhos dos segmentos .ts e a
+-- contagem deles. Granularidade "por vídeo + por variante", não por chunk
+-- de upload (os chunks do TUS são efêmeros — ver nota em
+-- internal/models/storage.go): atende ao pedido da issue de "uma linha por
+-- arquivo salvo" sem reter dados temporários sem valor analítico.
+-- PRIMARY KEY composta: re-transcodificação substitui (UPSERT) a linha
+-- existente em vez de duplicar.
+CREATE TABLE IF NOT EXISTS video_renditions (
+  video_id      TEXT    NOT NULL REFERENCES videos(video_id),
+  resolution    INTEGER NOT NULL,
+  size_bytes    INTEGER NOT NULL DEFAULT 0,
+  segment_count INTEGER NOT NULL DEFAULT 0,
+  updated_at    DATETIME DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (video_id, resolution)
+);
+
 CREATE INDEX IF NOT EXISTS idx_videos_status ON videos(status);
 CREATE INDEX IF NOT EXISTS idx_videos_last_chunk ON videos(last_chunk_at);
 CREATE INDEX IF NOT EXISTS idx_tokens_expires ON upload_tokens(expires_at);
 CREATE INDEX IF NOT EXISTS idx_playback_events_video ON playback_events(video_id);
 CREATE INDEX IF NOT EXISTS idx_playback_events_occurred ON playback_events(occurred_at);
 CREATE INDEX IF NOT EXISTS idx_projects_slug ON projects(slug);
+CREATE INDEX IF NOT EXISTS idx_video_renditions_video ON video_renditions(video_id);
 
 CREATE TRIGGER IF NOT EXISTS videos_updated_at
 AFTER UPDATE ON videos

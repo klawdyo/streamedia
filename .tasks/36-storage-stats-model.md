@@ -1,6 +1,6 @@
 # T36: Model de armazenamento por vídeo (bytes, duração, status)
 
-**Status:** pending
+**Status:** done
 **Dependências:** T03, T04 — recomenda-se também depois de T34 (ver nota)
 **Estimativa:** média
 **Issue relacionada:** #5
@@ -77,9 +77,86 @@ TestCountVideosByStatus_GroupsCorrectly
 
 ## Definition of Done
 
-- [ ] `videos` armazena tamanho original e duração
-- [ ] `video_renditions` registra tamanho e nº de segmentos por variante gerada
-- [ ] Funções de agregação cobrindo: total em bytes, total em minutos,
+- [x] `videos` armazena tamanho original e duração
+- [x] `video_renditions` registra tamanho e nº de segmentos por variante gerada
+- [x] Funções de agregação cobrindo: total em bytes, total em minutos,
       contagem por status
-- [ ] Todos os testes passam
+- [x] Todos os testes passam
+
+## Resolução
+
+### Descoberta: `videos.actual_size_bytes`/`duration_s` já existiam
+
+A "Decisão de granularidade" deste arquivo já desconfiava disso ("confirme o
+schema atual em `internal/models/video.go`") — e de fato, `videos` já possui
+`actual_size_bytes` (preenchido por `SetUploadComplete`, no fluxo de validação
+pós-upload da T09) e `duration_s` (preenchido por `SetReady`, ao final da
+transcodificação, com a duração extraída via `probeVideo`/ffprobe). Portanto
+**nenhuma alteração foi necessária em `internal/models/video.go` ou
+`internal/upload/validation.go`** — as colunas pedidas pela tarefa já existem
+sob nomes equivalentes e já são preenchidas nos pontos certos do pipeline. O
+trabalho genuinamente novo desta tarefa é a tabela `video_renditions` e as
+funções de agregação.
+
+### Nova tabela `video_renditions` (`internal/db/schema.go`)
+
+Uma linha por combinação `(video_id, resolution)` — chave primária composta —
+com `size_bytes` (soma dos segmentos `.ts` da variante) e `segment_count`.
+A PK composta permite usar `INSERT ... ON CONFLICT ... DO UPDATE` (UPSERT):
+reprocessar um vídeo (re-transcodificação) substitui a linha existente em vez
+de duplicá-la — a granularidade "por vídeo + por variante de resolução
+gerada" descrita no Contexto, e não por chunk do TUS (efêmeros, sem valor
+analítico duradouro, conforme já documentado na tarefa).
+
+### `internal/models/storage.go` (novo arquivo)
+
+- `VideoRendition` — struct espelhando uma linha de `video_renditions`.
+- `UpsertVideoRendition(db, videoID, resolution, sizeBytes, segmentCount)` —
+  grava/substitui via `INSERT ... ON CONFLICT (video_id, resolution) DO
+  UPDATE`.
+- `StorageByVideo(db, videoID)` — lista as variantes de um vídeo ordenadas
+  por resolução ("ficha de armazenamento" de um vídeo específico).
+- `TotalStorageBytes(db)` — soma `videos.actual_size_bytes` (originais) +
+  `video_renditions.size_bytes` (variantes geradas) — responde "quantos MB
+  estão armazenados ao todo".
+- `TotalDurationSeconds(db)` — soma `videos.duration_s` — responde "quantos
+  minutos de vídeo estão armazenados ao todo" (cada vídeo conta uma única
+  vez; variantes compartilham a duração do original).
+- `CountVideosByStatus(db)` — agrupa contagem de vídeos por `status` —
+  responde "quantos arquivos estão pendentes/em processamento/prontos/com
+  falha".
+
+Todas usam `COALESCE`/inicialização segura para não quebrar quando não há
+dados (ex.: `duration_s` NULL em vídeos ainda não transcodificados).
+
+### Worker FFmpeg — preenchimento de `video_renditions` (`internal/transcode/worker.go`)
+
+Adicionada `scanRenditionDir(resDir)`: varre o diretório de saída de uma
+variante recém-gerada, soma o tamanho dos segmentos `.ts` (via
+`renditionSegmentRe`, o mesmo padrão `^[0-9]+\.ts$` usado no serving) e conta
+quantos existem — ignorando deliberadamente o `playlist.m3u8` (fração
+desprezível e variável, que não representa o "peso" real do vídeo). Chamada
+logo após cada `ffmpeg.Run` bem-sucedido no laço de resoluções de
+`Transcode`, persistindo o resultado via `models.UpsertVideoRendition`.
+Falhas aqui (erro ao ler diretório, erro ao gravar no banco) são logadas mas
+NÃO interrompem a transcodificação — são estatísticas auxiliares, e o vídeo
+não deve falhar por causa delas.
+
+### Testes — `internal/models/storage_test.go`
+
+- `TestVideoRenditions_PersistsSizeAndSegmentCount` — grava duas variantes,
+  confere os valores, e confirma que re-transcodificar a mesma resolução
+  SUBSTITUI a linha (UPSERT) em vez de duplicar.
+- `TestTotalStorageBytes_SumsOriginalsAndRenditions` — confere que o total
+  soma corretamente originais (`actual_size_bytes`) + variantes
+  (`size_bytes`).
+- `TestTotalDurationSeconds_SumsAcrossVideos` — soma duração de vários
+  vídeos, incluindo um sem duração (NULL), confirmando o `COALESCE`.
+- `TestCountVideosByStatus_GroupsCorrectly` — cria vídeos em
+  `pending_upload`, `transcoding`, `ready` e `failed_transcode` (dois deste
+  último, via `UpdateStatusWithError` como o worker realmente faz) e confere
+  as contagens por status e o total.
+
+`go build ./...`, `go vet ./...` e `go test ./...` (suíte completa) passam
+sem falhas.
 </content>

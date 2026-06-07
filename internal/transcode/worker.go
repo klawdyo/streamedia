@@ -7,9 +7,11 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"log"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -219,6 +221,37 @@ func parseDurationSeconds(s string) int {
 	return int(f)
 }
 
+// renditionSegmentRe casa nomes de segmento gerados pelo FFmpeg para HLS:
+// um ou mais dígitos seguidos de ".ts" (mesmo padrão usado no serving,
+// ver internal/serve.segmentRe).
+var renditionSegmentRe = regexp.MustCompile(`^[0-9]+\.ts$`)
+
+// scanRenditionDir varre o diretório de uma variante HLS recém-gerada e
+// soma o tamanho dos segmentos .ts, contando-os — alimenta video_renditions
+// (issue #5, T36). Ignora o playlist.m3u8 deliberadamente: o pedido da
+// issue é "tamanho dos segmentos da variante", e o playlist é uma fração
+// desprezível e variável (não representa o "peso" real do vídeo).
+func scanRenditionDir(resDir string) (sizeBytes int64, segmentCount int, err error) {
+	entries, err := os.ReadDir(resDir)
+	if err != nil {
+		return 0, 0, fmt.Errorf("erro ao ler diretório da variante %s: %w", resDir, err)
+	}
+
+	for _, entry := range entries {
+		if entry.IsDir() || !renditionSegmentRe.MatchString(entry.Name()) {
+			continue
+		}
+		info, err := entry.Info()
+		if err != nil {
+			return 0, 0, fmt.Errorf("erro ao obter informações do segmento %s: %w", entry.Name(), err)
+		}
+		sizeBytes += info.Size()
+		segmentCount++
+	}
+
+	return sizeBytes, segmentCount, nil
+}
+
 // Transcode processa um vídeo: extrai dimensões, gera as variantes HLS,
 // escreve o master playlist, marca como pronto e dispara o webhook.
 // Em caso de falha trata as tentativas e o estado conforme as regras.
@@ -276,6 +309,17 @@ func (w *Worker) Transcode(videoID string) error {
 		if err != nil {
 			return w.handleTranscodeFailure(videoID, video.TranscodeAttempts,
 				fmt.Sprintf("erro ao transcodificar resolução %d: %v", res, err))
+		}
+
+		// Registra o tamanho e a contagem de segmentos da variante recém
+		// gerada (issue #5, T36) — alimenta as agregações de armazenamento
+		// em internal/models/storage.go. Falha aqui não compromete o vídeo
+		// (estatísticas são um recurso auxiliar): logamos e seguimos.
+		sizeBytes, segmentCount, err := scanRenditionDir(resDir)
+		if err != nil {
+			log.Printf("[transcode] %s: erro ao calcular tamanho da variante %dp: %v", videoID, res, err)
+		} else if err := models.UpsertVideoRendition(w.db, videoID, res, sizeBytes, segmentCount); err != nil {
+			log.Printf("[transcode] %s: erro ao registrar variante %dp: %v", videoID, res, err)
 		}
 	}
 
