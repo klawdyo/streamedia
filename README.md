@@ -285,6 +285,59 @@ Healthcheck para Docker e load balancers. Não requer autenticação.
 {"status":"ok"}
 ```
 
+## Observabilidade
+
+### GET /metrics
+
+Expõe métricas operacionais no formato OpenTelemetry/Prometheus
+(`text/plain; version=0.0.4`), prontas para `scrape` por um Prometheus
+local ou qualquer ferramenta compatível. Não requer autenticação — é o
+padrão do ecossistema Prometheus, que normalmente protege essa rota na
+camada de infraestrutura/rede (ex. regra de firewall restringindo a origem
+do scraper). O rate limiter da aplicação (ver seção de Rotas) também se
+aplica a ela.
+
+Métricas expostas:
+
+- `streamedia_http_requests_total{method, route, status}` — contador de
+  requisições HTTP, rotulado pelo template de rota do `chi` (evita
+  explosão de séries por valores de path como UUIDs)
+- `streamedia_http_request_duration_seconds{method, route, status}` —
+  histograma de duração das requisições, em segundos
+- `streamedia_transcode_queue_length` — gauge com o tamanho atual da fila
+  de transcodificação (mesma fonte do `/admin/queue`)
+- `streamedia_uploads_in_progress` — gauge com a quantidade de vídeos com
+  upload em andamento (`pending_upload`/`uploading`)
+- `streamedia_playback_events_total{event_type}` — gauge com o total
+  acumulado de eventos de uso (`playback`, `download_segment`,
+  `upload_complete`), lido sob demanda da tabela `playback_events` —
+  mesma fonte de verdade usada pela rota `/admin/stats`
+
+**Integrando com um Prometheus local:**
+
+```yaml
+# prometheus.yml
+scrape_configs:
+  - job_name: streamedia
+    metrics_path: /metrics
+    static_configs:
+      - targets: ["localhost:8080"]
+```
+
+```bash
+curl http://localhost:8080/metrics
+```
+
+### GET /admin/stats
+
+Estatísticas de negócio (totais por tipo de evento, agregações por
+resolução, sistema operacional e dia da semana), derivadas da tabela
+`playback_events`. Formato JSON, voltado para consumo administrativo —
+diferente de `/metrics` (formato Prometheus, consumo por ferramentas de
+monitoramento). Requer `Authorization: Bearer <ADMIN_TOKEN>`. Aceita o
+parâmetro opcional `?video_id=` para filtrar as estatísticas de um vídeo
+específico.
+
 ## Token de Reprodução
 
 O backend principal deve gerar o token de reprodução antes de passar a URL do vídeo ao Flutter Client. O token é um HMAC-SHA256 sobre `"{video_id}:{expires_unix}"`.

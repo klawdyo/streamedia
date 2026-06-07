@@ -4,6 +4,7 @@ package server
 
 import (
 	"database/sql"
+	"log"
 	"net/http"
 	"path/filepath"
 
@@ -15,6 +16,7 @@ import (
 	"github.com/klawdyo/streamedia/internal/middleware"
 	"github.com/klawdyo/streamedia/internal/models"
 	"github.com/klawdyo/streamedia/internal/serve"
+	"github.com/klawdyo/streamedia/internal/telemetry"
 	"github.com/klawdyo/streamedia/internal/transcode"
 	"github.com/klawdyo/streamedia/internal/upload"
 	"github.com/klawdyo/streamedia/internal/webhook"
@@ -56,11 +58,33 @@ func NewRouter(
 	adminHandler := admin.NewAdminHandler(cfg, database, queue)
 	rateLimiter := middleware.NewRateLimiter(cfg.RateLimitPerMin)
 
+	// Provider de telemetria OpenTelemetry/Prometheus (T29, issue #1).
+	// Falha ao montar o provider não deve impedir o servidor de subir —
+	// observabilidade é um recurso auxiliar, não um requisito de operação.
+	telemetryProvider, err := telemetry.NewProvider()
+	if err != nil {
+		log.Printf("[telemetry] erro ao criar provider de métricas: %v — rota /metrics ficará indisponível", err)
+	}
+	if telemetryProvider != nil {
+		if err := telemetryProvider.RegisterQueueGauge(queue.Len); err != nil {
+			log.Printf("[telemetry] erro ao registrar gauge de fila: %v", err)
+		}
+		if err := telemetryProvider.RegisterUploadsInProgressGauge(database); err != nil {
+			log.Printf("[telemetry] erro ao registrar gauge de uploads em andamento: %v", err)
+		}
+		if err := telemetryProvider.RegisterPlaybackEventsGauge(database); err != nil {
+			log.Printf("[telemetry] erro ao registrar gauge de eventos de playback: %v", err)
+		}
+	}
+
 	r := chi.NewRouter()
 
 	// Middlewares globais aplicados a todas as rotas.
-	r.Use(chimw.Recoverer)        // recupera de panics, evitando derrubar o servidor
-	r.Use(chimw.Logger)           // loga cada requisição
+	r.Use(chimw.Recoverer) // recupera de panics, evitando derrubar o servidor
+	r.Use(chimw.Logger)    // loga cada requisição
+	if telemetryProvider != nil {
+		r.Use(telemetryProvider.Middleware) // instrumenta requisições HTTP (T29)
+	}
 	r.Use(rateLimiter.Middleware) // limita a taxa de requisições por IP
 
 	// --- Upload ---
@@ -100,6 +124,15 @@ func NewRouter(
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write([]byte(`{"status":"ok"}`))
 	})
+
+	// --- Métricas (OpenTelemetry/Prometheus, T29, issue #1) ---
+	// Sem autenticação: é o padrão do ecossistema Prometheus — a proteção,
+	// quando necessária, é feita na camada de infraestrutura/rede (ex.
+	// regra de firewall restringindo a origem do scraper), não na aplicação.
+	// O rate limiter (T19), já aplicado globalmente acima, mitiga abuso.
+	if telemetryProvider != nil {
+		r.Get("/metrics", telemetryProvider.Handler.ServeHTTP)
+	}
 
 	return r
 }
