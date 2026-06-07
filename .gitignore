@@ -23,3 +23,6 @@ test_output.log
 .idea/
 .vscode/
 .DS_Store
+
+# Worktrees de agentes (gerenciado pelo harness, não é conteúdo do projeto)
+/.claude/
