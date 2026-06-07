@@ -20,22 +20,33 @@ Este repositório usa um sistema multi-agente estruturado:
   Só recebe merge **via Pull Request**, e somente quando o usuário autorizar
   explicitamente. O PR deve descrever em detalhes tudo o que foi alterado.
 - **`dev`** — branch de integração. **Todo o desenvolvimento parte daqui.**
-- **Branches de feature** — para cada nova funcionalidade/tarefa, crie uma
-  branch a partir de `dev` (ex.: `feature/nome-da-feature`). Ao concluir,
-  faça merge de volta para `dev`.
-- **Nome da branch deve descrever o conteúdo do trabalho, não o processo.**
-  Use o assunto/escopo das tarefas que serão feitas (ex.:
-  `feature/cobertura-testes-camada-de-dados`,
-  `feature/auditoria-seguranca-auth-tokens`,
-  `feature/envelope-resposta-padronizada`). Evite nomes genéricos que não
-  dizem nada sobre o trabalho em si — como `revisar-issues`,
-  `gerar-tarefas`, `continue-review`, `resume-latest-branch` ou variações
-  baseadas em "última branch"/"retomar trabalho". Pense: alguém lendo só
-  o nome da branch (sem o histórico da sessão) deve conseguir adivinhar
-  do que ela trata.
+- **Worktrees de trabalho — não troque de branch no checkout principal.**
+  Para cada nova onda de tarefas (ou agente trabalhando em paralelo), crie
+  um **worktree dedicado** (`git worktree add`) sempre a partir do estado
+  mais recente de `dev`:
+  ```
+  git fetch origin dev
+  git worktree add ../streamedia-<assunto> -b <assunto> origin/dev
+  ```
+  Isso isola cada onda em um diretório e branch próprios — várias ondas (e
+  vários agentes) podem rodar ao mesmo tempo sem disputar o `HEAD` do
+  checkout compartilhado nem pisar no trabalho umas das outras. Ao concluir,
+  faça merge da branch do worktree de volta para `dev`
+  (`git merge --no-ff <assunto>` a partir de um checkout de `dev`, depois
+  `git push origin dev`) e remova o worktree (`git worktree remove`).
+- **Nome do worktree/branch deve descrever o conteúdo do trabalho, não o
+  processo.** Use o assunto/escopo das tarefas que serão feitas (ex.:
+  `cobertura-testes-camada-de-dados`, `auditoria-seguranca-auth-tokens`,
+  `envelope-resposta-padronizada`). Evite nomes genéricos que não dizem
+  nada sobre o trabalho em si — como `revisar-issues`, `gerar-tarefas`,
+  `continue-review`, `resume-latest-branch` ou variações baseadas em
+  "última branch"/"retomar trabalho". Pense: alguém lendo só o nome do
+  worktree/branch (sem o histórico da sessão) deve conseguir adivinhar do
+  que ela trata.
 
 ```
-dev → feature/xyz → (trabalho) → merge de volta em dev
+dev (estado atual) → worktree dedicado + branch <assunto>
+                   → (trabalho) → merge --no-ff de volta em dev → remove worktree
 dev → ... → (quando autorizado) → Pull Request dev → main
 ```
 

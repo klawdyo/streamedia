@@ -77,16 +77,39 @@ Leia .tasks/NN-nome.md
 Extraia: título, dependências, QA Instructions, Dev Instructions, Definition of Done
 ```
 
-### Sobre nomear branches
+### Sobre isolar o trabalho: sempre use um worktree dedicado
 
-Ao criar uma branch de trabalho (a partir de `dev`, ver "Fluxo de branches"
-no CLAUDE.md), escolha um nome que descreva o ASSUNTO das tarefas — não o
-processo ou a sessão. Quem olhar o nome da branch (sem contexto da
-conversa) deve entender do que se trata.
+**Nunca crie a branch de trabalho no checkout principal nem troque de
+branch nele.** O usuário pode ter vários agentes/ondas de tarefas rodando
+ao mesmo tempo, e cada `git checkout`/`git switch` no checkout
+compartilhado quebraria o trabalho dos outros. Em vez disso, para cada
+nova onda de tarefas crie um **worktree separado**, sempre a partir do
+estado mais recente de `dev` (ver "Fluxo de branches" no CLAUDE.md):
 
-- Bom: `feature/cobertura-testes-camada-de-dados`,
-  `feature/auditoria-seguranca-rede-infra`,
-  `feature/envelope-resposta-padronizada`
+```
+git fetch origin dev
+git worktree add ../streamedia-<assunto> -b <assunto> origin/dev
+```
+
+Faça todo o trabalho da onda (specs, spawns de Dev/QA, commits) dentro
+desse worktree. Ao concluir:
+
+```
+# a partir de um checkout de dev (outro worktree, ou o principal se estiver em dev)
+git merge --no-ff <assunto>
+git push origin dev
+git worktree remove ../streamedia-<assunto>
+```
+
+### Sobre nomear worktrees/branches
+
+Escolha um nome que descreva o ASSUNTO das tarefas — não o processo ou a
+sessão. Quem olhar o nome do worktree/branch (sem contexto da conversa)
+deve entender do que se trata.
+
+- Bom: `cobertura-testes-camada-de-dados`,
+  `auditoria-seguranca-rede-infra`,
+  `envelope-resposta-padronizada`
 - Ruim (não use): `revisar-issues`, `gerar-tarefas`, `continue-review`,
   `resume-latest-branch`, `multi-agent-cto-system` — nomes que descrevem
   "o que o agente estava fazendo na sessão" em vez de "o que a mudança
