@@ -67,9 +67,9 @@ Pending: 14 (T41-T43: issue #8; T44, T47: solicitações diretas; T45-T46: issue
 | T50 | `.tasks/50-unify-upload-token-ttl.md` | Unificar UPLOAD_TOKEN_TTL_SECONDS e UPLOAD_TOKEN_SCOPED_TTL_SECONDS em uma única variável | pending | origem: issue #10; depende T49; fecha a issue #10 (cadeia T48→T49→T50) |
 | T51 | `.tasks/51-docs-ui-scalar.md` | Trocar UI de documentação da API de Swagger para Scalar | done | origem: issue #12 (continuação da issue #3/T30); troca só a UI, spec OpenAPI inalterada |
 | T52 | `.tasks/52-db-migrations.md` | Migrations versionadas (goose) substituindo schema.go monolítico | pending | depende T03 — origem: issue #13 — fecha a issue #13 |
-| T53 | `.tasks/53-fix-listbystatus-project-id.md` | Corrigir ListByStatus — omissão de project_id na query SELECT | pending | depende T04, T33 — origem: análise de código — bug funcional |
+| T53 | `.tasks/53-fix-listbystatus-project-id.md` | Corrigir ListByStatus — omissão de project_id na query SELECT | done | depende T04, T33 — origem: análise de código — bug funcional |
 | T54 | `.tasks/54-fix-ratelimiter-memory-leak.md` | Corrigir memory leak no rate limiter — sync.Map nunca limpa IPs inativos | pending | depende T19 — origem: análise de código — memory leak |
-| T55 | `.tasks/55-fix-queue-enqueue-silent-db-error.md` | Corrigir Queue.Enqueue — ignora erro de banco silenciosamente | pending | depende T10 — origem: análise de código — bug de consistência |
+| T55 | `.tasks/55-fix-queue-enqueue-silent-db-error.md` | Corrigir Queue.Enqueue — ignora erro de banco silenciosamente | done | depende T10 — origem: análise de código — bug de consistência |
 | T56 | `.tasks/56-remove-unused-uuid-dependency.md` | Remover dependência órfã google/uuid | pending | sem dependências — origem: análise de código — dead import |
 
 ## Próxima onda — ordem de prioridade sugerida (T31-T37)
@@ -111,6 +111,11 @@ Resumo por issue:
   T56 (dependência google/uuid não usada — dead import).
   Todas de estimativa pequena, sem issue vinculada (bugs encontrados na
   revisão, não reportados externamente). Status inicial: pending.
+
+[2026-06-07 19:36] T53: pending → in-progress
+[2026-06-07 19:36] T53: in-progress → done (adiciona project_id na query SELECT e Scan de ListByStatus — coluna e conversão estavam ausentes, vídeos sempre voltavam com ProjectID=nil)
+[2026-06-07 19:37] T55: pending → in-progress
+[2026-06-07 19:38] T55: in-progress → done (Enqueue captura erro do db.Exec em vez de ignorar com _, _ — evita estado inconsistente de vídeo na fila sem status transcoding no banco)
 
 <!-- CTO registra aqui cada transição com data/hora -->
 <!-- Formato: [YYYY-MM-DD HH:MM] TNN: pending → in-progress -->
