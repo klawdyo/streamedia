@@ -338,6 +338,31 @@ monitoramento). Requer `Authorization: Bearer <ADMIN_TOKEN>`. Aceita o
 parâmetro opcional `?video_id=` para filtrar as estatísticas de um vídeo
 específico.
 
+## Documentação interativa da API (Swagger)
+
+A API tem documentação interativa no padrão OpenAPI/Swagger, acessível pelo
+navegador:
+
+- `GET /docs/` — UI interativa do Swagger (carrega os assets do
+  [Swagger UI](https://github.com/swagger-api/swagger-ui) via CDN)
+- `GET /docs/openapi.json` — especificação OpenAPI 3.0 em JSON, consumida
+  pela UI acima e por outras ferramentas (geração de clients, importação no
+  Postman/Insomnia, etc.)
+
+```bash
+# abrir no navegador
+xdg-open http://localhost:8080/docs/
+
+# ou consultar a spec bruta
+curl http://localhost:8080/docs/openapi.json | jq .
+```
+
+Não requer autenticação — mesma decisão tomada para `/metrics`: é material
+de referência sobre os contratos da API (inclusive das rotas
+administrativas, que continuam protegidas por `ADMIN_TOKEN`/HMAC nas rotas
+reais; a spec apenas as descreve). O rate limiter da aplicação também se
+aplica a essas rotas.
+
 ## Token de Reprodução
 
 O backend principal deve gerar o token de reprodução antes de passar a URL do vídeo ao Flutter Client. O token é um HMAC-SHA256 sobre `"{video_id}:{expires_unix}"`.

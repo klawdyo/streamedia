@@ -13,6 +13,7 @@ import (
 
 	"github.com/klawdyo/streamedia/internal/admin"
 	"github.com/klawdyo/streamedia/internal/config"
+	"github.com/klawdyo/streamedia/internal/docs"
 	"github.com/klawdyo/streamedia/internal/middleware"
 	"github.com/klawdyo/streamedia/internal/models"
 	"github.com/klawdyo/streamedia/internal/serve"
@@ -133,6 +134,12 @@ func NewRouter(
 	if telemetryProvider != nil {
 		r.Get("/metrics", telemetryProvider.Handler.ServeHTTP)
 	}
+
+	// --- Documentação da API (Swagger/OpenAPI, T30, issue #3) ---
+	// Sem autenticação — ver decisão registrada em internal/docs/docs.go.
+	docsHandler := docs.NewHandler()
+	r.Get("/docs/", docsHandler.ServeUI)
+	r.Get("/docs/openapi.json", docsHandler.ServeOpenAPISpec)
 
 	return r
 }
