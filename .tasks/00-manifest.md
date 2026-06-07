@@ -6,9 +6,9 @@ Status possíveis: `pending` | `in-progress` | `done` | `blocked`
 ## Progresso geral
 
 ```
-Total: 43 tarefas
+Total: 44 tarefas
 Done:  37
-Pending: 6 (T38-T43, geradas a partir das issues #7 e #8)
+Pending: 7 (T38-T43, geradas a partir das issues #7 e #8; T44, solicitação direta)
 ```
 
 ## Lista de tarefas
@@ -58,6 +58,7 @@ Pending: 6 (T38-T43, geradas a partir das issues #7 e #8)
 | T41 | `.tasks/41-security-auth-tokens.md` | Auditoria de segurança — autenticação, autorização e tokens | pending | origem: issue #8 |
 | T42 | `.tasks/42-security-upload-processing.md` | Auditoria de segurança — upload, validação e execução de processos (FFmpeg) | pending | origem: issue #8; depende logicamente de T41 (não bloqueante) |
 | T43 | `.tasks/43-security-network-infra.md` | Auditoria de segurança — rede, rate limiting, webhooks e configuração | pending | origem: issue #8; fecha o sumário executivo de T41+T42+T43 |
+| T44 | `.tasks/44-optional-video-id-uuidv7.md` | video_id opcional em /upload/init — gera UUID v7 quando ausente, aceita qualquer versão quando informado | pending | origem: solicitação direta (não vinculada a issue); depende T08, T35 |
 
 ## Próxima onda — ordem de prioridade sugerida (T31-T37)
 
@@ -164,3 +165,9 @@ Resumo por issue:
   Numeração inicia em T38 (não T26) porque T26-T37 já existem nesta
   branch dev, concluídas a partir das issues #1-#6. Status inicial:
   pending. Aguardando início do workflow QA → Dev para cada uma.
+[2026-06-07] CTO: gerada T44 a partir de solicitação direta do usuário
+  (não vinculada a issue do GitHub): tornar video_id opcional em
+  /upload/init (gera UUID v7 quando ausente), aceitar qualquer versão de
+  UUID quando informado pelo cliente, e padronizar para que TODA geração
+  de id pelo próprio sistema (incluindo /admin/projects/*/upload-token,
+  T35) sempre privilegie UUID v7. Status inicial: pending.
