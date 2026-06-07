@@ -44,7 +44,7 @@ var validTransitions = map[VideoStatus][]VideoStatus{
 	StatusPendingUpload:  {StatusUploading, StatusFailedUpload},
 	StatusUploading:      {StatusUploading, StatusUploadComplete, StatusFailedUpload},
 	StatusUploadComplete: {StatusTranscoding},
-	StatusTranscoding:    {StatusTranscoding, StatusReady, StatusFailedTranscode},
+	StatusTranscoding:    {StatusTranscoding, StatusReady, StatusFailedTranscode, StatusUploadComplete},
 }
 
 // isValidTransition retorna true se a transição do estado from para o estado to é permitida.

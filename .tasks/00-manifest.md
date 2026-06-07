@@ -7,7 +7,7 @@ Status possíveis: `pending` | `in-progress` | `done` | `blocked`
 
 ```
 Total: 25 tarefas
-Done:  13
+Done:  15
 ```
 
 ## Lista de tarefas
@@ -26,13 +26,13 @@ Done:  13
 | T10 | `.tasks/10-transcode-queue.md` | Fila de transcodificação (channel + workers) | done | |
 | T11 | `.tasks/11-ffmpeg-worker.md` | Worker FFmpeg: geração HLS | done | |
 | T12 | `.tasks/12-hls-serving.md` | Serving HLS estático + master.m3u8 autenticado | done | |
-| T13 | `.tasks/13-status-route.md` | Rota GET /api/status/{video_id} | in-progress | depende T04 |
+| T13 | `.tasks/13-status-route.md` | Rota GET /api/status/{video_id} | done | |
 | T14 | `.tasks/14-job-upload-killer.md` | Job 1: killer de uploads inativos | done | |
-| T15 | `.tasks/15-job-transcode-requeue.md` | Job 2: reenfileirador de transcodes travados | in-progress | depende T10 |
-| T16 | `.tasks/16-job-token-cleanup.md` | Job 3: limpeza de tokens expirados | pending | depende T05 |
-| T17 | `.tasks/17-webhook-client.md` | Cliente de webhook com retry | pending | depende T04 |
-| T18 | `.tasks/18-admin-routes.md` | Rotas admin (/admin/videos, /admin/queue) | pending | depende T04, T10 |
-| T19 | `.tasks/19-rate-limit.md` | Middleware de rate limiting por IP | pending | depende T01 |
+| T15 | `.tasks/15-job-transcode-requeue.md` | Job 2: reenfileirador de transcodes travados | done | |
+| T16 | `.tasks/16-job-token-cleanup.md` | Job 3: limpeza de tokens expirados | in-progress | depende T05 |
+| T17 | `.tasks/17-webhook-client.md` | Cliente de webhook com retry | in-progress | depende T04 |
+| T18 | `.tasks/18-admin-routes.md` | Rotas admin (/admin/videos, /admin/queue) | in-progress | depende T04, T10 |
+| T19 | `.tasks/19-rate-limit.md` | Middleware de rate limiting por IP | in-progress | depende T01 |
 | T20 | `.tasks/20-server-assembly.md` | Montagem do servidor: chi + todas as rotas | pending | depende T08-T19 |
 | T21 | `.tasks/21-startup-recovery.md` | Recuperação de crash na inicialização | pending | depende T10 |
 | T22 | `.tasks/22-docker-config.md` | Dockerfile + docker-compose + .env.example | pending | depende T20 |
@@ -60,3 +60,9 @@ Done:  13
 [2026-06-07 00:30] T14: pending → in-progress
 [2026-06-07 00:35] T14: in-progress → done
 [2026-06-07 00:35] T15: pending → in-progress
+[2026-06-07 00:50] T13: in-progress → done
+[2026-06-07 00:50] T15: in-progress → done
+[2026-06-07 00:50] T16: pending → in-progress
+[2026-06-07 00:50] T17: pending → in-progress
+[2026-06-07 00:50] T18: pending → in-progress
+[2026-06-07 00:50] T19: pending → in-progress
