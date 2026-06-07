@@ -4,6 +4,7 @@ go 1.25.0
 
 require (
 	github.com/tus/tusd/v2 v2.9.2
+	golang.org/x/time v0.14.0
 	modernc.org/sqlite v1.52.0
 )
 

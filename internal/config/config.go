@@ -14,6 +14,7 @@ type Config struct {
 	UploadTokenSecret    string
 	WebhookURL           string
 	WebhookSecret        string
+	AdminToken           string
 	MaxUploadSizeBytes   int64         // convertido de MB para bytes
 	MediaDir             string
 	UploadTmpDir         string
@@ -93,6 +94,7 @@ func Load() (*Config, error) {
 		UploadTokenSecret:    uploadTokenSecret,
 		WebhookURL:           webhookURL,
 		WebhookSecret:        webhookSecret,
+		AdminToken:           getEnvStr("ADMIN_TOKEN", ""),
 		MaxUploadSizeBytes:   int64(maxUploadSizeMB) * 1024 * 1024,
 		MediaDir:             getEnvStr("MEDIA_DIR", "/media"),
 		UploadTmpDir:         getEnvStr("UPLOAD_TMP_DIR", "/media/.uploads"),
