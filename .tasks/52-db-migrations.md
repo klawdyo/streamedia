@@ -1,4 +1,4 @@
-# T51: Sistema de migrations versionadas para o banco SQLite
+# T52: Sistema de migrations versionadas para o banco SQLite
 
 **Status:** pending
 **Dependências:** T03
