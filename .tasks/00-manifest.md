@@ -6,8 +6,9 @@ Status possíveis: `pending` | `in-progress` | `done` | `blocked`
 ## Progresso geral
 
 ```
-Total: 25 tarefas
+Total: 30 tarefas
 Done:  25
+Pending: 5
 ```
 
 ## Lista de tarefas
@@ -39,6 +40,11 @@ Done:  25
 | T23 | `.tasks/23-github-actions.md` | GitHub Actions: ci.yml + release.yml | done | depende T22 |
 | T24 | `.tasks/24-readme.md` | README.md completo | done | depende T22 |
 | T25 | `.tasks/25-integration-tests.md` | Suite de testes de integração completa | done | depende T20 |
+| T26 | `.tasks/26-playback-stats-model.md` | Model + armazenamento de eventos de reprodução/upload (estatísticas) | pending | depende T03, T04 — issue #2 |
+| T27 | `.tasks/27-playback-stats-collection.md` | Coleta de eventos de estatísticas nos handlers de serving/upload | pending | depende T26, T07, T09, T12 — issue #2 |
+| T28 | `.tasks/28-stats-aggregation-route.md` | Rota administrativa de estatísticas agregadas (`/admin/stats`) | pending | depende T26, T27, T18 — issue #2 |
+| T29 | `.tasks/29-opentelemetry-metrics-route.md` | Rota de métricas no padrão OpenTelemetry/Prometheus (`/metrics`) | pending | depende T20, T26 — issue #1 |
+| T30 | `.tasks/30-swagger-docs.md` | Documentação da API via Swagger/OpenAPI | pending | depende T20, T13, T18, T28, T29 — issue #3 |
 
 ## Log de mudanças de status
 
@@ -82,3 +88,4 @@ Done:  25
 [2026-06-07 02:45] T24: in-progress → done
 [2026-06-07 02:45] T25: pending → in-progress
 [2026-06-07 03:00] T25: in-progress → done
+[2026-06-07 03:30] T26-T30 criadas a partir das issues #1, #2 e #3 (próxima onda de funcionalidades: estatísticas de uso, métricas OpenTelemetry e documentação Swagger)

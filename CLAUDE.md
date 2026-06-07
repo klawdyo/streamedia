@@ -77,3 +77,14 @@ CTO lê manifest → lê tarefa → QA escreve testes → Dev implementa → QA 
 ```
 
 Ver `.agents/cto.md` para o workflow detalhado.
+
+## Issues do GitHub referenciadas em tarefas
+
+Quando uma tarefa (`.tasks/NN-*.md`) tem uma "Issue relacionada" e seu
+trabalho conclui ou resolve essa issue:
+
+- **Comente na issue** descrevendo a solução executada (o que foi feito,
+  arquivos/rotas envolvidos, como verificar).
+- **Referencie a issue no(s) commit(s)** que a fecham (ex. `Closes #2` ou
+  `Refs #2` na mensagem do commit), para que o vínculo fique rastreável no
+  histórico do GitHub.
