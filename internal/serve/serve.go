@@ -14,6 +14,7 @@ package serve
 import (
 	"database/sql"
 	"encoding/json"
+	"log"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -23,6 +24,7 @@ import (
 
 	"github.com/klawdyo/streamedia/internal/auth"
 	"github.com/klawdyo/streamedia/internal/config"
+	"github.com/klawdyo/streamedia/internal/models"
 )
 
 // uuidV4Re valida UUID v4 estrito: versão 4 e variante 8-b.
@@ -47,6 +49,26 @@ func respondError(w http.ResponseWriter, status int, msg string) {
 	_ = json.NewEncoder(w).Encode(map[string]string{"error": msg})
 }
 
+// recordPlaybackAsync grava um evento de estatística de uso (T26/T27) sem
+// bloquear a resposta ao cliente: a gravação ocorre em uma goroutine separada
+// e qualquer erro é apenas logado — estatísticas nunca devem afetar a entrega
+// do conteúdo ao usuário.
+//
+// onDone, se não-nil, é chamado ao final da gravação (com o erro, se houver).
+// Existe apenas para permitir que os testes aguardem deterministicamente a
+// conclusão da goroutine antes de inspecionar o banco — em produção é nil.
+func recordPlaybackAsync(db *sql.DB, videoID, eventType string, resolution *int, userAgent string, onDone func(error)) {
+	go func() {
+		err := models.RecordEvent(db, videoID, eventType, resolution, userAgent)
+		if err != nil {
+			log.Printf("[stats] erro ao registrar evento %q para vídeo %s: %v", eventType, videoID, err)
+		}
+		if onDone != nil {
+			onDone(err)
+		}
+	}()
+}
+
 // pathParts remove o prefixo "/videos/" do path e o divide por "/".
 // Retorna os componentes não vazios já com o prefixo retirado.
 //
@@ -62,6 +84,11 @@ func pathParts(urlPath string) []string {
 type MasterHandler struct {
 	cfg *config.Config
 	db  *sql.DB
+
+	// onStatsRecorded, se não-nil, é chamado ao final de cada gravação
+	// assíncrona de evento de estatística. Usado apenas em testes para
+	// aguardar deterministicamente a goroutine antes de inspecionar o banco.
+	onStatsRecorded func(error)
 }
 
 // NewMasterHandler cria um MasterHandler com a config e o banco informados.
@@ -118,7 +145,12 @@ func (h *MasterHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// 6. Serve o arquivo master.m3u8 do diretório do vídeo.
+	// 6. Registra o evento de estatística (T26/T27): acesso ao master.m3u8
+	// conta como "playback" sem resolução associada (o master não tem uma).
+	// Gravado de forma assíncrona para não atrasar a entrega do conteúdo.
+	recordPlaybackAsync(h.db, videoID, "playback", nil, r.Header.Get("User-Agent"), h.onStatsRecorded)
+
+	// 7. Serve o arquivo master.m3u8 do diretório do vídeo.
 	masterPath := filepath.Join(h.cfg.MediaDir, videoID, "master.m3u8")
 	http.ServeFile(w, r, masterPath)
 }
@@ -128,11 +160,18 @@ func (h *MasterHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 // directory listing desabilitado.
 type StaticHandler struct {
 	cfg *config.Config
+	db  *sql.DB
+
+	// onStatsRecorded, se não-nil, é chamado ao final de cada gravação
+	// assíncrona de evento de estatística. Usado apenas em testes para
+	// aguardar deterministicamente a goroutine antes de inspecionar o banco.
+	onStatsRecorded func(error)
 }
 
-// NewStaticHandler cria um StaticHandler com a config informada.
-func NewStaticHandler(cfg *config.Config) *StaticHandler {
-	return &StaticHandler{cfg: cfg}
+// NewStaticHandler cria um StaticHandler com a config e o banco informados.
+// O banco é usado apenas para registrar eventos de estatística (T26/T27).
+func NewStaticHandler(cfg *config.Config, db *sql.DB) *StaticHandler {
+	return &StaticHandler{cfg: cfg, db: db}
 }
 
 // ServeHTTP implementa o fluxo de serving estático.
@@ -202,6 +241,18 @@ func (h *StaticHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// 8. Serve o arquivo estático.
+	// 8. Registra o evento de estatística (T26/T27) apenas para segmentos
+	// .ts — é o evento mais representativo de consumo real (download de
+	// dados de vídeo). Não registramos playlist.m3u8 aqui para evitar
+	// duplicidade com o evento "playback" já gerado no acesso ao master.
+	// Gravado de forma assíncrona para não atrasar a entrega do arquivo.
+	if segmentRe.MatchString(filename) {
+		resInt, err := strconv.Atoi(resolution)
+		if err == nil {
+			recordPlaybackAsync(h.db, videoID, "download_segment", &resInt, r.Header.Get("User-Agent"), h.onStatsRecorded)
+		}
+	}
+
+	// 9. Serve o arquivo estático.
 	http.ServeFile(w, r, cleanPath)
 }

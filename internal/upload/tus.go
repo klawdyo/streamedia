@@ -35,12 +35,12 @@ type TUSHandler struct {
 	handler  *tusd.Handler
 	cfg      *config.Config
 	db       *sql.DB
-	onFinish func(videoID string)
+	onFinish func(videoID, userAgent string)
 }
 
 // NewTUSHandler cria um novo TUSHandler com validação de token e hooks de ciclo de vida.
 // O parâmetro onFinish é chamado quando o upload completa (para validação e enfileiramento).
-func NewTUSHandler(cfg *config.Config, db *sql.DB, onFinish func(videoID string)) (*TUSHandler, error) {
+func NewTUSHandler(cfg *config.Config, db *sql.DB, onFinish func(videoID, userAgent string)) (*TUSHandler, error) {
 	// Cria o FileStore — armazena os chunks no diretório de uploads temporários.
 	store := filestore.New(cfg.UploadTmpDir)
 
@@ -276,7 +276,10 @@ func (h *TUSHandler) postReceive(hook tusd.HookEvent) {
 func (h *TUSHandler) postFinish(hook tusd.HookEvent) {
 	videoID := hook.Upload.ID
 	if h.onFinish != nil {
-		h.onFinish(videoID)
+		// Repassa o User-Agent da requisição de finalização para que o evento
+		// de estatística "upload_complete" (T26/T27) seja registrado com a
+		// família de SO correta.
+		h.onFinish(videoID, hook.HTTPRequest.Header.Get("User-Agent"))
 	}
 }
 
