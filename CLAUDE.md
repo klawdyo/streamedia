@@ -26,14 +26,14 @@ Este repositório usa um sistema multi-agente estruturado:
   mais recente de `dev`:
   ```
   git fetch origin dev
-  git worktree add ../streamedia-<assunto> -b <assunto> origin/dev
+  git worktree add .worktrees/<assunto> -b <assunto> origin/dev
   ```
   Isso isola cada onda em um diretório e branch próprios — várias ondas (e
   vários agentes) podem rodar ao mesmo tempo sem disputar o `HEAD` do
   checkout compartilhado nem pisar no trabalho umas das outras. Ao concluir,
   faça merge da branch do worktree de volta para `dev`
   (`git merge --no-ff <assunto>` a partir de um checkout de `dev`, depois
-  `git push origin dev`) e remova o worktree (`git worktree remove`).
+  `git push origin dev`) e remova o worktree (`git worktree remove .worktrees/<assunto>`).
 - **Nome do worktree/branch deve descrever o conteúdo do trabalho, não o
   processo.** Use o assunto/escopo das tarefas que serão feitas (ex.:
   `cobertura-testes-camada-de-dados`, `auditoria-seguranca-auth-tokens`,

@@ -88,8 +88,12 @@ estado mais recente de `dev` (ver "Fluxo de branches" no CLAUDE.md):
 
 ```
 git fetch origin dev
-git worktree add ../streamedia-<assunto> -b <assunto> origin/dev
+git worktree add .worktrees/<assunto> -b <assunto> origin/dev
 ```
+
+O diretório `.worktrees/` fica **dentro da raiz do projeto** (ex.:
+`D:/Projetos/streamedia/.worktrees/auditoria-seguranca/`) e está listado
+no `.gitignore` — não vai para o repositório nem polui o diretório pai.
 
 Faça todo o trabalho da onda (specs, spawns de Dev/QA, commits) dentro
 desse worktree. Ao concluir:
@@ -97,8 +101,7 @@ desse worktree. Ao concluir:
 ```
 # a partir de um checkout de dev (outro worktree, ou o principal se estiver em dev)
 git merge --no-ff <assunto>
-git push origin dev
-git worktree remove ../streamedia-<assunto>
+git worktree remove .worktrees/<assunto>
 ```
 
 ### Sobre nomear worktrees/branches
