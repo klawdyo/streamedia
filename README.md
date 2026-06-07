@@ -473,6 +473,44 @@ monitoramento). Requer `Authorization: Bearer <ADMIN_TOKEN>`. Aceita o
 parâmetro opcional `?video_id=` para filtrar as estatísticas de um vídeo
 específico.
 
+Além das estatísticas de **uso** acima, a resposta global (sem `?video_id=`)
+inclui uma seção `storage` com estatísticas de **armazenamento e fila**
+(issue #5):
+
+```json
+{
+  "video_id": null,
+  "totals": { "playback": 120, "download_segment": 980, "upload_complete": 12 },
+  "by_resolution": { "480": 600, "720": 380 },
+  "by_os": { "android": 700, "ios": 280 },
+  "by_day_of_week": { "0": 50, "1": 70 },
+  "storage": {
+    "total_bytes": 123456789,
+    "total_duration_seconds": 7384,
+    "videos_by_status": { "pending_upload": 2, "transcoding": 1, "ready": 40, "failed_transcode": 1 },
+    "queue_pending": 1
+  }
+}
+```
+
+- `total_bytes` — soma do tamanho dos arquivos originais
+  (`videos.actual_size_bytes`) com o tamanho de todas as variantes HLS
+  geradas (`video_renditions.size_bytes`).
+- `total_duration_seconds` — soma da duração de todos os vídeos cadastrados
+  (`videos.duration_s`).
+- `videos_by_status` — contagem de vídeos agrupados por status
+  (`pending_upload`, `uploading`, `transcoding`, `ready`,
+  `failed_transcode`, ...).
+- `queue_pending` — tamanho atual da fila de transcodificação; mesma fonte
+  (`queue.Len()`) usada por `GET /admin/queue` e pelo gauge
+  `streamedia_transcode_queue_length` (`/metrics`) — não é recomputado por
+  outro caminho, garantindo consistência entre as três rotas.
+
+A seção `storage` é uma visão **agregada global** — por isso é omitida
+quando `?video_id=` é informado (não faria sentido, por exemplo, devolver
+`queue_pending` "filtrado por vídeo"; isso poderia ser mal interpretado como
+o tamanho da fila relativo àquele vídeo específico).
+
 ## Documentação interativa da API (Swagger)
 
 A API tem documentação interativa no padrão OpenAPI/Swagger, acessível pelo

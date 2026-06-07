@@ -16,6 +16,17 @@ type statsResponse struct {
 	ByResolution map[int]int64    `json:"by_resolution"`
 	ByOS         map[string]int64 `json:"by_os"`
 	ByDayOfWeek  map[int]int64    `json:"by_day_of_week"`
+	Storage      *storageStats    `json:"storage,omitempty"`
+}
+
+// storageStats agrega as estatísticas globais de armazenamento e fila
+// (T36/T37, issue #5): espaço total ocupado, minutos de vídeo armazenados,
+// contagem de vídeos por status e tamanho atual da fila de transcodificação.
+type storageStats struct {
+	TotalBytes           int64                      `json:"total_bytes"`
+	TotalDurationSeconds int64                      `json:"total_duration_seconds"`
+	VideosByStatus       map[models.VideoStatus]int `json:"videos_by_status"`
+	QueuePending         int                        `json:"queue_pending"`
 }
 
 // eventTypes são os tipos de evento conhecidos (T26), usados para montar o
@@ -81,11 +92,56 @@ func (h *AdminHandler) HandleStats(w http.ResponseWriter, r *http.Request) {
 		ByDayOfWeek:  byDayOfWeek,
 	}
 
+	// A seção "storage" é uma visão agregada GLOBAL (espaço total, fila,
+	// contagem por status — não faz sentido "por vídeo"). Por isso, quando
+	// o filtro ?video_id= está presente, ela é omitida (omitempty) em vez
+	// de devolver os mesmos totais globais disfarçados de "filtrados": isso
+	// evitaria ambiguidade (o cliente poderia supor, erroneamente, que
+	// total_bytes/queue_pending refletem apenas aquele vídeo).
+	if videoIDPtr == nil {
+		storage, err := buildStorageStats(h.db, h.queue)
+		if err != nil {
+			http.Error(w, "Erro ao agregar estatísticas de armazenamento", http.StatusInternalServerError)
+			return
+		}
+		resp.Storage = storage
+	}
+
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
 	if err := json.NewEncoder(w).Encode(resp); err != nil {
 		// Log silencioso de erros de encoding - cliente já desconectou
 	}
+}
+
+// buildStorageStats monta a seção "storage" da resposta de /admin/stats
+// (T36/T37, issue #5), reaproveitando as agregações de internal/models/storage.go
+// (espaço total e duração, somando originais + variantes HLS) e a contagem de
+// vídeos por status. queue_pending reaproveita a mesma fonte (queue.Len())
+// usada por /admin/queue e pelo gauge streamedia_transcode_queue_length (T29)
+// — não recomputa a fila por outro caminho.
+func buildStorageStats(db *sql.DB, queue interface{ Len() int }) (*storageStats, error) {
+	totalBytes, err := models.TotalStorageBytes(db)
+	if err != nil {
+		return nil, err
+	}
+
+	totalDuration, err := models.TotalDurationSeconds(db)
+	if err != nil {
+		return nil, err
+	}
+
+	videosByStatus, err := models.CountVideosByStatus(db)
+	if err != nil {
+		return nil, err
+	}
+
+	return &storageStats{
+		TotalBytes:           totalBytes,
+		TotalDurationSeconds: totalDuration,
+		VideosByStatus:       videosByStatus,
+		QueuePending:         queue.Len(),
+	}, nil
 }
 
 // respondIfVideoMissing verifica se o vídeo existe. Caso não exista (ou

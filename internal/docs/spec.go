@@ -216,7 +216,7 @@ func openAPISpec() map[string]any {
 				"get": map[string]any{
 					"tags":        []string{"admin", "observability"},
 					"summary":     "Estatísticas agregadas de uso",
-					"description": "Agrega eventos brutos de reprodução/upload (T26/T27) em totais por tipo de evento, contagens por resolução, sistema operacional e dia da semana. Requer token de administração.",
+					"description": "Agrega eventos brutos de reprodução/upload (T26/T27) em totais por tipo de evento, contagens por resolução, sistema operacional e dia da semana — e, na visão global (sem ?video_id=), também estatísticas de armazenamento e fila (T36/T37, issue #5): bytes totais, duração total, contagem de vídeos por status e tamanho da fila de transcodificação. Requer token de administração.",
 					"security":    []map[string]any{{"adminToken": []string{}}},
 					"parameters": []map[string]any{
 						{"name": "video_id", "in": "query", "required": false, "schema": map[string]any{"type": "string"}, "description": "Restringe a agregação a um único vídeo; sem este parâmetro, a visão é global"},
@@ -234,6 +234,17 @@ func openAPISpec() map[string]any {
 											"by_resolution":   map[string]any{"type": "object", "additionalProperties": map[string]any{"type": "integer"}},
 											"by_os":           map[string]any{"type": "object", "additionalProperties": map[string]any{"type": "integer"}},
 											"by_day_of_week":  map[string]any{"type": "object", "additionalProperties": map[string]any{"type": "integer"}},
+											"storage": map[string]any{
+												"type":        "object",
+												"nullable":    true,
+												"description": "Visão agregada GLOBAL de armazenamento e fila (T36/T37, issue #5); presente apenas quando ?video_id= não é informado — omitida no filtro por vídeo para não confundir totais globais com estatísticas de um único vídeo.",
+												"properties": map[string]any{
+													"total_bytes":            map[string]any{"type": "integer", "format": "int64", "description": "Soma do tamanho dos arquivos originais (videos.actual_size_bytes) com o tamanho de todas as variantes HLS geradas (video_renditions.size_bytes)"},
+													"total_duration_seconds": map[string]any{"type": "integer", "format": "int64", "description": "Soma da duração (videos.duration_s) de todos os vídeos cadastrados"},
+													"videos_by_status":       map[string]any{"type": "object", "additionalProperties": map[string]any{"type": "integer"}, "description": "Contagem de vídeos agrupados por status (pending_upload, uploading, transcoding, ready, failed_transcode, ...)"},
+													"queue_pending":          map[string]any{"type": "integer", "description": "Tamanho atual da fila de transcodificação — mesma fonte (queue.Len()) usada por GET /admin/queue e pelo gauge streamedia_transcode_queue_length"},
+												},
+											},
 										},
 									},
 								},

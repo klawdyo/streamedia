@@ -7,8 +7,8 @@ Status possíveis: `pending` | `in-progress` | `done` | `blocked`
 
 ```
 Total: 37 tarefas
-Done:  36
-Pending: 1
+Done:  37
+Pending: 0
 ```
 
 ## Lista de tarefas
@@ -51,7 +51,7 @@ Pending: 1
 | T34 | `.tasks/34-project-storage-layout.md` | Layout de armazenamento por projeto (diretórios isolados) | done | depende T32, T33 — issue #6 |
 | T35 | `.tasks/35-project-management-routes.md` | Rotas de gerenciamento de projetos | done | depende T32, T33 — issue #6 — fecha a issue #6 |
 | T36 | `.tasks/36-storage-stats-model.md` | Model de armazenamento por vídeo (bytes, duração, status) | done | depende T03, T04 (recomendado após T34) — issue #5 |
-| T37 | `.tasks/37-storage-stats-route.md` | Expor estatísticas de armazenamento e fila em `/admin/stats` | pending | depende T36, T28 — issue #5 — fecha a issue #5 |
+| T37 | `.tasks/37-storage-stats-route.md` | Expor estatísticas de armazenamento e fila em `/admin/stats` | done | depende T36, T28 — issue #5 — fecha a issue #5 |
 
 ## Próxima onda — ordem de prioridade sugerida (T31-T37)
 
@@ -148,3 +148,5 @@ Resumo por issue:
 [2026-06-07 10:45] T35: in-progress → done (rotas de gerenciamento de projetos: CRUD via /admin/projects* protegido por super-admin, emissão de token de upload via X-Project-Key — fecha issue #6, encerrando a cadeia T32→T33→T34→T35)
 [2026-06-07 11:00] T36: pending → in-progress
 [2026-06-07 11:30] T36: in-progress → done (model de armazenamento: tabela video_renditions com UPSERT por (video_id, resolution), scanRenditionDir no worker FFmpeg, e funções de agregação TotalStorageBytes/TotalDurationSeconds/CountVideosByStatus/StorageByVideo em internal/models/storage.go — descoberta: actual_size_bytes/duration_s já existiam em videos — Refs #5)
+[2026-06-07 11:40] T37: pending → in-progress
+[2026-06-07 12:00] T37: in-progress → done (estende /admin/stats com a seção "storage" — total_bytes, total_duration_seconds, videos_by_status, queue_pending — reaproveitando as agregações de T36 e queue.Len(); seção omitida quando ?video_id= é informado, decisão documentada — fecha issue #5, encerrando a cadeia T36→T37)
