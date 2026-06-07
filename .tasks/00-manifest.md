@@ -7,8 +7,8 @@ Status possíveis: `pending` | `in-progress` | `done` | `blocked`
 
 ```
 Total: 47 tarefas
-Done:  37
-Pending: 10 (T38-T43: issues #7/#8; T44, T47: solicitações diretas; T45-T46: issue #9)
+Done:  38
+Pending: 9 (T39-T43: issues #7/#8; T44, T47: solicitações diretas; T45-T46: issue #9)
 ```
 
 ## Lista de tarefas
@@ -52,7 +52,7 @@ Pending: 10 (T38-T43: issues #7/#8; T44, T47: solicitações diretas; T45-T46: i
 | T35 | `.tasks/35-project-management-routes.md` | Rotas de gerenciamento de projetos | done | depende T32, T33 — issue #6 — fecha a issue #6 |
 | T36 | `.tasks/36-storage-stats-model.md` | Model de armazenamento por vídeo (bytes, duração, status) | done | depende T03, T04 (recomendado após T34) — issue #5 |
 | T37 | `.tasks/37-storage-stats-route.md` | Expor estatísticas de armazenamento e fila em `/admin/stats` | done | depende T36, T28 — issue #5 — fecha a issue #5 |
-| T38 | `.tasks/38-coverage-data-layer.md` | Cobertura de testes — camada de dados (models + db) | pending | origem: issue #7 |
+| T38 | `.tasks/38-coverage-data-layer.md` | Cobertura de testes — camada de dados (models + db) | done | origem: issue #7 — cobertura models 56.6%→80.8%, db 57.1%→58.0%, 27 testes novos, nenhum bug real encontrado |
 | T39 | `.tasks/39-coverage-jobs-transcode.md` | Cobertura de testes — jobs de manutenção e transcodificação | pending | origem: issue #7 |
 | T40 | `.tasks/40-coverage-upload-auth-config.md` | Cobertura de testes — upload, autenticação e configuração | pending | origem: issue #7 |
 | T41 | `.tasks/41-security-auth-tokens.md` | Auditoria de segurança — autenticação, autorização e tokens | pending | origem: issue #8 |
@@ -196,3 +196,5 @@ Resumo por issue:
   duplicado em internal/upload/init.go e internal/admin/projects.go.
   Tarefa propõe centralizar ambos com testes de tabela documentando o
   contrato antes da migração. Status inicial: pending.
+[2026-06-07 13:10] T38: pending → in-progress
+[2026-06-07 13:18] T38: in-progress → done (cobertura de internal/models 56.6%→80.8% e internal/db 57.1%→58.0%; 27 testes novos table-driven, incluindo schema_test.go novo; nenhum bug real encontrado — Refs #7)

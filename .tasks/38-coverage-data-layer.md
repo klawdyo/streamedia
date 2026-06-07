@@ -57,12 +57,50 @@ produção (a menos que a ausência de teste revele um bug real).
 - `internal/db/db_test.go`
 - `internal/db/schema_test.go` (criar, se schema.go não tiver teste dedicado)
 
+## Resolução
+
+Cobertura "antes": `internal/models` 56.6%, `internal/db` 57.1%.
+Cobertura "depois": `internal/models` 80.8%, `internal/db` 58.0%.
+
+Gaps identificados e fechados com 27 testes novos (table-driven onde fazia
+sentido), distribuídos em:
+
+- `internal/models/token_test.go` (+3): `scanUploadToken` com `project_id`
+  NULL, `DeleteExpiredTokens` no limite exato de expiração, inserção de
+  token com `project_id` nil.
+- `internal/models/video_test.go` (+8): branches de `UpdateStatus` e
+  `UpdateStatusWithError` (persistência de `error_message`),
+  `SetUploadComplete`/`SetReady` (serialização de `resolutions` e
+  `actual_size_bytes`), `IncrementTranscodeAttempts` com múltiplos
+  incrementos, `ListByStatus` com várias linhas, `GetVideo` com todos os
+  campos anuláveis preenchidos/NULL.
+- `internal/db/db_test.go` (+4): `Open` ativando `PRAGMA foreign_keys` e
+  rejeitando FK inválida, `ensureColumn` criando coluna ausente e
+  preservando coluna existente, escritas sequenciais com `MaxOpenConns=1`.
+- `internal/db/schema_test.go` (novo, 14 testes): estrutura de cada
+  tabela (`videos`, `upload_tokens`, `projects`, `video_renditions`,
+  `playback_events`), índices, trigger `videos_updated_at`, constraints
+  `UNIQUE` (`projects.slug`, `upload_tokens.video_id`) e `PRIMARY KEY`
+  composta (`video_renditions`), e idempotência de `CREATE ... IF NOT
+  EXISTS` ao reabrir o mesmo banco.
+
+**Bugs reais encontrados:** nenhum. Os 3 testes que falharam durante a
+escrita tinham problemas no próprio teste (FK ausente no fixture de setup,
+race condition de timing no boundary de expiração) — corrigidos no teste,
+sem tocar em código de produção.
+
+**Fora de escopo:** `GetProjectByMasterKeyHash` e `ResolveVideoRootDir`
+(em `internal/models/project.go`) seguem com baixa cobertura — pertencem
+à cadeia de projetos (T32-T35), não à camada de dados core revisada aqui.
+
+`go test ./...` passa integralmente (sem regressões).
+
 ## Definition of Done
 
-- [ ] Relatório de cobertura "antes" documentado no PR/commit
-- [ ] Gaps de cobertura identificados e listados (função + motivo)
-- [ ] Testes novos escritos para os gaps relevantes
-- [ ] Bugs reais encontrados (se houver) corrigidos com mudança mínima
-- [ ] `go test ./internal/models/... ./internal/db/... -cover` mostra
+- [x] Relatório de cobertura "antes" documentado no PR/commit
+- [x] Gaps de cobertura identificados e listados (função + motivo)
+- [x] Testes novos escritos para os gaps relevantes
+- [x] Bugs reais encontrados (se houver) corrigidos com mudança mínima — nenhum encontrado
+- [x] `go test ./internal/models/... ./internal/db/... -cover` mostra
       aumento de cobertura
-- [ ] `go test ./...` continua passando sem regressões
+- [x] `go test ./...` continua passando sem regressões

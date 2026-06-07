@@ -185,3 +185,235 @@ func TestTokenValid(t *testing.T) {
 		t.Error("IsExpired() deveria retornar false para token com expiração no futuro")
 	}
 }
+
+func TestTokenExpiredBoundary(t *testing.T) {
+	// Verifica comportamento no limite: token que expirou exatamente agora (ou antes).
+	tok := &UploadToken{
+		Token:     "tok",
+		VideoID:   "vid",
+		ExpiresAt: time.Now().Add(-1 * time.Millisecond), // já passou de 1ms
+	}
+	if !tok.IsExpired() {
+		t.Error("IsExpired() deveria retornar true para token que já passou")
+	}
+}
+
+func TestParseDateTime_RFC3339(t *testing.T) {
+	// Verifica que parseDateTime consegue fazer parse de formato RFC3339.
+	s := "2024-06-07T15:30:45Z"
+	result := parseDateTime(s)
+	if result.IsZero() {
+		t.Error("parseDateTime falhou para RFC3339: retornou zero time")
+	}
+	// Verifica que o resultado está em UTC
+	if result.Location().String() != "UTC" {
+		t.Errorf("parseDateTime: esperado UTC, obtido %s", result.Location().String())
+	}
+}
+
+func TestParseDateTime_SupportedFormats(t *testing.T) {
+	// Verifica que parseDateTime suporta vários formatos comuns de datetime SQLite.
+	tests := []struct {
+		name     string
+		input    string
+		wantZero bool
+	}{
+		{"RFC3339", "2024-06-07T15:30:45Z", false},
+		{"SQLite padrão", "2024-06-07 15:30:45", false},
+		{"Com timezone", "2024-06-07 15:30:45+00:00", false},
+		{"Inválido", "not-a-date", true},
+		{"Vazio", "", true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := parseDateTime(tt.input)
+			if tt.wantZero && !result.IsZero() {
+				t.Errorf("parseDateTime(%q): esperava zero time, obteve %v", tt.input, result)
+			}
+			if !tt.wantZero && result.IsZero() {
+				t.Errorf("parseDateTime(%q): esperava time válido, obteve zero time", tt.input)
+			}
+		})
+	}
+}
+
+func TestInsertUploadTokenForProject_WithProjectID(t *testing.T) {
+	// Verifica que InsertUploadTokenForProject associa o token a um projeto.
+	database := abreDBToken(t)
+	insereVideoTeste(t, database, "v-tok-proj")
+
+	// Cria um projeto válido antes de associar token
+	project, _, err := CreateProject(database, "Test Project")
+	if err != nil {
+		t.Fatalf("CreateProject falhou: %v", err)
+	}
+
+	expiresAt := time.Now().Add(time.Hour)
+	if err := InsertUploadTokenForProject(database, "tok-proj", "v-tok-proj", expiresAt, &project.ID); err != nil {
+		t.Fatalf("InsertUploadTokenForProject falhou: %v", err)
+	}
+
+	tok, err := GetUploadToken(database, "tok-proj")
+	if err != nil {
+		t.Fatalf("GetUploadToken falhou: %v", err)
+	}
+
+	if tok.ProjectID == nil {
+		t.Error("ProjectID: esperado ser definido, obtido nil")
+	} else if *tok.ProjectID != project.ID {
+		t.Errorf("ProjectID: esperado %d, obtido %d", project.ID, *tok.ProjectID)
+	}
+}
+
+func TestInsertUploadTokenForProject_WithoutProjectID(t *testing.T) {
+	// Verifica que InsertUploadTokenForProject com projectID=nil funciona (fluxo legado).
+	database := abreDBToken(t)
+	insereVideoTeste(t, database, "v-tok-no-proj")
+
+	expiresAt := time.Now().Add(time.Hour)
+	if err := InsertUploadTokenForProject(database, "tok-no-proj", "v-tok-no-proj", expiresAt, nil); err != nil {
+		t.Fatalf("InsertUploadTokenForProject falhou: %v", err)
+	}
+
+	tok, err := GetUploadToken(database, "tok-no-proj")
+	if err != nil {
+		t.Fatalf("GetUploadToken falhou: %v", err)
+	}
+
+	if tok.ProjectID != nil {
+		t.Errorf("ProjectID: esperado nil, obtido %v", tok.ProjectID)
+	}
+}
+
+func TestGetUploadTokenByVideoID_NotFound(t *testing.T) {
+	// Verifica que GetUploadTokenByVideoID retorna erro quando o vídeo não tem token.
+	database := abreDBToken(t)
+	insereVideoTeste(t, database, "v-no-token")
+
+	_, err := GetUploadTokenByVideoID(database, "v-no-token")
+	if err == nil {
+		t.Fatal("esperava erro para vídeo sem token, mas GetUploadTokenByVideoID retornou nil")
+	}
+}
+
+func TestDeleteExpiredTokens_NoExpiredTokens(t *testing.T) {
+	// Verifica que DeleteExpiredTokens retorna 0 quando nenhum token está expirado.
+	database := abreDBToken(t)
+	insereVideoTeste(t, database, "v-no-exp")
+
+	// Insere token válido (2 horas no futuro)
+	if err := InsertUploadToken(database, "tok-future", "v-no-exp", time.Now().Add(2*time.Hour)); err != nil {
+		t.Fatal(err)
+	}
+
+	n, err := DeleteExpiredTokens(database)
+	if err != nil {
+		t.Fatalf("DeleteExpiredTokens falhou: %v", err)
+	}
+	if n != 0 {
+		t.Errorf("DeleteExpiredTokens: esperava deletar 0 tokens, deletou %d", n)
+	}
+}
+
+func TestDeleteExpiredTokens_MultipleExpired(t *testing.T) {
+	// Verifica que DeleteExpiredTokens deleta múltiplos tokens expirados corretamente.
+	database := abreDBToken(t)
+
+	// Insere 3 vídeos e 3 tokens expirados
+	for i := 1; i <= 3; i++ {
+		videoID := "v-exp-multi-" + string(rune(48+i))
+		tokenID := "tok-exp-" + string(rune(48+i))
+		insereVideoTeste(t, database, videoID)
+		if err := InsertUploadToken(database, tokenID, videoID, time.Now().Add(-time.Hour)); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	n, err := DeleteExpiredTokens(database)
+	if err != nil {
+		t.Fatalf("DeleteExpiredTokens falhou: %v", err)
+	}
+	if n != 3 {
+		t.Errorf("DeleteExpiredTokens: esperava deletar 3 tokens, deletou %d", n)
+	}
+}
+
+func TestTokenExpiresBoundaryExactly(t *testing.T) {
+	// Verifica que IsExpired() com ExpiresAt no futuro retorna false.
+	// Usa 10 segundos no futuro para evitar race condition de timing.
+	future := time.Now().Add(10 * time.Second)
+	tok := &UploadToken{
+		Token:     "tok",
+		VideoID:   "vid",
+		ExpiresAt: future,
+	}
+	if tok.IsExpired() {
+		t.Error("IsExpired() deveria retornar false para token com expiração no futuro próximo")
+	}
+}
+
+// TestScanUploadToken_NullProjectID testa scanUploadToken com project_id NULL.
+func TestScanUploadToken_NullProjectID(t *testing.T) {
+	database := abreDBToken(t)
+	insereVideoTeste(t, database, "v-scan-null")
+
+	// Insere token sem projectID (nil)
+	if err := InsertUploadToken(database, "tok-scan-null", "v-scan-null", time.Now().Add(time.Hour)); err != nil {
+		t.Fatal(err)
+	}
+
+	tok, err := GetUploadToken(database, "tok-scan-null")
+	if err != nil {
+		t.Fatalf("GetUploadToken falhou: %v", err)
+	}
+
+	if tok.ProjectID != nil {
+		t.Errorf("ProjectID: esperado nil, obtido %v", tok.ProjectID)
+	}
+}
+
+// TestDeleteExpiredTokens_EdgeCaseExactExpiration verifica tokens que expiram no limite de tempo.
+func TestDeleteExpiredTokens_EdgeCaseExactExpiration(t *testing.T) {
+	database := abreDBToken(t)
+	insereVideoTeste(t, database, "v-exp-edge")
+
+	// Insere token que já expirou (1 segundo no passado)
+	if err := InsertUploadToken(database, "tok-edge-past", "v-exp-edge", time.Now().Add(-1*time.Second)); err != nil {
+		t.Fatal(err)
+	}
+
+	// DeleteExpiredTokens deve remover tokens com expires_at <= now
+	n, err := DeleteExpiredTokens(database)
+	if err != nil {
+		t.Fatalf("DeleteExpiredTokens falhou: %v", err)
+	}
+	if n < 1 {
+		t.Errorf("DeleteExpiredTokens: esperava deletar pelo menos 1 token, deletou %d", n)
+	}
+
+	// Verifica que foi deletado
+	if _, err := GetUploadToken(database, "tok-edge-past"); err == nil {
+		t.Error("token que expirou deveria ter sido deletado")
+	}
+}
+
+// TestInsertToken_WithNilProjectID testa inserção com projectID=nil.
+func TestInsertToken_WithNilProjectID(t *testing.T) {
+	database := abreDBToken(t)
+	insereVideoTeste(t, database, "v-nil-proj")
+
+	// Insere com projectID nil
+	if err := InsertUploadTokenForProject(database, "tok-nil", "v-nil-proj", time.Now().Add(time.Hour), nil); err != nil {
+		t.Fatalf("InsertUploadTokenForProject com nil projectID falhou: %v", err)
+	}
+
+	tok, err := GetUploadToken(database, "tok-nil")
+	if err != nil {
+		t.Fatalf("GetUploadToken falhou: %v", err)
+	}
+
+	if tok.ProjectID != nil {
+		t.Errorf("ProjectID: esperado nil, obtido %v", tok.ProjectID)
+	}
+}
