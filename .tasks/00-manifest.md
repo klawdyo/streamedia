@@ -7,7 +7,7 @@ Status possíveis: `pending` | `in-progress` | `done` | `blocked`
 
 ```
 Total: 25 tarefas
-Done:  23
+Done:  24
 ```
 
 ## Lista de tarefas
@@ -37,7 +37,7 @@ Done:  23
 | T21 | `.tasks/21-startup-recovery.md` | Recuperação de crash na inicialização | done | depende T10 |
 | T22 | `.tasks/22-docker-config.md` | Dockerfile + docker-compose + .env.example | done | depende T20 |
 | T23 | `.tasks/23-github-actions.md` | GitHub Actions: ci.yml + release.yml | done | depende T22 |
-| T24 | `.tasks/24-readme.md` | README.md completo | pending | depende T22 |
+| T24 | `.tasks/24-readme.md` | README.md completo | done | depende T22 |
 | T25 | `.tasks/25-integration-tests.md` | Suite de testes de integração completa | pending | depende T20 |
 
 ## Log de mudanças de status
@@ -78,3 +78,5 @@ Done:  23
 [2026-06-07 02:00] T23: pending → in-progress
 [2026-06-07 02:15] T22: in-progress → done
 [2026-06-07 02:15] T23: in-progress → done
+[2026-06-07 02:30] T24: pending → in-progress
+[2026-06-07 02:45] T24: in-progress → done
