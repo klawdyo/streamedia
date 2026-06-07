@@ -3,7 +3,11 @@
 
 # Binários
 /mediaserver
+/server
 *.exe
+
+# Logs de teste
+test_output.log
 
 # Banco e dados locais de dev
 *.db
