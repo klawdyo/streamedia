@@ -264,7 +264,7 @@ func ListByStatus(db *sql.DB, status VideoStatus) ([]*Video, error) {
 	rows, err := db.Query(
 		`SELECT video_id, status, declared_size_bytes, actual_size_bytes,
 		        duration_s, resolutions, transcode_attempts, last_chunk_at,
-		        error_message, created_at, updated_at
+		        error_message, project_id, created_at, updated_at
 		   FROM videos WHERE status = ?`,
 		status,
 	)
@@ -283,6 +283,7 @@ func ListByStatus(db *sql.DB, status VideoStatus) ([]*Video, error) {
 			resolutions  sql.NullString
 			lastChunkAt  sql.NullTime
 			errorMessage sql.NullString
+			projectID    sql.NullInt64
 		)
 
 		err := rows.Scan(
@@ -295,6 +296,7 @@ func ListByStatus(db *sql.DB, status VideoStatus) ([]*Video, error) {
 			&v.TranscodeAttempts,
 			&lastChunkAt,
 			&errorMessage,
+			&projectID,
 			&v.CreatedAt,
 			&v.UpdatedAt,
 		)
@@ -306,6 +308,9 @@ func ListByStatus(db *sql.DB, status VideoStatus) ([]*Video, error) {
 		v.ActualSizeBytes = actualSize.Int64
 		v.DurationS = int(durationS.Int64)
 		v.ErrorMessage = errorMessage.String
+		if projectID.Valid {
+			v.ProjectID = &projectID.Int64
+		}
 
 		if lastChunkAt.Valid {
 			t := lastChunkAt.Time
