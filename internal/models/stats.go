@@ -47,28 +47,52 @@ func detectOSFamily(userAgent string) string {
 
 // CountEventsByType retorna o total de eventos registrados de um tipo
 // específico (ex. "playback", "download_segment", "upload_complete").
-func CountEventsByType(db *sql.DB, eventType string) (int64, error) {
+//
+// Se videoID for não-vazio, restringe a contagem àquele vídeo; caso
+// contrário, conta em todos os vídeos (usado pela agregação global de T28).
+func CountEventsByType(db *sql.DB, eventType string, videoID ...string) (int64, error) {
 	var count int64
-	err := db.QueryRow(
-		`SELECT COUNT(*) FROM playback_events WHERE event_type = ?`,
-		eventType,
-	).Scan(&count)
+	var err error
+	if len(videoID) > 0 && videoID[0] != "" {
+		err = db.QueryRow(
+			`SELECT COUNT(*) FROM playback_events WHERE event_type = ? AND video_id = ?`,
+			eventType, videoID[0],
+		).Scan(&count)
+	} else {
+		err = db.QueryRow(
+			`SELECT COUNT(*) FROM playback_events WHERE event_type = ?`,
+			eventType,
+		).Scan(&count)
+	}
 	if err != nil {
 		return 0, err
 	}
 	return count, nil
 }
 
-// AggregateByResolution retorna a contagem de eventos por resolução para
-// um vídeo específico. Eventos com resolution NULL são ignorados (não
-// fazem sentido em uma agregação por resolução).
+// AggregateByResolution retorna a contagem de eventos por resolução.
+// Eventos com resolution NULL são ignorados (não fazem sentido em uma
+// agregação por resolução).
+//
+// Se videoID for não-vazio, restringe a agregação àquele vídeo; caso
+// contrário, agrega em todos os vídeos (visão global usada por T28).
 func AggregateByResolution(db *sql.DB, videoID string) (map[int]int64, error) {
-	rows, err := db.Query(
-		`SELECT resolution, COUNT(*) FROM playback_events
-		 WHERE video_id = ? AND resolution IS NOT NULL
-		 GROUP BY resolution`,
-		videoID,
-	)
+	var rows *sql.Rows
+	var err error
+	if videoID != "" {
+		rows, err = db.Query(
+			`SELECT resolution, COUNT(*) FROM playback_events
+			 WHERE video_id = ? AND resolution IS NOT NULL
+			 GROUP BY resolution`,
+			videoID,
+		)
+	} else {
+		rows, err = db.Query(
+			`SELECT resolution, COUNT(*) FROM playback_events
+			 WHERE resolution IS NOT NULL
+			 GROUP BY resolution`,
+		)
+	}
 	if err != nil {
 		return nil, err
 	}
@@ -86,13 +110,25 @@ func AggregateByResolution(db *sql.DB, videoID string) (map[int]int64, error) {
 	return result, rows.Err()
 }
 
-// AggregateByOS retorna a contagem de eventos por família de SO,
-// considerando todos os vídeos.
-func AggregateByOS(db *sql.DB) (map[string]int64, error) {
-	rows, err := db.Query(
-		`SELECT os_family, COUNT(*) FROM playback_events
-		 GROUP BY os_family`,
-	)
+// AggregateByOS retorna a contagem de eventos por família de SO.
+//
+// Se videoID for não-vazio, restringe a agregação àquele vídeo; caso
+// contrário, agrega em todos os vídeos (usado pela agregação global de T28).
+func AggregateByOS(db *sql.DB, videoID ...string) (map[string]int64, error) {
+	var rows *sql.Rows
+	var err error
+	if len(videoID) > 0 && videoID[0] != "" {
+		rows, err = db.Query(
+			`SELECT os_family, COUNT(*) FROM playback_events
+			 WHERE video_id = ? GROUP BY os_family`,
+			videoID[0],
+		)
+	} else {
+		rows, err = db.Query(
+			`SELECT os_family, COUNT(*) FROM playback_events
+			 GROUP BY os_family`,
+		)
+	}
 	if err != nil {
 		return nil, err
 	}
@@ -116,12 +152,27 @@ func AggregateByOS(db *sql.DB) (map[string]int64, error) {
 // Normalizamos com datetime() antes de aplicar strftime() para evitar o
 // bug de comparação/formatação de datas (RFC3339 com "T" vs formato SQLite
 // com espaço) já corrigido em T14/T16.
-func AggregateByDayOfWeek(db *sql.DB) (map[int]int64, error) {
-	rows, err := db.Query(
-		`SELECT CAST(strftime('%w', datetime(occurred_at)) AS INTEGER), COUNT(*)
-		 FROM playback_events
-		 GROUP BY strftime('%w', datetime(occurred_at))`,
-	)
+//
+// Se videoID for não-vazio, restringe a agregação àquele vídeo; caso
+// contrário, agrega em todos os vídeos (usado pela agregação global de T28).
+func AggregateByDayOfWeek(db *sql.DB, videoID ...string) (map[int]int64, error) {
+	var rows *sql.Rows
+	var err error
+	if len(videoID) > 0 && videoID[0] != "" {
+		rows, err = db.Query(
+			`SELECT CAST(strftime('%w', datetime(occurred_at)) AS INTEGER), COUNT(*)
+			 FROM playback_events
+			 WHERE video_id = ?
+			 GROUP BY strftime('%w', datetime(occurred_at))`,
+			videoID[0],
+		)
+	} else {
+		rows, err = db.Query(
+			`SELECT CAST(strftime('%w', datetime(occurred_at)) AS INTEGER), COUNT(*)
+			 FROM playback_events
+			 GROUP BY strftime('%w', datetime(occurred_at))`,
+		)
+	}
 	if err != nil {
 		return nil, err
 	}

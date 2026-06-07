@@ -91,6 +91,7 @@ func NewRouter(
 		r.Use(admin.AdminAuth(cfg.AdminToken))
 		r.Get("/admin/videos", adminHandler.HandleVideos)
 		r.Get("/admin/queue", adminHandler.HandleQueue)
+		r.Get("/admin/stats", adminHandler.HandleStats)
 	})
 
 	// --- Health check ---

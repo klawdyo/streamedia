@@ -1,0 +1,107 @@
+package admin
+
+import (
+	"database/sql"
+	"encoding/json"
+	"net/http"
+
+	"github.com/klawdyo/streamedia/internal/models"
+)
+
+// statsResponse é a estrutura de resposta da rota de estatísticas agregadas.
+// VideoID é nil quando a agregação é global (sem filtro por vídeo).
+type statsResponse struct {
+	VideoID      *string          `json:"video_id"`
+	Totals       map[string]int64 `json:"totals"`
+	ByResolution map[int]int64    `json:"by_resolution"`
+	ByOS         map[string]int64 `json:"by_os"`
+	ByDayOfWeek  map[int]int64    `json:"by_day_of_week"`
+}
+
+// eventTypes são os tipos de evento conhecidos (T26), usados para montar o
+// mapa "totals" da resposta de forma determinística.
+var eventTypes = []string{"playback", "download_segment", "upload_complete"}
+
+// HandleStats retorna estatísticas agregadas de uso (T28), derivadas da
+// tabela bruta playback_events (T26/T27): totais por tipo de evento,
+// contagem por resolução, por família de SO e por dia da semana.
+//
+// Query params:
+//   - video_id (opcional): restringe as agregações a um único vídeo.
+//     Se informado e o vídeo não existir, retorna 404.
+//
+// Sem video_id, as agregações cobrem todos os vídeos (visão global).
+func (h *AdminHandler) HandleStats(w http.ResponseWriter, r *http.Request) {
+	videoID := r.URL.Query().Get("video_id")
+
+	var videoIDPtr *string
+	if videoID != "" {
+		// Confirma que o vídeo existe antes de agregar — evita devolver
+		// estatísticas vazias para um video_id inexistente (ambíguo com
+		// "vídeo existe mas sem eventos ainda").
+		if !respondIfVideoMissing(w, h.db, videoID) {
+			return
+		}
+		videoIDPtr = &videoID
+	}
+
+	totals := make(map[string]int64, len(eventTypes))
+	for _, eventType := range eventTypes {
+		count, err := models.CountEventsByType(h.db, eventType, videoID)
+		if err != nil {
+			http.Error(w, "Erro ao agregar estatísticas por tipo de evento", http.StatusInternalServerError)
+			return
+		}
+		totals[eventType] = count
+	}
+
+	byResolution, err := models.AggregateByResolution(h.db, videoID)
+	if err != nil {
+		http.Error(w, "Erro ao agregar estatísticas por resolução", http.StatusInternalServerError)
+		return
+	}
+
+	byOS, err := models.AggregateByOS(h.db, videoID)
+	if err != nil {
+		http.Error(w, "Erro ao agregar estatísticas por sistema operacional", http.StatusInternalServerError)
+		return
+	}
+
+	byDayOfWeek, err := models.AggregateByDayOfWeek(h.db, videoID)
+	if err != nil {
+		http.Error(w, "Erro ao agregar estatísticas por dia da semana", http.StatusInternalServerError)
+		return
+	}
+
+	resp := statsResponse{
+		VideoID:      videoIDPtr,
+		Totals:       totals,
+		ByResolution: byResolution,
+		ByOS:         byOS,
+		ByDayOfWeek:  byDayOfWeek,
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	if err := json.NewEncoder(w).Encode(resp); err != nil {
+		// Log silencioso de erros de encoding - cliente já desconectou
+	}
+}
+
+// respondIfVideoMissing verifica se o vídeo existe. Caso não exista (ou
+// ocorra erro de banco), já escreve a resposta de erro apropriada (404 ou
+// 500) e retorna false — o chamador deve interromper o fluxo. Retorna true
+// se o vídeo existe e o fluxo pode prosseguir normalmente.
+func respondIfVideoMissing(w http.ResponseWriter, db *sql.DB, videoID string) bool {
+	var exists int
+	err := db.QueryRow(`SELECT 1 FROM videos WHERE video_id = ?`, videoID).Scan(&exists)
+	if err == sql.ErrNoRows {
+		http.Error(w, "Vídeo não encontrado", http.StatusNotFound)
+		return false
+	}
+	if err != nil {
+		http.Error(w, "Erro ao consultar o vídeo", http.StatusInternalServerError)
+		return false
+	}
+	return true
+}
