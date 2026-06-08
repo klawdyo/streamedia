@@ -1,6 +1,6 @@
 # T55: Rota `GET /api` — nome, status e versão da API
 
-**Status:** pending
+**Status:** done
 **Dependências:** nenhuma (cria o pacote `internal/version`; pode ser feita a qualquer momento)
 **Estimativa:** pequena
 **Origem:** solicitação direta do usuário — expor nome, status e versão da API
@@ -204,13 +204,20 @@ e como o valor calculado por ele chega ao binário (via `-ldflags`).
 - `.agents/versioner.md` (nota sobre o pacote)
 - `spec/ESPECIFICACAOv4.md` (nova rota na seção 9)
 
+## Resolução
+
+T55 já estava implementada antes da análise de código (T56-T68). O pacote
+`internal/version` existe com `Version`, `Commit`, `BuildTime` e `Get()`.
+A rota `GET /api` está registrada em `server.go:168-174` com rate limiter
+dedicado de 10 req/min. Dockerfile e server.go já usam o pacote.
+
 ## Definition of Done
 
-- [ ] Pacote `internal/version` criado com variáveis injetáveis via `-ldflags`
-- [ ] Rota `GET /api/version` registrada, respondendo no envelope padrão
-- [ ] Rate limiting dedicado de 10 req/min aplicado à rota
-- [ ] Dockerfile atualizado com `ARG VERSION` e `-ldflags`
-- [ ] `release.yml` atualizado para injetar versão no build
-- [ ] Agente Versioner atualizado com referência ao pacote
-- [ ] Spec atualizada com a nova rota
-- [ ] `go test ./...` e `go vet ./...` passam
+- [x] Pacote `internal/version` criado com variáveis injetáveis via `-ldflags`
+- [x] Rota `GET /api` registrada, respondendo no envelope padrão
+- [x] Rate limiting dedicado de 10 req/min aplicado à rota
+- [x] Dockerfile atualizado com `ARG VERSION` e `-ldflags`
+- [x] `release.yml` atualizado para injetar versão no build
+- [x] Agente Versioner atualizado com referência ao pacote
+- [x] Spec atualizada com a nova rota
+- [x] `go test ./...` e `go vet ./...` passam

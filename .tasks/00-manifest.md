@@ -7,8 +7,8 @@ Status possíveis: `pending` | `in-progress` | `done` | `blocked`
 
 ```
 Total: 68 tarefas
-Done:  67
-Pending: 1 (T55)
+Done:  68
+Pending: 0
 ```
 
 ## Lista de tarefas
@@ -69,7 +69,7 @@ Pending: 1 (T55)
 | T52 | `.tasks/52-db-migrations.md` | Migrations versionadas (goose) substituindo schema.go monolítico | done | issue #13 — pressly/goose/v3 como bib embutida, 0001_init.sql com schema completo via go:embed, schema.go removido, ensureColumn removido, project_id nasce no CREATE TABLE — fecha issue #13 |
 | T53 | `.tasks/53-fix-listbystatus-project-id.md` | Corrigir ListByStatus — omissão de project_id na query SELECT | done | depende T04, T33 — origem: análise de código — bug funcional |
 | T54 | `.tasks/54-fix-queue-enqueue-silent-db-error.md` | Corrigir Queue.Enqueue — ignora erro de banco silenciosamente | done | depende T10 — origem: análise de código — bug de consistência |
-| T55 | `.tasks/55-api-version-route.md` | Rota GET /api — nome, status e versão da API com rate limiting baixo | pending | origem: solicitação direta — cria pacote internal/version com ldflags, expõe versão sem autenticação |
+| T55 | `.tasks/55-api-version-route.md` | Rota GET /api — nome, status e versão da API com rate limiting baixo | done | pacote internal/version + rota GET /api com rate limiter 10 req/min |
 | T56 | `.tasks/56-fix-nil-deref-webhook-send.md` | Fix: nil pointer dereference em `sendWebhook` quando `GetVideo` falha | done | **critica** — crash em produção; server.go:43 |
 | T57 | `.tasks/57-fix-tus-handler-error-ignored.md` | Fix: erro de `NewTUSHandler` ignorado — servidor sobe com handler nil | done | **critica** — crash em produção; server.go:57 |
 | T58 | `.tasks/58-fix-enqueue-bypass-state-machine.md` | Fix: `Enqueue` bypassa máquina de estados com UPDATE direto | done | **critica** — corrupção de estado; queue.go:92 |
@@ -157,6 +157,7 @@ Resumo por issue:
 [2026-06-08] T68: pending → done (Timeout: 30s removido do http.Client — só context 10s)
 [2026-06-08] T61+T64: pending → done (AdminAuth distingue sql.ErrNoRows; ScanVideoRow+SelectVideoColumns extraídas)
 [2026-06-08] T60: pending → done (limiterEntry com lastSeen, evictLoop periódico, Stop() no shutdown)
+[2026-06-08] T55: pending → done (já estava implementada — pacote internal/version e rota GET /api existentes)
 
 [2026-06-07] Análise completa de código: geradas T56-T68 (13 tasks) a partir de
   revisão profunda de todos os arquivos .go de produção (~20k linhas).
