@@ -87,6 +87,9 @@ func NewRouter(
 	// da API ({error, message, data, status_code}), substituindo o
 	// chimw.Recoverer que respondia com texto puro (quebrava o contrato JSON).
 	r.Use(middleware.RecoveryMiddleware)
+	// StripSlashMiddleware remove a barra final de todas as requisições
+	// antes do roteamento — sem redirect, sem declarar rota 2x.
+	r.Use(middleware.StripSlashMiddleware)
 	r.Use(chimw.Logger) // loga cada requisição
 	if telemetryProvider != nil {
 		r.Use(telemetryProvider.Middleware) // instrumenta requisições HTTP (T29)
@@ -166,12 +169,10 @@ func NewRouter(
 
 	// --- Documentação da API (Scalar UI, T51, issue #12) ---
 	// Sem autenticação — ver decisão registrada em internal/docs/docs.go.
-	// r.Route normaliza trailing slash: /docs e /docs/ batem no mesmo handler.
+	// StripSlashMiddleware (global) normaliza /docs/ → /docs, sem redirect.
 	docsHandler := docs.NewHandler()
-	r.Route("/docs", func(r chi.Router) {
-		r.Get("/", docsHandler.ServeUI)
-		r.Get("/openapi.json", docsHandler.ServeOpenAPISpec)
-	})
+	r.Get("/docs", docsHandler.ServeUI)
+	r.Get("/docs/openapi.json", docsHandler.ServeOpenAPISpec)
 
 	// Handler 404 customizado — responde no envelope padrão da API em vez
 	// do texto puro "404 page not found" padrão do chi.

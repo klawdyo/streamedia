@@ -1,10 +1,11 @@
 // Package middleware contém middlewares HTTP reutilizáveis da aplicação:
-// rate limiting por IP e recuperação de panics no formato padrão da API.
+// rate limiting por IP, recuperação de panics e normalização de trailing slash.
 package middleware
 
 import (
 	"log"
 	"net/http"
+	"strings"
 
 	"github.com/klawdyo/streamedia/internal/apiresponse"
 )
@@ -43,6 +44,27 @@ func RecoveryMiddleware(next http.Handler) http.Handler {
 		}()
 
 		// Encadeia para o próximo handler na pilha de middlewares.
+		next.ServeHTTP(w, r)
+	})
+}
+
+// StripSlashMiddleware normaliza todas as requisições removendo a barra
+// final do path (ex.: /docs/ → /docs) antes do roteamento. Isso permite
+// registrar cada rota uma única vez sem se preocupar com trailing slash
+// — o chi recebe o path já normalizado e casa corretamente.
+//
+// Diferente de chimw.RedirectSlashes, NÃO faz redirect (301) — apenas
+// reescreve o path internamente. O cliente nunca vê diferença na URL,
+// mas a rota casa independentemente da barra final.
+//
+// Exceção: o path raiz "/" não é alterado (remover a barra resultaria
+// em string vazia, quebrando o roteamento).
+func StripSlashMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		path := r.URL.Path
+		if len(path) > 1 && strings.HasSuffix(path, "/") {
+			r.URL.Path = strings.TrimRight(path, "/")
+		}
 		next.ServeHTTP(w, r)
 	})
 }
