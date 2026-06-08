@@ -80,7 +80,11 @@ func setupTestServer(t *testing.T) (*httptest.Server, *sql.DB, *config.Config) {
 	queue.Start()
 	t.Cleanup(func() { queue.Stop() })
 
-	router := server.NewRouter(cfg, database, queue, webhookClient)
+	router, routerCloser, err := server.NewRouter(cfg, database, queue, webhookClient)
+	if err != nil {
+		t.Fatalf("NewRouter: %v", err)
+	}
+	t.Cleanup(func() { _ = routerCloser.Close() })
 	srv := httptest.NewServer(router)
 	t.Cleanup(func() { srv.Close() })
 

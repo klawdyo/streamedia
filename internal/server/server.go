@@ -4,6 +4,8 @@ package server
 
 import (
 	"database/sql"
+	"fmt"
+	"io"
 	"log"
 	"net/http"
 	"path/filepath"
@@ -25,7 +27,10 @@ import (
 	"github.com/klawdyo/streamedia/internal/webhook"
 )
 
-// NewRouter monta e devolve o roteador chi completo da aplicação.
+// NewRouter monta e devolve o roteador chi completo da aplicação e um
+// io.Closer que deve ser chamado no shutdown para liberar recursos internos
+// (goroutines do TUS handler, etc.). O chamador é responsável por chamar
+// Close() antes de encerrar o servidor (T59).
 //
 // Recebe a config, o banco, a fila de transcodificação (já criada e conectada
 // ao worker pelo chamador) e o client de webhook. Todos os handlers são
@@ -36,13 +41,20 @@ func NewRouter(
 	database *sql.DB,
 	queue *transcode.Queue,
 	wc *webhook.Client,
-) http.Handler {
+) (http.Handler, io.Closer, error) {
 	// sendWebhook adapta o client de webhook para a assinatura usada pelos
 	// callbacks (videoID, event, errMsg). Busca o vídeo no banco para enviar
-	// o payload completo; ignora erros de busca (envia o que tiver).
+	// o payload completo; se o vídeo não for encontrado, loga e aborta (T56:
+	// evita nil pointer dereference em buildPayload).
 	sendWebhook := func(videoID, event, errMsg string) {
-		video, _ := models.GetVideo(database, videoID)
-		_ = wc.Send(videoID, event, video)
+		video, err := models.GetVideo(database, videoID)
+		if err != nil {
+			log.Printf("[webhook] erro ao buscar vídeo %s para webhook %s: %v", videoID, event, err)
+			return
+		}
+		if err := wc.Send(videoID, event, video); err != nil {
+			log.Printf("[webhook] erro ao enviar webhook %s para vídeo %s: %v", event, videoID, err)
+		}
 	}
 
 	// onFinish é chamado pelo handler TUS quando o upload termina: valida o
@@ -54,7 +66,10 @@ func NewRouter(
 
 	// Constrói todos os handlers da aplicação.
 	initHandler := upload.NewInitHandler(cfg, database)
-	tusHandler, _ := upload.NewTUSHandler(cfg, database, onFinish)
+	tusHandler, err := upload.NewTUSHandler(cfg, database, onFinish)
+	if err != nil {
+		return nil, nil, fmt.Errorf("falha ao criar handler TUS: %w", err)
+	}
 	masterHandler := serve.NewMasterHandler(cfg, database)
 	staticHandler := serve.NewStaticHandler(cfg, database)
 	statusHandler := serve.NewStatusHandler(cfg, database)
@@ -180,5 +195,16 @@ func NewRouter(
 		apiresponse.Error(w, http.StatusNotFound, "Rota não encontrada.")
 	})
 
-	return r
+	// Closer que encerra recursos internos (goroutine do TUS handler).
+	closer := closerFunc(func() error {
+		tusHandler.Stop()
+		return nil
+	})
+
+	return r, closer, nil
 }
+
+// closerFunc adapta uma função para a interface io.Closer.
+type closerFunc func() error
+
+func (f closerFunc) Close() error { return f() }

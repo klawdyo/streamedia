@@ -45,8 +45,14 @@ func main() {
 	// Client de webhook e adaptador para os callbacks (videoID, event, errMsg).
 	webhookClient := webhook.NewClient(cfg, database)
 	sendWebhook := func(videoID, event, errMsg string) {
-		video, _ := models.GetVideo(database, videoID)
-		_ = webhookClient.Send(videoID, event, video)
+		video, err := models.GetVideo(database, videoID)
+		if err != nil {
+			log.Printf("[webhook] erro ao buscar vídeo %s para webhook %s: %v", videoID, event, err)
+			return
+		}
+		if err := webhookClient.Send(videoID, event, video); err != nil {
+			log.Printf("[webhook] erro ao enviar webhook %s para vídeo %s: %v", event, videoID, err)
+		}
 	}
 
 	// Worker e fila de transcodificação. A fila é criada com a função do
@@ -78,7 +84,13 @@ func main() {
 	defer cleanupJob.Stop()
 
 	// Monta o roteador HTTP com todas as rotas e handlers.
-	router := server.NewRouter(cfg, database, queue, webhookClient)
+	// O closer encerra recursos internos (goroutines do TUS handler, etc.)
+	// e deve ser chamado no shutdown (T59).
+	router, routerCloser, err := server.NewRouter(cfg, database, queue, webhookClient)
+	if err != nil {
+		log.Fatalf("router: %v", err)
+	}
+	defer routerCloser.Close()
 
 	srv := &http.Server{
 		Addr:    ":" + strconv.Itoa(cfg.Port),
