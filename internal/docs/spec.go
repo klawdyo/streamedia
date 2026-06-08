@@ -33,7 +33,14 @@ func openAPISpec() map[string]any {
 				"post": map[string]any{
 					"tags":        []string{"upload"},
 					"summary":     "Inicia um upload",
-					"description": "Valida o HMAC da requisição e gera um token de upload de curta duração, usado em seguida para autenticar a sessão TUS em /files.",
+					"description": "Valida a chave mestra do projeto via header X-Project-Key e gera um token de upload de curta duração, usado em seguida para autenticar a sessão TUS em /files. Se video_id for omitido, o servidor gera um UUID v7 automaticamente.",
+					"parameters": []map[string]any{
+						{
+							"name": "X-Project-Key", "in": "header", "required": true,
+							"schema":      map[string]any{"type": "string"},
+							"description": "Chave mestra do projeto em texto puro (issue #10, T48/T49). Todo upload pertence a um projeto — use a chave do projeto 'Default' (logada no primeiro start) ou de um projeto explícito.",
+						},
+					},
 					"requestBody": map[string]any{
 						"required": true,
 						"content": map[string]any{
@@ -41,12 +48,10 @@ func openAPISpec() map[string]any {
 								"schema": map[string]any{
 									"type": "object",
 									"properties": map[string]any{
-										"filename":   map[string]any{"type": "string", "example": "video.mp4"},
-										"size":       map[string]any{"type": "integer", "format": "int64", "example": 10485760},
-										"timestamp":  map[string]any{"type": "integer", "format": "int64", "description": "Unix timestamp usado na assinatura HMAC"},
-										"signature":  map[string]any{"type": "string", "description": "Assinatura HMAC-SHA256 da requisição"},
+										"video_id":            map[string]any{"type": "string", "description": "UUID do vídeo (opcional — se omitido, o servidor gera UUID v7)"},
+										"declared_size_bytes": map[string]any{"type": "integer", "format": "int64", "description": "Tamanho declarado do arquivo em bytes", "example": 10485760},
 									},
-									"required": []string{"filename", "size", "timestamp", "signature"},
+									"required": []string{"declared_size_bytes"},
 								},
 							},
 						},
@@ -62,14 +67,14 @@ func openAPISpec() map[string]any {
 											"video_id":   map[string]any{"type": "string"},
 											"upload_url": map[string]any{"type": "string"},
 											"token":      map[string]any{"type": "string"},
-											"expires_at": map[string]any{"type": "string", "format": "date-time"},
 										},
 									},
 								},
 							},
 						},
 						"400": map[string]any{"description": "Requisição inválida"},
-						"401": map[string]any{"description": "Assinatura HMAC inválida ou expirada"},
+						"401": map[string]any{"description": "X-Project-Key ausente ou chave de projeto inválida"},
+						"409": map[string]any{"description": "video_id já existe"},
 					},
 				},
 			},
@@ -364,6 +369,33 @@ func openAPISpec() map[string]any {
 						},
 						"401": map[string]any{"description": "Header X-Project-Key ausente ou chave inválida"},
 						"403": map[string]any{"description": "A chave informada não pertence ao projeto identificado pelo {slug}"},
+					},
+				},
+			},
+			"/api": map[string]any{
+				"get": map[string]any{
+					"tags":        []string{"observability"},
+					"summary":     "Versão e status da API",
+					"description": "Retorna nome, versão semântica, commit Git, timestamp de build e status da API. Rota pública sem autenticação, com rate limiting de 10 req/min. A versão é injetada no binário via -ldflags (lida do arquivo VERSION na raiz do repositório durante o build Docker).",
+					"responses": map[string]any{
+						"200": map[string]any{
+							"description": "Informações de versão no envelope padrão",
+							"content": map[string]any{
+								"application/json": map[string]any{
+									"schema": map[string]any{
+										"type": "object",
+										"properties": map[string]any{
+											"name":       map[string]any{"type": "string", "example": "Streamedia"},
+											"version":    map[string]any{"type": "string", "example": "0.36.0"},
+											"commit":     map[string]any{"type": "string", "example": "a1b2c3d"},
+											"build_time": map[string]any{"type": "string", "example": "2026-06-07T22:00:00Z"},
+											"status":     map[string]any{"type": "string", "example": "ok"},
+										},
+									},
+								},
+							},
+						},
+						"429": map[string]any{"description": "Rate limit excedido (10 req/min)"},
 					},
 				},
 			},
