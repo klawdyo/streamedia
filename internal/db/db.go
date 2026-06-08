@@ -24,12 +24,14 @@ import (
 func Open(path string) (*sql.DB, error) {
 	// Para banco em memória, pula a verificação de diretório
 	if path != ":memory:" {
-		// Exige que o diretório pai exista. Não criamos diretórios
-		// arbitrários: abrir um banco em um caminho cujo diretório
-		// não existe é um erro de configuração e deve falhar.
+		// Garante que o diretório pai existe — cria se necessário.
+		// Em Docker com volumes nomeados, o mount point pode não ter
+		// permissão de escrita para o user não-root; o Dockerfile já
+		// trata isso com mkdir + chown, mas este fallback evita falha
+		// em setups sem o volume pré-configurado.
 		dir := filepath.Dir(path)
-		if info, err := os.Stat(dir); err != nil || !info.IsDir() {
-			return nil, fmt.Errorf("diretório do banco não existe: %s", dir)
+		if err := os.MkdirAll(dir, 0755); err != nil {
+			return nil, fmt.Errorf("erro ao criar diretório do banco %s: %w", dir, err)
 		}
 	}
 

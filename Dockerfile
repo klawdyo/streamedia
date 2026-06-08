@@ -18,7 +18,9 @@ RUN --mount=type=bind,source=.git,target=.git \
 # Estágio de runtime — imagem mínima com FFmpeg
 FROM alpine:3.20
 RUN apk add --no-cache ffmpeg wget && \
-    adduser -D -u 10001 appuser
+    adduser -D -u 10001 appuser && \
+    mkdir -p /data /media && \
+    chown appuser:appuser /data /media
 COPY --from=build /mediaserver /usr/local/bin/mediaserver
 USER appuser
 EXPOSE 3000

@@ -123,13 +123,6 @@ func TestOpen_Idempotent(t *testing.T) {
 	db2.Close()
 }
 
-func TestOpen_MissingPath(t *testing.T) {
-	_, err := Open("/nao/existe/media.db")
-	if err == nil {
-		t.Error("esperava erro ao abrir banco em diretório inexistente, mas Open() retornou nil")
-	}
-}
-
 func TestDB_UpdatedAtTrigger(t *testing.T) {
 	db, err := Open(":memory:")
 	if err != nil {
@@ -275,13 +268,6 @@ func TestOpen_MaxOpenConns(t *testing.T) {
 
 	if _, err := db.Exec("INSERT INTO videos (video_id) VALUES (?)", "test"); err != nil {
 		t.Errorf("operação básica falhou: %v", err)
-	}
-}
-
-func TestOpen_CloseOnError_Schema(t *testing.T) {
-	_, err := Open("/path/impossivel/nowhere.db")
-	if err == nil {
-		t.Fatal("esperava erro ao abrir banco em diretório inexistente")
 	}
 }
 
