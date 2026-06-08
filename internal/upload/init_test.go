@@ -20,10 +20,11 @@ import (
 func configInit(t *testing.T) *config.Config {
 	t.Helper()
 	return &config.Config{
+		UploadTokenSecret:   "secret-init-test",
 		WebhookURL:          "http://localhost",
 		WebhookSecret:       "wh-secret",
 		MaxUploadSizeBytes:  50 * 1024 * 1024,
-		UploadTokenTTL: 15 * time.Minute,
+		UploadTokenTTL:      15 * time.Minute,
 		UploadTmpDir:        t.TempDir(),
 	}
 }
@@ -113,7 +114,7 @@ func TestUploadInit_InvalidProjectKey(t *testing.T) {
 }
 
 func TestUploadInit_MissingAuthHeader(t *testing.T) {
-	// Verifica que requisição sem header X-Project-Key retorna 401.
+	// Verifica que requisição sem X-Project-Key usa o projeto padrão (200, não 401).
 	cfg := configInit(t)
 	database := abreDBInit(t)
 	handler := NewInitHandler(cfg, database)
@@ -121,13 +122,14 @@ func TestUploadInit_MissingAuthHeader(t *testing.T) {
 	body := []byte(`{"video_id":"550e8400-e29b-41d4-a716-446655440012","declared_size_bytes":1024}`)
 	req := httptest.NewRequest(http.MethodPost, "/upload/init", bytes.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
-	// Sem X-Project-Key
+	// Sem X-Project-Key — deve usar o projeto padrão automaticamente.
 
 	rec := httptest.NewRecorder()
 	handler.ServeHTTP(rec, req)
 
-	if rec.Code != http.StatusUnauthorized {
-		t.Errorf("ausência de header de auth deveria retornar 401, obteve %d", rec.Code)
+	if rec.Code != http.StatusOK {
+		t.Errorf("sem X-Project-Key deveria usar projeto padrão e retornar 200, obteve %d (body: %s)",
+			rec.Code, rec.Body.String())
 	}
 }
 

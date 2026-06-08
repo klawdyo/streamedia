@@ -34,14 +34,14 @@ func NewInitHandler(cfg *config.Config, db *sql.DB) *InitHandler {
 	return &InitHandler{cfg: cfg, db: db}
 }
 
-// ServeHTTP processa a inicialização de um upload: valida a chave mestra do
-// projeto via X-Project-Key, registra o vídeo, gera o token de upload e
-// devolve a URL de upload.
+// ServeHTTP processa a inicialização de um upload: resolve o projeto (explícito
+// via X-Project-Key ou o projeto padrão "Default"), registra o vídeo, gera o
+// token de upload e devolve a URL de upload.
 //
-// A partir da issue #10 (T49), X-Project-Key é OBRIGATÓRIO — o fluxo HMAC
-// legado (X-Upload-Auth assinado com UPLOAD_TOKEN_SECRET) foi removido.
-// uploads sem um projeto explícito usam a chave do projeto padrão "Default"
-// (criado automaticamente na inicialização, ver EnsureDefaultProject).
+// X-Project-Key é OPCIONAL — se ausente, o upload é associado ao projeto
+// padrão "Default" (criado automaticamente na inicialização) e o token é
+// assinado com UPLOAD_TOKEN_SECRET. Se presente, o token é assinado com a
+// própria chave mestra do projeto.
 func (h *InitHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	// 1. Lê o corpo da requisição com limite de 1MB.
 	bodyBytes, err := io.ReadAll(io.LimitReader(r.Body, 1<<20))
@@ -50,23 +50,31 @@ func (h *InitHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// 2. Valida autenticação: X-Project-Key é obrigatório desde a T49.
-	// A chave mestra do projeto é usada tanto para autenticar a requisição
-	// quanto para assinar o token de upload gerado (HMAC com a própria chave).
-	projectKey := r.Header.Get("X-Project-Key")
-	if projectKey == "" {
-		apiresponse.Error(w, http.StatusUnauthorized, "X-Project-Key é obrigatório.")
-		return
-	}
-
-	project, err := models.GetProjectByMasterKeyHash(h.db, models.HashMasterKey(projectKey))
-	if err != nil {
-		if err == sql.ErrNoRows {
-			apiresponse.Error(w, http.StatusUnauthorized, "Chave de projeto inválida.")
+	// 2. Resolve o projeto: X-Project-Key explícito OU projeto padrão.
+	// signingKey é o segredo usado para assinar o token de upload — a chave
+	// mestra do projeto (quando X-Project-Key é informado) ou o secret global
+	// (quando o upload cai no projeto padrão sem chave explícita).
+	var project *models.Project
+	var signingKey string
+	if projectKey := r.Header.Get("X-Project-Key"); projectKey != "" {
+		project, err = models.GetProjectByMasterKeyHash(h.db, models.HashMasterKey(projectKey))
+		if err != nil {
+			if err == sql.ErrNoRows {
+				apiresponse.Error(w, http.StatusUnauthorized, "Chave de projeto inválida.")
+				return
+			}
+			apiresponse.Error(w, http.StatusInternalServerError, "Falha ao validar a chave de projeto.")
 			return
 		}
-		apiresponse.Error(w, http.StatusInternalServerError, "Falha ao validar a chave de projeto.")
-		return
+		signingKey = projectKey
+	} else {
+		// Sem X-Project-Key: usa o projeto padrão (issue #10, T48).
+		project, err = models.EnsureDefaultProject(h.db)
+		if err != nil {
+			apiresponse.Error(w, http.StatusInternalServerError, "Falha ao resolver o projeto padrão.")
+			return
+		}
+		signingKey = h.cfg.UploadTokenSecret
 	}
 
 	// 3. Faz o parse do JSON do corpo.
@@ -79,9 +87,6 @@ func (h *InitHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	// 4. Resolve video_id: se informado, valida formato; se ausente, gera UUID v7.
 	videoID := req.VideoID
 	if videoID == "" {
-		// Cliente não informou video_id — o servidor gera um UUID v7.
-		// O sistema sempre privilegia v7 ao gerar ids: é ordenável por tempo,
-		// o que melhora localidade no índice do SQLite.
 		var err error
 		videoID, err = models.NewVideoID()
 		if err != nil {
@@ -89,8 +94,6 @@ func (h *InitHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	} else if !models.IsValidVideoIDFormat(videoID) {
-		// video_id informado mas não é um UUID bem-formado — rejeita.
-		// Continua barrando path traversal: só UUIDs passam.
 		apiresponse.Error(w, http.StatusBadRequest, "video_id inválido: deve ser um UUID bem-formado.")
 		return
 	}
@@ -106,7 +109,6 @@ func (h *InitHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// 6. Insere o vídeo vinculado ao projeto resolvido.
-	// O vínculo de projeto SEMPRE existe — todo upload pertence a um projeto.
 	projectID := &project.ID
 	if err := models.InsertVideoForProject(h.db, videoID, req.DeclaredSizeBytes, projectID); err != nil {
 		if strings.Contains(err.Error(), "UNIQUE") {
@@ -117,9 +119,8 @@ func (h *InitHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// 7. Gera e persiste o token de upload assinado com a chave mestra do
-	// projeto. TTL único (UPLOAD_TOKEN_TTL_SECONDS) desde a issue #10/T50.
-	token := auth.GenerateUploadToken(projectKey, videoID)
+	// 7. Gera e persiste o token de upload assinado com signingKey.
+	token := auth.GenerateUploadToken(signingKey, videoID)
 	ttl := h.cfg.UploadTokenTTL
 	expiresAt := time.Now().Add(ttl)
 	if err := models.InsertUploadTokenForProject(h.db, token, videoID, expiresAt, projectID); err != nil {
@@ -127,13 +128,10 @@ func (h *InitHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// 8. Constrói a URL de upload usando a função centralizada (httputil),
-	// que resolve scheme/host a partir dos headers de proxy (X-Forwarded-*).
+	// 8. Constrói a URL de upload usando a função centralizada (httputil).
 	uploadURL := httputil.PublicUploadURL(r, videoID)
 
 	// 9. Responde 200 com video_id, URL de upload e o token.
-	// video_id sempre está presente na resposta: gerado pelo servidor ou
-	// ecoado do que o cliente informou.
 	apiresponse.Success(w, http.StatusOK, map[string]string{
 		"video_id":   videoID,
 		"upload_url": uploadURL,

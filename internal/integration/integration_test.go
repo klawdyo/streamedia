@@ -169,26 +169,34 @@ func TestHealthz_Integration(t *testing.T) {
 }
 
 // TestUploadInit_HMACProtection_Integration verifica a proteção do endpoint
-// /upload/init via X-Project-Key: sem auth → 401, auth errada → 401, auth correta → 200.
+// /upload/init via X-Project-Key:
+// sem header → 200 (usa projeto default),
+// X-Project-Key inválida → 401,
+// X-Project-Key válida → 200.
 func TestUploadInit_HMACProtection_Integration(t *testing.T) {
 	srv, database, _ := setupTestServer(t)
 
-	const videoID = "550e8400-e29b-4100-8716-446655440001"
-	body := fmt.Appendf(nil, `{"video_id":%q,"declared_size_bytes":1024}`, videoID)
-
-	// --- sem header de autenticação → 401 ---
+	// --- sem header de autenticação → 200 (usa projeto default) ---
 	t.Run("sem auth", func(t *testing.T) {
+		const videoID = "550e8400-e29b-4100-8716-446655440001"
+		body := fmt.Appendf(nil, `{"video_id":%q,"declared_size_bytes":1024}`, videoID)
+
 		resp := doRequest(t, http.MethodPost, srv.URL+"/upload/init",
 			bytes.NewReader(body), nil)
-		defer resp.Body.Close()
 
-		if resp.StatusCode != http.StatusUnauthorized {
-			t.Fatalf("esperado 401, obtido %d", resp.StatusCode)
+		if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusCreated {
+			rbody, _ := io.ReadAll(resp.Body)
+			resp.Body.Close()
+			t.Fatalf("esperado 200 ou 201 (projeto default), obtido %d (corpo: %s)", resp.StatusCode, rbody)
 		}
+		resp.Body.Close()
 	})
 
 	// --- X-Project-Key inválida → 401 ---
 	t.Run("auth errada", func(t *testing.T) {
+		const videoID = "550e8400-e29b-4100-8716-446655440005"
+		body := fmt.Appendf(nil, `{"video_id":%q,"declared_size_bytes":1024}`, videoID)
+
 		resp := doRequest(t, http.MethodPost, srv.URL+"/upload/init",
 			bytes.NewReader(body), map[string]string{"X-Project-Key": "chave-invalida"})
 		defer resp.Body.Close()
@@ -200,6 +208,9 @@ func TestUploadInit_HMACProtection_Integration(t *testing.T) {
 
 	// --- X-Project-Key válida → 200 com upload_url e token ---
 	t.Run("auth correta", func(t *testing.T) {
+		const videoID = "550e8400-e29b-4100-8716-446655440006"
+		body := fmt.Appendf(nil, `{"video_id":%q,"declared_size_bytes":1024}`, videoID)
+
 		project, masterKey, err := models.CreateProject(database, "Integration Test")
 		if err != nil {
 			t.Fatalf("CreateProject: %v", err)
@@ -209,9 +220,9 @@ func TestUploadInit_HMACProtection_Integration(t *testing.T) {
 			bytes.NewReader(body), map[string]string{"X-Project-Key": masterKey})
 
 		if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusCreated {
-			body, _ := io.ReadAll(resp.Body)
+			rbody, _ := io.ReadAll(resp.Body)
 			resp.Body.Close()
-			t.Fatalf("esperado 200 ou 201, obtido %d (corpo: %s)", resp.StatusCode, body)
+			t.Fatalf("esperado 200 ou 201, obtido %d (corpo: %s)", resp.StatusCode, rbody)
 		}
 
 		var env apiresponse.Envelope

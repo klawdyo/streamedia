@@ -136,17 +136,23 @@ func TestAllRoutesRegistered(t *testing.T) {
 		name   string
 		method string
 		path   string
+		body   string
 		want   int
 	}{
-		{"upload init sem auth", http.MethodPost, "/upload/init", http.StatusUnauthorized},
-		{"status sem auth", http.MethodGet, "/api/status/" + validUUID, http.StatusUnauthorized},
-		{"admin videos sem auth", http.MethodGet, "/admin/videos", http.StatusUnauthorized},
-		{"healthz", http.MethodGet, "/healthz", http.StatusOK},
+		{"upload init sem auth", http.MethodPost, "/upload/init", `{"video_id":"` + validUUID + `","declared_size_bytes":1024}`, http.StatusOK},
+		{"status sem auth", http.MethodGet, "/api/status/" + validUUID, "", http.StatusUnauthorized},
+		{"admin videos sem auth", http.MethodGet, "/admin/videos", "", http.StatusUnauthorized},
+		{"healthz", http.MethodGet, "/healthz", "", http.StatusOK},
 	}
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			req := httptest.NewRequest(tc.method, tc.path, nil)
+			var req *http.Request
+			if tc.body != "" {
+				req = httptest.NewRequest(tc.method, tc.path, strings.NewReader(tc.body))
+			} else {
+				req = httptest.NewRequest(tc.method, tc.path, nil)
+			}
 			rec := httptest.NewRecorder()
 			router.ServeHTTP(rec, req)
 

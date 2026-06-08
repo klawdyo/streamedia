@@ -55,10 +55,11 @@ func TestAllJSONRoutes_ErrorResponses_FollowEnvelope(t *testing.T) {
 		header map[string]string
 	}{
 		{
-			name:   "POST /upload/init sem auth",
+			name:   "POST /upload/init com X-Project-Key inválida",
 			method: http.MethodPost,
 			path:   "/upload/init",
 			body:   `{"video_id":"` + validUUID + `","declared_size_bytes":1024}`,
+			header: map[string]string{"X-Project-Key": "chave-invalida"},
 		},
 		{
 			name:   "POST /upload/init com JSON inválido",

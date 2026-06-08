@@ -33,10 +33,10 @@ func openAPISpec() map[string]any {
 				"post": map[string]any{
 					"tags":        []string{"upload"},
 					"summary":     "Inicia um upload",
-					"description": "Valida a chave mestra do projeto via header X-Project-Key e gera um token de upload de curta duração, usado em seguida para autenticar a sessão TUS em /files. Se video_id for omitido, o servidor gera um UUID v7 automaticamente.",
+					"description": "Valida a chave mestra do projeto via header X-Project-Key (opcional) e gera um token de upload de curta duração, usado em seguida para autenticar a sessão TUS em /files. Se video_id for omitido, o servidor gera um UUID v7 automaticamente. Se X-Project-Key for omitido, o upload é associado ao projeto padrão \"Default\".",
 					"parameters": []map[string]any{
 						{
-							"name": "X-Project-Key", "in": "header", "required": true,
+							"name": "X-Project-Key", "in": "header", "required": false,
 							"schema":      map[string]any{"type": "string"},
 							"description": "Chave mestra do projeto em texto puro (issue #10, T48/T49). Todo upload pertence a um projeto — use a chave do projeto 'Default' (logada no primeiro start) ou de um projeto explícito.",
 						},
