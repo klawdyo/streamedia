@@ -110,21 +110,31 @@ Preste atenção em:
 Reporte: versão do checkpoint anterior → lista de commits classificados →
 versão nova calculada.
 
-Se o usuário confirmar a criação da release, faça um commit vazio (ou inclua
-mudanças de changelog/versão, se houver) seguindo este formato EXATO, que vira
-o próximo checkpoint:
+Se o usuário confirmar a criação da release:
 
-```bash
-git commit --allow-empty -m "release: vX.Y.Z - resumo curto das mudanças desta versão"
-git push origin <branch>
-```
+1. **Atualize o arquivo `VERSION`** na raiz do repositório com a nova versão:
+   ```bash
+   echo "X.Y.Z" > VERSION
+   ```
+   Esse arquivo é a fonte de verdade da versão — o Dockerfile lê dele
+   automaticamente para injetar no binário via `-ldflags`, sem necessidade
+   de `--build-arg` manual. A rota `GET /api` expõe esse valor.
+
+2. **Crie o commit de release** incluindo o `VERSION` atualizado:
+   ```bash
+   git add VERSION
+   git commit -m "release: vX.Y.Z - resumo curto das mudanças desta versão"
+   git push origin <branch>
+   ```
 
 O resumo deve ser uma frase objetiva descrevendo o conteúdo do release (ex.:
 `release: v0.2.1 - corrige bug de tokens expirados e adiciona endpoint de status`).
 
 **NUNCA crie um commit `release:` sem confirmação explícita do usuário.** Esse
 commit é o checkpoint que todo cálculo futuro vai usar como base — um valor
-errado aqui propaga erro para todas as versões seguintes.
+errado aqui propaga erro para todas as versões seguintes. E **sempre** atualize
+o `VERSION` junto — um release sem versão no arquivo é um release quebrado
+(o Docker build produziria um binário com versão desatualizada).
 
 ## Integração com o pacote `internal/version`
 
@@ -138,21 +148,24 @@ A versão calculada por este agente é consumida pelo build via `-ldflags`:
 ### Fluxo completo
 
 ```
-Versioner calcula versão → usuário confirma → commit release: vX.Y.Z
-→ CI/build usa vX.Y.Z no -ldflags → binário responde em GET /api/version
+Versioner calcula versão → usuário confirma
+→ Versioner atualiza arquivo VERSION com vX.Y.Z
+→ commit release: vX.Y.Z (inclui VERSION atualizado)
+→ Docker build lê VERSION automaticamente → binário com versão correta
+→ GET /api responde a versão lida do binário
 ```
 
 ### Exemplo de injeção
 
-```bash
-go build -ldflags="
-  -X github.com/klawdyo/streamedia/internal/version.Version=0.1.0
-  -X github.com/klawdyo/streamedia/internal/version.Commit=$(git rev-parse --short HEAD)
-" -o mediaserver ./cmd/server
+O Dockerfile lê o arquivo `VERSION` no build:
+
+```dockerfile
+RUN CGO_ENABLED=0 go build \
+  -ldflags="-X github.com/klawdyo/streamedia/internal/version.Version=$(cat VERSION)" \
+  -o /mediaserver ./cmd/server
 ```
 
-O valor `0.1.0` acima é exatamente o que este agente calcula e o usuário
-confirma antes do commit `release:`.
+Sem `--build-arg` manual — o arquivo `VERSION` é a única fonte de verdade.
 
 ## Definition of Done
 
