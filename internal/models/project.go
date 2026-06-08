@@ -92,22 +92,25 @@ func stripDiacritics(s string) string {
 // Implementação simples por tabela — cobre o alfabeto latino estendido
 // usado em nomes em português; não pretende ser uma normalização Unicode
 // completa (NFD), que exigiria uma dependência externa.
+// accentReplacer é criado uma única vez e reutilizado em todas as chamadas
+// de decompose. strings.NewReplacer é thread-safe.
+var accentReplacer = strings.NewReplacer(
+	"á", "a", "à", "a", "ã", "a", "â", "a", "ä", "a",
+	"é", "e", "è", "e", "ê", "e", "ë", "e",
+	"í", "i", "ì", "i", "î", "i", "ï", "i",
+	"ó", "o", "ò", "o", "õ", "o", "ô", "o", "ö", "o",
+	"ú", "u", "ù", "u", "û", "u", "ü", "u",
+	"ç", "c", "ñ", "n",
+	"Á", "A", "À", "A", "Ã", "A", "Â", "A", "Ä", "A",
+	"É", "E", "È", "E", "Ê", "E", "Ë", "E",
+	"Í", "I", "Ì", "I", "Î", "I", "Ï", "I",
+	"Ó", "O", "Ò", "O", "Õ", "O", "Ô", "O", "Ö", "O",
+	"Ú", "U", "Ù", "U", "Û", "U", "Ü", "U",
+	"Ç", "C", "Ñ", "N",
+)
+
 func decompose(s string) string {
-	replacer := strings.NewReplacer(
-		"á", "a", "à", "a", "ã", "a", "â", "a", "ä", "a",
-		"é", "e", "è", "e", "ê", "e", "ë", "e",
-		"í", "i", "ì", "i", "î", "i", "ï", "i",
-		"ó", "o", "ò", "o", "õ", "o", "ô", "o", "ö", "o",
-		"ú", "u", "ù", "u", "û", "u", "ü", "u",
-		"ç", "c", "ñ", "n",
-		"Á", "A", "À", "A", "Ã", "A", "Â", "A", "Ä", "A",
-		"É", "E", "È", "E", "Ê", "E", "Ë", "E",
-		"Í", "I", "Ì", "I", "Î", "I", "Ï", "I",
-		"Ó", "O", "Ò", "O", "Õ", "O", "Ô", "O", "Ö", "O",
-		"Ú", "U", "Ù", "U", "Û", "U", "Ü", "U",
-		"Ç", "C", "Ñ", "N",
-	)
-	return replacer.Replace(s)
+	return accentReplacer.Replace(s)
 }
 
 // uniqueSlug resolve colisões anexando "-2", "-3", ... ao slug base —
