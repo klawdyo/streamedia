@@ -6,6 +6,7 @@ import (
 	"sync"
 
 	"github.com/klawdyo/streamedia/internal/config"
+	"github.com/klawdyo/streamedia/internal/models"
 )
 
 // TranscodeFunc é o tipo do worker de transcodificação.
@@ -84,13 +85,11 @@ func (q *Queue) Stop() {
 // Enqueue atualiza o status do vídeo para 'transcoding' e o enfileira.
 // Retorna erro se a atualização do banco falhar ou se a fila estiver cheia.
 func (q *Queue) Enqueue(videoID string) error {
-	// Atualiza o status para 'transcoding' antes do envio ao canal,
-	// de modo que o worker já encontre o status correto no banco.
-	// Se a atualização falhar, retorna o erro imediatamente — o vídeo NÃO
-	// é enfileirado, evitando estado inconsistente (vídeo na fila com
-	// status antigo no banco, invisível ao recovery de startup).
-	_, err := q.db.Exec("UPDATE videos SET status = 'transcoding', updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE video_id = ?", videoID)
-	if err != nil {
+	// Atualiza o status para 'transcoding' via máquina de estados (T58:
+	// substitui UPDATE direto que bypassava validTransitions e usava formato
+	// de timestamp inconsistente). Se a transição for inválida ou o banco
+	// falhar, retorna erro — o vídeo NÃO é enfileirado.
+	if err := models.UpdateStatus(q.db, videoID, models.StatusTranscoding); err != nil {
 		return fmt.Errorf("erro ao atualizar status para transcoding: %w", err)
 	}
 

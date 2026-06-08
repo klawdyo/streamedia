@@ -54,7 +54,12 @@ func newTestRouter(t *testing.T, cfg *config.Config) (http.Handler, *sql.DB) {
 	// Worker no-op: os testes não precisam transcodificar de verdade.
 	queue := transcode.NewQueue(cfg, database, func(string) error { return nil })
 
-	return NewRouter(cfg, database, queue, wc), database
+	router, closer, err := NewRouter(cfg, database, queue, wc)
+	if err != nil {
+		t.Fatalf("NewRouter: %v", err)
+	}
+	t.Cleanup(func() { _ = closer.Close() })
+	return router, database
 }
 
 // TestHealthz verifica que /healthz responde 200 com "ok".

@@ -1,6 +1,7 @@
 package transcode
 
 import (
+	"database/sql"
 	"fmt"
 	"strings"
 	"sync"
@@ -12,6 +13,20 @@ import (
 	"github.com/klawdyo/streamedia/internal/config"
 	"github.com/klawdyo/streamedia/internal/db"
 )
+
+// insertQueueTestVideo insere um vídeo no banco com status upload_complete
+// (estado válido para transição → transcoding via Enqueue). Necessário
+// desde T58, quando Enqueue passou a validar transições via state machine.
+func insertQueueTestVideo(t *testing.T, database *sql.DB, videoID string) {
+	t.Helper()
+	_, err := database.Exec(
+		"INSERT INTO videos (video_id, status) VALUES (?, 'upload_complete')",
+		videoID,
+	)
+	if err != nil {
+		t.Fatalf("erro ao inserir vídeo de teste %s: %v", videoID, err)
+	}
+}
 
 // sliceEqual compara dois slices de inteiros.
 func sliceEqual(a, b []int) bool {
@@ -73,6 +88,11 @@ func TestQueue_EnqueueAndProcess(t *testing.T) {
 
 	queue := NewQueue(cfg, database, transcodeFunc)
 	queue.Start()
+
+	// Insere vídeos no banco com status upload_complete (T58: Enqueue valida transição)
+	insertQueueTestVideo(t, database, "v1")
+	insertQueueTestVideo(t, database, "v2")
+	insertQueueTestVideo(t, database, "v3")
 
 	// Enfileira 3 vídeos
 	err = queue.Enqueue("v1")
@@ -138,6 +158,9 @@ func TestQueue_SequentialWithOneWorker(t *testing.T) {
 
 	queue := NewQueue(cfg, database, transcodeFunc)
 
+	insertQueueTestVideo(t, database, "v1")
+	insertQueueTestVideo(t, database, "v2")
+
 	start := time.Now()
 	queue.Start()
 
@@ -186,6 +209,11 @@ func TestQueue_FullQueueReturnsError(t *testing.T) {
 
 	queue := NewQueue(cfg, database, transcodeFunc)
 	queue.Start()
+
+	insertQueueTestVideo(t, database, "v1")
+	insertQueueTestVideo(t, database, "v2")
+	insertQueueTestVideo(t, database, "v3")
+	insertQueueTestVideo(t, database, "v4")
 
 	// Enfileira primeiro item (é processado/ocupando o worker)
 	err = queue.Enqueue("v1")
@@ -245,6 +273,10 @@ func TestQueue_LenReturnsCurrentSize(t *testing.T) {
 		t.Errorf("Len() antes de Start: esperava 0, obtive %d", queue.Len())
 	}
 
+	insertQueueTestVideo(t, database, "v1")
+	insertQueueTestVideo(t, database, "v2")
+	insertQueueTestVideo(t, database, "v3")
+
 	// Enfileira 3 itens sem chamar Start (vão para o buffer do canal)
 	queue.Enqueue("v1")
 	queue.Enqueue("v2")
@@ -289,6 +321,9 @@ func TestQueue_StopDrainsGracefully(t *testing.T) {
 
 	queue := NewQueue(cfg, database, transcodeFunc)
 	queue.Start()
+
+	insertQueueTestVideo(t, database, "v1")
+	insertQueueTestVideo(t, database, "v2")
 
 	queue.Enqueue("v1")
 	queue.Enqueue("v2")
@@ -343,6 +378,10 @@ func TestQueue_WorkerErrorDoesNotCrash(t *testing.T) {
 
 	queue := NewQueue(cfg, database, transcodeFunc)
 	queue.Start()
+
+	insertQueueTestVideo(t, database, "v1")
+	insertQueueTestVideo(t, database, "v2")
+	insertQueueTestVideo(t, database, "v3")
 
 	queue.Enqueue("v1")
 	queue.Enqueue("v2")
@@ -467,6 +506,11 @@ func TestQueue_ConcurrentEnqueue(t *testing.T) {
 	queue := NewQueue(cfg, database, transcodeFunc)
 	queue.Start()
 
+	// Insere 10 vídeos no banco antes de enfileirar concorrentemente
+	for i := 1; i <= 10; i++ {
+		insertQueueTestVideo(t, database, fmt.Sprintf("v%d", i))
+	}
+
 	// Enfileira 10 vídeos concorrentemente
 	for i := 1; i <= 10; i++ {
 		go func(idx int) {
@@ -523,6 +567,11 @@ func TestQueue_MultipleWorkersParallel(t *testing.T) {
 	}
 
 	queue := NewQueue(cfg, database, transcodeFunc)
+
+	// Insere 6 vídeos no banco
+	for i := 1; i <= 6; i++ {
+		insertQueueTestVideo(t, database, fmt.Sprintf("v%d", i))
+	}
 
 	start := time.Now()
 	queue.Start()
@@ -593,6 +642,8 @@ func TestQueue_EnqueueAfterStop(t *testing.T) {
 	})
 	queue.Start()
 	queue.Stop()
+
+	insertQueueTestVideo(t, database, "v1")
 
 	// Tenta enfileirar após parada (pode falhar ou não, mas não deve travar)
 	queue.Enqueue("v1")
