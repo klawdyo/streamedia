@@ -215,3 +215,65 @@ func TestKillerJob_DispatchesWebhook(t *testing.T) {
 		t.Errorf("mensagem de erro do webhook não deveria ser vazia")
 	}
 }
+
+// TestKillerJob_EmptyDatabase testa o caminho quando não há uploads inativos
+// no banco (nem pending_upload nem uploading).
+func TestKillerJob_EmptyDatabase(t *testing.T) {
+	database, cfg := setupTest(t)
+
+	job := NewUploadKillerJob(cfg, database, func(string, string, string) {})
+	if err := job.runOnce(); err != nil {
+		t.Fatalf("runOnce retornou erro: %v", err)
+	}
+	// Se não há erro, o teste passa (caminho vazio coberto).
+}
+
+// TestKillerJob_MultipleInactiveUploads testa o processamento de múltiplos
+// uploads inativos em uma única execução.
+func TestKillerJob_MultipleInactiveUploads(t *testing.T) {
+	database, cfg := setupTest(t)
+
+	// Insere 3 uploads inativos
+	for i := 1; i <= 3; i++ {
+		videoID := "vid-inactive-" + string(rune('0'+i))
+		insertVideo(t, database, videoID, "uploading", rfc(-11*time.Minute), rfc(-20*time.Minute))
+	}
+
+	var webhookCount int
+	job := NewUploadKillerJob(cfg, database, func(string, string, string) {
+		webhookCount++
+	})
+	if err := job.runOnce(); err != nil {
+		t.Fatalf("runOnce retornou erro: %v", err)
+	}
+
+	if webhookCount != 3 {
+		t.Errorf("webhook esperado ser chamado 3 vezes, foi chamado %d vezes", webhookCount)
+	}
+
+	// Verifica que todos foram marcados como failed_upload
+	for i := 1; i <= 3; i++ {
+		videoID := "vid-inactive-" + string(rune('0'+i))
+		if got := statusOf(t, database, videoID); got != "failed_upload" {
+			t.Errorf("video %s: esperado failed_upload, obtido %q", videoID, got)
+		}
+	}
+}
+
+// TestKillerJob_NilWebhookCallback testa que o job funciona mesmo sem
+// callback de webhook (verificando que não há pânico).
+func TestKillerJob_NilWebhookCallback(t *testing.T) {
+	database, cfg := setupTest(t)
+	videoID := "vid-no-webhook"
+
+	insertVideo(t, database, videoID, "uploading", rfc(-11*time.Minute), rfc(-20*time.Minute))
+
+	job := NewUploadKillerJob(cfg, database, nil)
+	if err := job.runOnce(); err != nil {
+		t.Fatalf("runOnce retornou erro: %v", err)
+	}
+
+	if got := statusOf(t, database, videoID); got != "failed_upload" {
+		t.Errorf("status esperado failed_upload, obtido %q", got)
+	}
+}

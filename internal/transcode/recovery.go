@@ -23,7 +23,8 @@ func RunStartupRecovery(
 	// Query: busca vídeos em estado 'transcoding' ou 'upload_complete'
 	rows, err := db.Query(
 		`SELECT video_id, status, transcode_attempts FROM videos
-		 WHERE status IN ('transcoding', 'upload_complete')`,
+		 WHERE status IN (?, ?)`,
+		models.StatusTranscoding, models.StatusUploadComplete,
 	)
 	if err != nil {
 		return fmt.Errorf("erro ao consultar vídeos para recuperação: %w", err)
@@ -56,14 +57,14 @@ func RunStartupRecovery(
 
 	// Processa cada vídeo.
 	for _, v := range videos {
-		if v.status == "upload_complete" {
+		if v.status == string(models.StatusUploadComplete) {
 			// Reenfileira diretamente.
 			if err := enqueue(v.videoID); err != nil {
 				log.Printf("recuperação: erro ao reenfileirar %s: %v", v.videoID, err)
 				continue
 			}
 			requeuedCount++
-		} else if v.status == "transcoding" {
+		} else if v.status == string(models.StatusTranscoding) {
 			// Verifica se ainda há tentativas disponíveis.
 			if v.transcodeAttempts < cfg.MaxTranscodeAttempts {
 				// Incrementa o contador de tentativas.

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sync"
 	"time"
 
 	"github.com/klawdyo/streamedia/internal/config"
@@ -23,6 +24,7 @@ type UploadKillerJob struct {
 	onWebhook func(videoID, event, errMsg string)
 	ticker    *time.Ticker
 	stopCh    chan struct{}
+	wg        sync.WaitGroup
 }
 
 // NewUploadKillerJob cria uma nova instância do job de killer de uploads.
@@ -40,7 +42,9 @@ func NewUploadKillerJob(cfg *config.Config, db *sql.DB, onWebhook func(videoID, 
 
 // Start inicia a goroutine que executa o job a cada intervalo do ticker.
 func (j *UploadKillerJob) Start() {
+	j.wg.Add(1)
 	go func() {
+		defer j.wg.Done()
 		for {
 			select {
 			case <-j.ticker.C:
@@ -54,9 +58,10 @@ func (j *UploadKillerJob) Start() {
 	}()
 }
 
-// Stop encerra a goroutine do job.
+// Stop encerra a goroutine do job e aguarda sua finalização.
 func (j *UploadKillerJob) Stop() {
 	close(j.stopCh)
+	j.wg.Wait()
 }
 
 // runOnce executa uma única varredura: encontra uploads inativos, remove

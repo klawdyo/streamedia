@@ -11,6 +11,7 @@ import (
 
 	_ "modernc.org/sqlite"
 
+	"github.com/klawdyo/streamedia/internal/apiresponse"
 	"github.com/klawdyo/streamedia/internal/config"
 	"github.com/klawdyo/streamedia/internal/db"
 	"github.com/klawdyo/streamedia/internal/models"
@@ -81,11 +82,14 @@ func TestAdminVideos_WithAuth(t *testing.T) {
 	}
 
 	// Parse da resposta JSON
-	var resp videosResponse
+	var env apiresponse.Envelope
 	body, _ := io.ReadAll(w.Body)
-	if err := json.Unmarshal(body, &resp); err != nil {
+	if err := json.Unmarshal(body, &env); err != nil {
 		t.Fatalf("erro ao fazer unmarshal da resposta: %v", err)
 	}
+	dataJSON, _ := json.Marshal(env.Data)
+	var resp videosResponse
+	json.Unmarshal(dataJSON, &resp)
 
 	// Valida que há 2 vídeos e total é 2
 	if len(resp.Videos) != 2 {
@@ -103,7 +107,7 @@ func TestAdminVideos_WithoutAuth(t *testing.T) {
 	handler := NewAdminHandler(cfg, database, &mockQueue{})
 
 	// Wraps o handler com o middleware AdminAuth
-	wrapped := AdminAuth(cfg.AdminToken)(http.HandlerFunc(handler.HandleVideos))
+	wrapped := AdminAuth(cfg.AdminToken, database)(http.HandlerFunc(handler.HandleVideos))
 
 	// Cria a requisição SEM header Authorization
 	req := httptest.NewRequest("GET", "/admin/videos", nil)
@@ -135,11 +139,14 @@ func TestAdminVideos_FilterByStatus(t *testing.T) {
 	w := httptest.NewRecorder()
 	handler.HandleVideos(w, req)
 
-	var resp videosResponse
+	var env apiresponse.Envelope
 	body, _ := io.ReadAll(w.Body)
-	if err := json.Unmarshal(body, &resp); err != nil {
+	if err := json.Unmarshal(body, &env); err != nil {
 		t.Fatalf("erro ao fazer unmarshal da resposta: %v", err)
 	}
+	dataJSON, _ := json.Marshal(env.Data)
+	var resp videosResponse
+	json.Unmarshal(dataJSON, &resp)
 
 	// Valida que apenas 2 vídeos foram retornados (ambos com status "ready")
 	if len(resp.Videos) != 2 {
@@ -174,9 +181,12 @@ func TestAdminVideos_Pagination(t *testing.T) {
 	w1 := httptest.NewRecorder()
 	handler.HandleVideos(w1, req1)
 
-	var resp1 videosResponse
+	var env1 apiresponse.Envelope
 	body1, _ := io.ReadAll(w1.Body)
-	json.Unmarshal(body1, &resp1)
+	json.Unmarshal(body1, &env1)
+	dataJSON1, _ := json.Marshal(env1.Data)
+	var resp1 videosResponse
+	json.Unmarshal(dataJSON1, &resp1)
 
 	if len(resp1.Videos) != 2 {
 		t.Errorf("primeira página: esperado 2 vídeos, obtido %d", len(resp1.Videos))
@@ -191,9 +201,12 @@ func TestAdminVideos_Pagination(t *testing.T) {
 	w2 := httptest.NewRecorder()
 	handler.HandleVideos(w2, req2)
 
-	var resp2 videosResponse
+	var env2 apiresponse.Envelope
 	body2, _ := io.ReadAll(w2.Body)
-	json.Unmarshal(body2, &resp2)
+	json.Unmarshal(body2, &env2)
+	dataJSON2, _ := json.Marshal(env2.Data)
+	var resp2 videosResponse
+	json.Unmarshal(dataJSON2, &resp2)
 
 	if len(resp2.Videos) != 2 {
 		t.Errorf("segunda página: esperado 2 vídeos, obtido %d", len(resp2.Videos))
@@ -205,9 +218,12 @@ func TestAdminVideos_Pagination(t *testing.T) {
 	w3 := httptest.NewRecorder()
 	handler.HandleVideos(w3, req3)
 
-	var resp3 videosResponse
+	var env3 apiresponse.Envelope
 	body3, _ := io.ReadAll(w3.Body)
-	json.Unmarshal(body3, &resp3)
+	json.Unmarshal(body3, &env3)
+	dataJSON3, _ := json.Marshal(env3.Data)
+	var resp3 videosResponse
+	json.Unmarshal(dataJSON3, &resp3)
 
 	if len(resp3.Videos) != 1 {
 		t.Errorf("terceira página: esperado 1 vídeo, obtido %d", len(resp3.Videos))
@@ -231,11 +247,14 @@ func TestAdminQueue_WithAuth(t *testing.T) {
 		t.Errorf("status code esperado 200, obtido %d", w.Code)
 	}
 
-	var resp queueResponse
+	var env apiresponse.Envelope
 	body, _ := io.ReadAll(w.Body)
-	if err := json.Unmarshal(body, &resp); err != nil {
+	if err := json.Unmarshal(body, &env); err != nil {
 		t.Fatalf("erro ao fazer unmarshal da resposta: %v", err)
 	}
+	dataJSON, _ := json.Marshal(env.Data)
+	var resp queueResponse
+	json.Unmarshal(dataJSON, &resp)
 
 	if resp.QueueLength != 3 {
 		t.Errorf("queue_length esperado 3, obtido %d", resp.QueueLength)
@@ -258,9 +277,12 @@ func TestAdminQueue_ShowsCurrentLength(t *testing.T) {
 	w := httptest.NewRecorder()
 	handler.HandleQueue(w, req)
 
-	var resp queueResponse
+	var env apiresponse.Envelope
 	body, _ := io.ReadAll(w.Body)
-	json.Unmarshal(body, &resp)
+	json.Unmarshal(body, &env)
+	dataJSON, _ := json.Marshal(env.Data)
+	var resp queueResponse
+	json.Unmarshal(dataJSON, &resp)
 
 	if resp.QueueLength != 5 {
 		t.Errorf("queue_length esperado 5, obtido %d", resp.QueueLength)
@@ -289,9 +311,12 @@ func TestAdminVideos_InvalidStatus(t *testing.T) {
 		t.Errorf("status code esperado 200, obtido %d", w.Code)
 	}
 
-	var resp videosResponse
+	var env apiresponse.Envelope
 	body, _ := io.ReadAll(w.Body)
-	json.Unmarshal(body, &resp)
+	json.Unmarshal(body, &env)
+	dataJSON, _ := json.Marshal(env.Data)
+	var resp videosResponse
+	json.Unmarshal(dataJSON, &resp)
 
 	// Deve retornar array vazio
 	if len(resp.Videos) != 0 {
@@ -306,8 +331,9 @@ func TestAdminVideos_InvalidStatus(t *testing.T) {
 // quando um token incorreto é fornecido.
 func TestAdminAuth_WrongToken(t *testing.T) {
 	cfg := &config.Config{AdminToken: "correct-token"}
+	database, _ := setupAdminTest(t)
 
-	wrapped := AdminAuth(cfg.AdminToken)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	wrapped := AdminAuth(cfg.AdminToken, database)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	}))
 
@@ -326,8 +352,9 @@ func TestAdminAuth_WrongToken(t *testing.T) {
 // quando o header Authorization não segue o formato "Bearer {token}".
 func TestAdminAuth_BadAuthFormat(t *testing.T) {
 	cfg := &config.Config{AdminToken: "correct-token"}
+	database, _ := setupAdminTest(t)
 
-	wrapped := AdminAuth(cfg.AdminToken)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	wrapped := AdminAuth(cfg.AdminToken, database)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	}))
 
@@ -361,9 +388,12 @@ func TestAdminVideos_LimitMaximum(t *testing.T) {
 	w := httptest.NewRecorder()
 	handler.HandleVideos(w, req)
 
-	var resp videosResponse
+	var env apiresponse.Envelope
 	body, _ := io.ReadAll(w.Body)
-	json.Unmarshal(body, &resp)
+	json.Unmarshal(body, &env)
+	dataJSON, _ := json.Marshal(env.Data)
+	var resp videosResponse
+	json.Unmarshal(dataJSON, &resp)
 
 	// Deve retornar 3 vídeos (menos que 200)
 	if len(resp.Videos) != 3 {
@@ -387,9 +417,12 @@ func TestAdminVideos_EmptyDatabase(t *testing.T) {
 		t.Errorf("status code esperado 200, obtido %d", w.Code)
 	}
 
-	var resp videosResponse
+	var env apiresponse.Envelope
 	body, _ := io.ReadAll(w.Body)
-	json.Unmarshal(body, &resp)
+	json.Unmarshal(body, &env)
+	dataJSON, _ := json.Marshal(env.Data)
+	var resp videosResponse
+	json.Unmarshal(dataJSON, &resp)
 
 	if len(resp.Videos) != 0 {
 		t.Errorf("número de vídeos esperado 0, obtido %d", len(resp.Videos))
@@ -413,9 +446,12 @@ func TestAdminQueue_ZeroWorkers(t *testing.T) {
 	w := httptest.NewRecorder()
 	handler.HandleQueue(w, req)
 
-	var resp queueResponse
+	var env apiresponse.Envelope
 	body, _ := io.ReadAll(w.Body)
-	json.Unmarshal(body, &resp)
+	json.Unmarshal(body, &env)
+	dataJSON, _ := json.Marshal(env.Data)
+	var resp queueResponse
+	json.Unmarshal(dataJSON, &resp)
 
 	if resp.Workers != 0 {
 		t.Errorf("workers esperado 0, obtido %d", resp.Workers)
@@ -448,9 +484,12 @@ func TestAdminVideos_OrderByCreatedAt(t *testing.T) {
 	w := httptest.NewRecorder()
 	handler.HandleVideos(w, req)
 
-	var resp videosResponse
+	var env apiresponse.Envelope
 	body, _ := io.ReadAll(w.Body)
-	json.Unmarshal(body, &resp)
+	json.Unmarshal(body, &env)
+	dataJSON, _ := json.Marshal(env.Data)
+	var resp videosResponse
+	json.Unmarshal(dataJSON, &resp)
 
 	// Valida que o primeiro vídeo retornado é o mais recente (vid-2)
 	if len(resp.Videos) > 0 && resp.Videos[0].VideoID != "vid-2" {
@@ -471,13 +510,13 @@ func TestAdminVideos_ContentType(t *testing.T) {
 	handler.HandleVideos(w, req)
 
 	contentType := w.Header().Get("Content-Type")
-	if contentType != "application/json" {
-		t.Errorf("Content-Type esperado \"application/json\", obtido %q", contentType)
+	if contentType != "application/json; charset=utf-8" {
+		t.Errorf("Content-Type esperado \"application/json; charset=utf-8\", obtido %q", contentType)
 	}
 }
 
 // TestAdminQueue_ContentType verifica que o header Content-Type é
-// application/json para a rota de fila.
+// application/json; charset=utf-8 para a rota de fila.
 func TestAdminQueue_ContentType(t *testing.T) {
 	database, cfg := setupAdminTest(t)
 	handler := NewAdminHandler(cfg, database, &mockQueue{})
@@ -489,7 +528,7 @@ func TestAdminQueue_ContentType(t *testing.T) {
 	handler.HandleQueue(w, req)
 
 	contentType := w.Header().Get("Content-Type")
-	if contentType != "application/json" {
-		t.Errorf("Content-Type esperado \"application/json\", obtido %q", contentType)
+	if contentType != "application/json; charset=utf-8" {
+		t.Errorf("Content-Type esperado \"application/json; charset=utf-8\", obtido %q", contentType)
 	}
 }

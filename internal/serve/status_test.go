@@ -8,6 +8,7 @@ import (
 
 	_ "modernc.org/sqlite"
 
+	"github.com/klawdyo/streamedia/internal/apiresponse"
 	"github.com/klawdyo/streamedia/internal/auth"
 )
 
@@ -15,7 +16,7 @@ import (
 func TestStatusRoute_ValidRequest(t *testing.T) {
 	cfg := newTestConfig(t)
 	database := newTestDB(t)
-	insertVideo(t, database, testVideoID, "ready")
+	insertVideo(t, database, testVideoID, "ready", nil)
 
 	h := NewStatusHandler(cfg, database)
 
@@ -32,9 +33,14 @@ func TestStatusRoute_ValidRequest(t *testing.T) {
 		t.Fatalf("esperado 200, obtido %d (body: %s)", rec.Code, rec.Body.String())
 	}
 
-	var resp StatusResponse
-	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+	var env apiresponse.Envelope
+	if err := json.Unmarshal(rec.Body.Bytes(), &env); err != nil {
 		t.Fatalf("erro ao desserializar resposta JSON: %v", err)
+	}
+	dataJSON, _ := json.Marshal(env.Data)
+	var resp StatusResponse
+	if err := json.Unmarshal(dataJSON, &resp); err != nil {
+		t.Fatalf("erro ao desserializar data: %v", err)
 	}
 
 	if resp.VideoID != testVideoID {
@@ -50,7 +56,7 @@ func TestStatusRoute_ValidRequest(t *testing.T) {
 func TestStatusRoute_InvalidAuth(t *testing.T) {
 	cfg := newTestConfig(t)
 	database := newTestDB(t)
-	insertVideo(t, database, testVideoID, "ready")
+	insertVideo(t, database, testVideoID, "ready", nil)
 
 	h := NewStatusHandler(cfg, database)
 
@@ -70,7 +76,7 @@ func TestStatusRoute_InvalidAuth(t *testing.T) {
 func TestStatusRoute_InvalidAuth_MissingHeader(t *testing.T) {
 	cfg := newTestConfig(t)
 	database := newTestDB(t)
-	insertVideo(t, database, testVideoID, "ready")
+	insertVideo(t, database, testVideoID, "ready", nil)
 
 	h := NewStatusHandler(cfg, database)
 
@@ -155,9 +161,14 @@ func TestStatusRoute_ResponseFields(t *testing.T) {
 		t.Fatalf("esperado 200, obtido %d", rec.Code)
 	}
 
-	var resp StatusResponse
-	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+	var env apiresponse.Envelope
+	if err := json.Unmarshal(rec.Body.Bytes(), &env); err != nil {
 		t.Fatalf("erro ao desserializar resposta JSON: %v", err)
+	}
+	dataJSON, _ := json.Marshal(env.Data)
+	var resp StatusResponse
+	if err := json.Unmarshal(dataJSON, &resp); err != nil {
+		t.Fatalf("erro ao desserializar data: %v", err)
 	}
 
 	if resp.Status != "failed_transcode" {
@@ -197,9 +208,14 @@ func TestStatusRoute_ResolutionsDeserialized(t *testing.T) {
 		t.Fatalf("esperado 200, obtido %d", rec.Code)
 	}
 
-	var resp StatusResponse
-	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+	var env apiresponse.Envelope
+	if err := json.Unmarshal(rec.Body.Bytes(), &env); err != nil {
 		t.Fatalf("erro ao desserializar resposta JSON: %v", err)
+	}
+	dataJSON, _ := json.Marshal(env.Data)
+	var resp StatusResponse
+	if err := json.Unmarshal(dataJSON, &resp); err != nil {
+		t.Fatalf("erro ao desserializar data: %v", err)
 	}
 
 	if len(resp.Resolutions) != 2 {
@@ -239,9 +255,14 @@ func TestStatusRoute_DurationSNilWhenZero(t *testing.T) {
 		t.Fatalf("esperado 200, obtido %d", rec.Code)
 	}
 
-	var resp StatusResponse
-	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+	var env apiresponse.Envelope
+	if err := json.Unmarshal(rec.Body.Bytes(), &env); err != nil {
 		t.Fatalf("erro ao desserializar resposta JSON: %v", err)
+	}
+	dataJSON, _ := json.Marshal(env.Data)
+	var resp StatusResponse
+	if err := json.Unmarshal(dataJSON, &resp); err != nil {
+		t.Fatalf("erro ao desserializar data: %v", err)
 	}
 
 	if resp.DurationS != nil {
@@ -277,9 +298,14 @@ func TestStatusRoute_DurationSSetWhenNonZero(t *testing.T) {
 		t.Fatalf("esperado 200, obtido %d", rec.Code)
 	}
 
-	var resp StatusResponse
-	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+	var env apiresponse.Envelope
+	if err := json.Unmarshal(rec.Body.Bytes(), &env); err != nil {
 		t.Fatalf("erro ao desserializar resposta JSON: %v", err)
+	}
+	dataJSON, _ := json.Marshal(env.Data)
+	var resp StatusResponse
+	if err := json.Unmarshal(dataJSON, &resp); err != nil {
+		t.Fatalf("erro ao desserializar data: %v", err)
 	}
 
 	if resp.DurationS == nil || *resp.DurationS != 120 {
@@ -315,9 +341,14 @@ func TestStatusRoute_ErrorMessageNilWhenEmpty(t *testing.T) {
 		t.Fatalf("esperado 200, obtido %d", rec.Code)
 	}
 
-	var resp StatusResponse
-	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+	var env apiresponse.Envelope
+	if err := json.Unmarshal(rec.Body.Bytes(), &env); err != nil {
 		t.Fatalf("erro ao desserializar resposta JSON: %v", err)
+	}
+	dataJSON, _ := json.Marshal(env.Data)
+	var resp StatusResponse
+	if err := json.Unmarshal(dataJSON, &resp); err != nil {
+		t.Fatalf("erro ao desserializar data: %v", err)
 	}
 
 	if resp.ErrorMessage != nil {
@@ -353,9 +384,14 @@ func TestStatusRoute_TranscodeAttemptsField(t *testing.T) {
 		t.Fatalf("esperado 200, obtido %d", rec.Code)
 	}
 
-	var resp StatusResponse
-	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+	var env apiresponse.Envelope
+	if err := json.Unmarshal(rec.Body.Bytes(), &env); err != nil {
 		t.Fatalf("erro ao desserializar resposta JSON: %v", err)
+	}
+	dataJSON, _ := json.Marshal(env.Data)
+	var resp StatusResponse
+	if err := json.Unmarshal(dataJSON, &resp); err != nil {
+		t.Fatalf("erro ao desserializar data: %v", err)
 	}
 
 	if resp.TranscodeAttempts != 3 {

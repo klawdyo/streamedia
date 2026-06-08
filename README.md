@@ -85,6 +85,14 @@ curl http://localhost:3000/healthz
 
 ## Variáveis de Ambiente
 
+> **Mudança incompatível (issue #4):** todas as variáveis de tempo agora usam
+> o sufixo `_SECONDS` e valores em segundos — antes misturavam horas
+> (`UPLOAD_TOKEN_TTL_H`, `PLAY_TOKEN_MAX_TTL_H`) e minutos
+> (`UPLOAD_IDLE_TIMEOUT_MIN`, `TRANSCODE_STUCK_MIN`). Quem atualiza uma
+> instalação existente precisa renomear essas variáveis e converter os
+> valores para segundos (ex. `UPLOAD_TOKEN_TTL_H=6` →
+> `UPLOAD_TOKEN_TTL_SECONDS=21600`); os nomes antigos não são mais lidos.
+
 | Variável | Obrigatória | Padrão | Descrição |
 |---|---|---|---|
 | `UPLOAD_TOKEN_SECRET` | Sim | — | Segredo HMAC-SHA256 para tokens de upload. Gere com `openssl rand -hex 32`. |
@@ -97,10 +105,11 @@ curl http://localhost:3000/healthz
 | `SQLITE_PATH` | Não | `/data/media.db` | Caminho do arquivo SQLite. |
 | `QUEUE_MAX_SIZE` | Não | `50` | Capacidade máxima da fila de transcodificação. |
 | `TRANSCODE_WORKERS` | Não | `1` | Número de workers paralelos de transcodificação. |
-| `UPLOAD_TOKEN_TTL_H` | Não | `6` | TTL do token de upload em horas. |
-| `PLAY_TOKEN_MAX_TTL_H` | Não | `6` | TTL máximo do token de reprodução em horas. |
-| `UPLOAD_IDLE_TIMEOUT_MIN` | Não | `10` | Timeout de inatividade de upload em minutos. |
-| `TRANSCODE_STUCK_MIN` | Não | `30` | Timeout de transcodificação travada em minutos. |
+| `UPLOAD_TOKEN_TTL_SECONDS` | Não | `21600` | TTL do token de upload em segundos (21600 = 6h). |
+| `UPLOAD_TOKEN_SCOPED_TTL_SECONDS` | Não | `1200` | TTL do token de upload escopado a projeto (`X-Project-Key`, issue #6/T33), em segundos — vida curta (1200 = 20min). |
+| `PLAY_TOKEN_MAX_TTL_SECONDS` | Não | `21600` | TTL máximo do token de reprodução em segundos (21600 = 6h). |
+| `UPLOAD_IDLE_TIMEOUT_SECONDS` | Não | `600` | Timeout de inatividade de upload em segundos (600 = 10min). |
+| `TRANSCODE_STUCK_SECONDS` | Não | `1800` | Timeout de transcodificação travada em segundos (1800 = 30min). |
 | `MAX_TRANSCODE_ATTEMPTS` | Não | `3` | Número máximo de tentativas de transcodificação por vídeo. |
 | `KEEP_ORIGINAL` | Não | `false` | Se `true`, mantém o arquivo original após transcodificação. |
 | `PORT` | Não | `3000` | Porta HTTP do servidor. |
@@ -139,15 +148,37 @@ Variáveis como `MAX_UPLOAD_SIZE_MB`, `PORT`, etc. têm padrão definido no `doc
 
 ### POST /upload/init
 
-Inicializa um upload. Chamada exclusivamente pelo **backend principal** (server-to-server).
+Inicializa um upload. Chamada exclusivamente pelo **backend principal** (server-to-server)
+ou por um **projeto interno** (issue #6/T33).
 
-**Autenticação:** header `X-Upload-Auth` com HMAC-SHA256 do corpo em hex.
+**Autenticação — dois fluxos coexistem:**
 
-**Requisição:**
+- **Escopado a projeto** (issue #6/T33): header `X-Project-Key: <chave mestra do projeto>`,
+  obtida na criação do projeto. O servidor resolve o projeto pelo hash da chave —
+  o vídeo e o token de upload gerados ficam vinculados àquele projeto, e o
+  token tem TTL curto (`UPLOAD_TOKEN_SCOPED_TTL_SECONDS`, padrão 20min — "um
+  único arquivo"). Tem prioridade sobre `X-Upload-Auth` se ambos vierem.
+- **Legado/global**: header `X-Upload-Auth` com HMAC-SHA256 do corpo em hex,
+  assinado com `UPLOAD_TOKEN_SECRET`. Continua funcionando sem mudanças —
+  vídeo e token ficam sem projeto associado.
+
+**Requisição (fluxo legado):**
 ```http
 POST /upload/init
 Content-Type: application/json
 X-Upload-Auth: <hmac-sha256-hex>
+
+{
+  "video_id": "550e8400-e29b-41d4-a716-446655440000",
+  "declared_size_bytes": 52428800
+}
+```
+
+**Requisição (escopada a projeto):**
+```http
+POST /upload/init
+Content-Type: application/json
+X-Project-Key: <chave mestra do projeto>
 
 {
   "video_id": "550e8400-e29b-41d4-a716-446655440000",
@@ -241,7 +272,15 @@ Consulta o status de um vídeo. Chamada pelo backend principal (server-to-server
 
 ### GET /admin/videos
 
-Lista todos os vídeos no banco. Requer `Authorization: Bearer <ADMIN_TOKEN>`.
+Lista os vídeos no banco.
+
+**Autenticação — `Authorization: Bearer <token>`, dois níveis (issue #6/T33):**
+
+- `<token>` = `ADMIN_TOKEN` global → **super-admin**, sem restrição: enxerga e
+  opera sobre os vídeos de todos os projetos (comportamento original, preservado).
+- `<token>` = chave mestra de um projeto → **admin de projeto**: as rotas
+  `/admin/*` ficam restritas aos vídeos daquele projeto (`project_id`); nunca
+  enxerga ou opera sobre vídeos de outro projeto.
 
 **Resposta 200 OK:**
 ```json
@@ -276,6 +315,102 @@ Consulta o estado atual da fila de transcodificação. Requer `Authorization: Be
 
 ---
 
+### POST /admin/projects
+
+Cria um novo "projeto interno" — um namespace com diretório de armazenamento e
+chave mestra próprios (issue #6, T32/T35). Operação sensível: cria os próprios
+projetos e suas chaves mestras, então **exige `Authorization: Bearer <ADMIN_TOKEN>`
+global** — uma chave mestra de projeto não autentica aqui (403 Forbidden).
+
+**Corpo:**
+```json
+{ "name": "Trip Produção" }
+```
+
+**Resposta 201 Created:**
+```json
+{
+  "id": 3,
+  "name": "Trip Produção",
+  "slug": "trip-producao",
+  "root_dir": "trip-producao",
+  "master_key": "f3a1...64 chars hex..."
+}
+```
+
+> ⚠️ `master_key` é devolvida **em texto puro apenas nesta resposta** —
+> o servidor persiste somente seu hash (SHA-256) e nunca a recupera depois.
+> Guarde-a com segurança: ela autentica `/upload/init`, as rotas `/admin/*`
+> escopadas a este projeto, e a emissão de tokens abaixo.
+
+---
+
+### GET /admin/projects
+
+Lista todos os projetos cadastrados (sem expor `master_key`/hash). Requer
+`Authorization: Bearer <ADMIN_TOKEN>` global — mesma restrição de super-admin
+do endpoint de criação.
+
+**Resposta 200 OK:**
+```json
+{
+  "projects": [
+    { "id": 1, "name": "Legacy", "slug": "legacy", "root_dir": "legacy", "created_at": "2024-01-01T00:00:00Z" },
+    { "id": 3, "name": "Trip Produção", "slug": "trip-producao", "root_dir": "trip-producao", "created_at": "2024-02-01T12:00:00Z" }
+  ],
+  "total": 2
+}
+```
+
+---
+
+### GET /admin/projects/{slug}
+
+Detalhe de um projeto pelo slug (sem expor `master_key`/hash). Requer
+`Authorization: Bearer <ADMIN_TOKEN>` global. `404` se o slug não existir.
+
+**Resposta 200 OK:**
+```json
+{ "id": 3, "name": "Trip Produção", "slug": "trip-producao", "root_dir": "trip-producao", "created_at": "2024-02-01T12:00:00Z" }
+```
+
+---
+
+### POST /admin/projects/{slug}/upload-tokens
+
+Troca a chave mestra de um projeto por um token de upload de curta duração
+para um `video_id` **gerado pelo servidor** (issue #6, T35) — o equivalente a
+`POST /upload/init` no fluxo escopado a projeto (T33), só que sem o cliente
+precisar gerar o UUID do vídeo previamente.
+
+**Autenticação — diferente das demais rotas `/admin/projects*`:** não usa
+`Authorization: Bearer`/`ADMIN_TOKEN`. Em vez disso, exige a **própria chave
+mestra do projeto** no header `X-Project-Key` (mesmo princípio de
+`/upload/init`: o servidor calcula o hash e resolve o projeto, nunca retém a
+chave em texto puro). O `{slug}` no path precisa corresponder ao projeto
+resolvido pela chave — caso contrário, `403 Forbidden`.
+
+**Corpo (opcional):**
+```json
+{ "declared_size_bytes": 52428800 }
+```
+
+**Resposta 201 Created:**
+```json
+{
+  "video_id": "550e8400-e29b-41d4-a716-446655440000",
+  "upload_url": "https://media.example.com/files/550e8400-e29b-41d4-a716-446655440000",
+  "token": "5e8f...",
+  "expires_at": "2024-01-01T10:20:00Z"
+}
+```
+
+O `token` expira em `UPLOAD_TOKEN_SCOPED_TTL_SECONDS` (padrão 1200s = 20min,
+T33) e é assinado com a própria chave mestra do projeto — validado da mesma
+forma que tokens emitidos por `/upload/init`.
+
+---
+
 ### GET /healthz
 
 Healthcheck para Docker e load balancers. Não requer autenticação.
@@ -284,6 +419,127 @@ Healthcheck para Docker e load balancers. Não requer autenticação.
 ```json
 {"status":"ok"}
 ```
+
+## Observabilidade
+
+### GET /metrics
+
+Expõe métricas operacionais no formato OpenTelemetry/Prometheus
+(`text/plain; version=0.0.4`), prontas para `scrape` por um Prometheus
+local ou qualquer ferramenta compatível. Não requer autenticação — é o
+padrão do ecossistema Prometheus, que normalmente protege essa rota na
+camada de infraestrutura/rede (ex. regra de firewall restringindo a origem
+do scraper). O rate limiter da aplicação (ver seção de Rotas) também se
+aplica a ela.
+
+Métricas expostas:
+
+- `streamedia_http_requests_total{method, route, status}` — contador de
+  requisições HTTP, rotulado pelo template de rota do `chi` (evita
+  explosão de séries por valores de path como UUIDs)
+- `streamedia_http_request_duration_seconds{method, route, status}` —
+  histograma de duração das requisições, em segundos
+- `streamedia_transcode_queue_length` — gauge com o tamanho atual da fila
+  de transcodificação (mesma fonte do `/admin/queue`)
+- `streamedia_uploads_in_progress` — gauge com a quantidade de vídeos com
+  upload em andamento (`pending_upload`/`uploading`)
+- `streamedia_playback_events_total{event_type}` — gauge com o total
+  acumulado de eventos de uso (`playback`, `download_segment`,
+  `upload_complete`), lido sob demanda da tabela `playback_events` —
+  mesma fonte de verdade usada pela rota `/admin/stats`
+
+**Integrando com um Prometheus local:**
+
+```yaml
+# prometheus.yml
+scrape_configs:
+  - job_name: streamedia
+    metrics_path: /metrics
+    static_configs:
+      - targets: ["localhost:8080"]
+```
+
+```bash
+curl http://localhost:8080/metrics
+```
+
+### GET /admin/stats
+
+Estatísticas de negócio (totais por tipo de evento, agregações por
+resolução, sistema operacional e dia da semana), derivadas da tabela
+`playback_events`. Formato JSON, voltado para consumo administrativo —
+diferente de `/metrics` (formato Prometheus, consumo por ferramentas de
+monitoramento). Requer `Authorization: Bearer <ADMIN_TOKEN>`. Aceita o
+parâmetro opcional `?video_id=` para filtrar as estatísticas de um vídeo
+específico.
+
+Além das estatísticas de **uso** acima, a resposta global (sem `?video_id=`)
+inclui uma seção `storage` com estatísticas de **armazenamento e fila**
+(issue #5):
+
+```json
+{
+  "video_id": null,
+  "totals": { "playback": 120, "download_segment": 980, "upload_complete": 12 },
+  "by_resolution": { "480": 600, "720": 380 },
+  "by_os": { "android": 700, "ios": 280 },
+  "by_day_of_week": { "0": 50, "1": 70 },
+  "storage": {
+    "total_bytes": 123456789,
+    "total_duration_seconds": 7384,
+    "videos_by_status": { "pending_upload": 2, "transcoding": 1, "ready": 40, "failed_transcode": 1 },
+    "queue_pending": 1
+  }
+}
+```
+
+- `total_bytes` — soma do tamanho dos arquivos originais
+  (`videos.actual_size_bytes`) com o tamanho de todas as variantes HLS
+  geradas (`video_renditions.size_bytes`).
+- `total_duration_seconds` — soma da duração de todos os vídeos cadastrados
+  (`videos.duration_s`).
+- `videos_by_status` — contagem de vídeos agrupados por status
+  (`pending_upload`, `uploading`, `transcoding`, `ready`,
+  `failed_transcode`, ...).
+- `queue_pending` — tamanho atual da fila de transcodificação; mesma fonte
+  (`queue.Len()`) usada por `GET /admin/queue` e pelo gauge
+  `streamedia_transcode_queue_length` (`/metrics`) — não é recomputado por
+  outro caminho, garantindo consistência entre as três rotas.
+
+A seção `storage` é uma visão **agregada global** — por isso é omitida
+quando `?video_id=` é informado (não faria sentido, por exemplo, devolver
+`queue_pending` "filtrado por vídeo"; isso poderia ser mal interpretado como
+o tamanho da fila relativo àquele vídeo específico).
+
+## Documentação interativa da API (Scalar)
+
+A API tem documentação interativa no padrão OpenAPI, acessível pelo
+navegador:
+
+- `GET /docs/` — UI interativa do [Scalar](https://scalar.com/) (carrega o
+  componente `@scalar/api-reference` via CDN), consumindo a spec abaixo
+- `GET /docs/openapi.json` — especificação OpenAPI 3.0 em JSON, consumida
+  pela UI acima e por outras ferramentas (geração de clients, importação no
+  Postman/Insomnia, etc.)
+
+> Nota: a UI já foi servida com Swagger UI (T30/issue #3). Trocamos para o
+> Scalar a pedido da issue #12 — o autor considerou o Swagger UI pouco
+> agradável visualmente. A spec OpenAPI continua a mesma; só a página HTML
+> de `/docs/` mudou.
+
+```bash
+# abrir no navegador
+xdg-open http://localhost:8080/docs/
+
+# ou consultar a spec bruta
+curl http://localhost:8080/docs/openapi.json | jq .
+```
+
+Não requer autenticação — mesma decisão tomada para `/metrics`: é material
+de referência sobre os contratos da API (inclusive das rotas
+administrativas, que continuam protegidas por `ADMIN_TOKEN`/HMAC nas rotas
+reais; a spec apenas as descreve). O rate limiter da aplicação também se
+aplica a essas rotas.
 
 ## Token de Reprodução
 
@@ -318,7 +574,7 @@ playURL := fmt.Sprintf(
 )
 ```
 
-O TTL máximo do token é controlado por `PLAY_TOKEN_MAX_TTL_H` (padrão: 6 horas). Tokens com expiração além desse limite são rejeitados.
+O TTL máximo do token é controlado por `PLAY_TOKEN_MAX_TTL_SECONDS` (padrão: 21600 segundos = 6 horas). Tokens com expiração além desse limite são rejeitados.
 
 ## Webhook
 
@@ -442,13 +698,13 @@ O servidor não iniciou porque as variáveis obrigatórias não estão definidas
 
 ### Upload trava e não progride
 
-- Verifique `UPLOAD_IDLE_TIMEOUT_MIN` — o job `killer` cancela uploads sem atividade.
+- Verifique `UPLOAD_IDLE_TIMEOUT_SECONDS` — o job `killer` cancela uploads sem atividade.
 - Verifique se o Flutter Client está enviando `Tus-Resumable: 1.0.0` e `Content-Length`.
 
 ### Vídeo fica em "transcoding" para sempre
 
 - Verifique os logs do worker: `docker compose logs -f mediaserver`
-- O job `recovery` recoloca na fila uploads travados por mais de `TRANSCODE_STUCK_MIN` minutos.
+- O job `recovery` recoloca na fila uploads travados por mais de `TRANSCODE_STUCK_SECONDS` segundos.
 - Verifique se o FFmpeg está instalado na imagem: `docker compose exec mediaserver ffmpeg -version`
 
 ### Webhook não está sendo recebido

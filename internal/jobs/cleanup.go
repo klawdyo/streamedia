@@ -3,6 +3,7 @@ package jobs
 import (
 	"database/sql"
 	"log"
+	"sync"
 	"time"
 
 	"github.com/klawdyo/streamedia/internal/models"
@@ -18,6 +19,7 @@ type TokenCleanupJob struct {
 	db     *sql.DB
 	ticker *time.Ticker
 	stopCh chan struct{}
+	wg     sync.WaitGroup
 }
 
 // NewTokenCleanupJob cria uma nova instância do job de limpeza de tokens.
@@ -31,7 +33,9 @@ func NewTokenCleanupJob(db *sql.DB) *TokenCleanupJob {
 
 // Start inicia a goroutine que executa o job a cada intervalo do ticker.
 func (j *TokenCleanupJob) Start() {
+	j.wg.Add(1)
 	go func() {
+		defer j.wg.Done()
 		for {
 			select {
 			case <-j.ticker.C:
@@ -45,9 +49,10 @@ func (j *TokenCleanupJob) Start() {
 	}()
 }
 
-// Stop encerra a goroutine do job.
+// Stop encerra a goroutine do job e aguarda sua finalização.
 func (j *TokenCleanupJob) Stop() {
 	close(j.stopCh)
+	j.wg.Wait()
 }
 
 // runOnce executa uma única varredura: deleta todos os tokens com expires_at

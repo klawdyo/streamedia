@@ -208,7 +208,7 @@ func TestPostFinishValidation_InvalidMagicBytes(t *testing.T) {
 	}
 
 	// Chama HandlePostFinish
-	HandlePostFinish(database, cfg, mockEnqueue, mockSendWebhook, videoID, filePath)
+	HandlePostFinish(database, cfg, mockEnqueue, mockSendWebhook, videoID, filePath, "")
 
 	// Verifica que o status foi alterado para "failed_upload"
 	video, err := models.GetVideo(database, videoID)
@@ -305,7 +305,7 @@ func TestPostFinishValidation_SizeMismatch(t *testing.T) {
 	}
 
 	// Chama HandlePostFinish
-	HandlePostFinish(database, cfg, mockEnqueue, mockSendWebhook, videoID, filePath)
+	HandlePostFinish(database, cfg, mockEnqueue, mockSendWebhook, videoID, filePath, "")
 
 	// Verifica que o status foi alterado para "failed_upload"
 	video, err := models.GetVideo(database, videoID)
@@ -529,7 +529,7 @@ func TestPostFinishValidation_SuccessfulValidation(t *testing.T) {
 	}
 
 	// Chama HandlePostFinish
-	HandlePostFinish(database, cfg, mockEnqueue, mockSendWebhook, videoID, filePath)
+	HandlePostFinish(database, cfg, mockEnqueue, mockSendWebhook, videoID, filePath, "")
 
 	// Como runFFprobe pode falhar se ffprobe não estiver disponível,
 	// o teste se adapta ao resultado. Se tudo passou:
@@ -551,5 +551,166 @@ func TestPostFinishValidation_SuccessfulValidation(t *testing.T) {
 	// Se enqueue foi chamada, deve ter recebido o videoID correto
 	if enqueueVideoID != "" && enqueueVideoID != videoID {
 		t.Errorf("enqueue recebeu videoID %q, esperava %q", enqueueVideoID, videoID)
+	}
+}
+
+// TestValidateMagicBytes_TableDriven testa validação de magic bytes com vários contêineres
+func TestValidateMagicBytes_TableDriven(t *testing.T) {
+	cases := []struct {
+		name          string
+		magicBytes    []byte
+		padding       int
+		expectedValid bool
+		desc          string
+	}{
+		{
+			name:          "mp4_valid",
+			magicBytes:    []byte{0x00, 0x00, 0x00, 0x18, 0x66, 0x74, 0x79, 0x70, 0x6d, 0x70, 0x34, 0x32},
+			padding:       1024,
+			expectedValid: true,
+			desc:          "header MP4 (ftyp) válido deve ser aceito",
+		},
+		{
+			name:          "mkv_valid",
+			magicBytes:    []byte{0x1a, 0x45, 0xdf, 0xa3},
+			padding:       512,
+			expectedValid: true,
+			desc:          "header MKV válido deve ser aceito",
+		},
+		{
+			name:          "avi_valid",
+			magicBytes:    []byte{0x52, 0x49, 0x46, 0x46},
+			padding:       800,
+			expectedValid: true,
+			desc:          "header AVI (RIFF) válido deve ser aceito",
+		},
+		{
+			name:          "quicktime_moov",
+			magicBytes:    []byte{0x00, 0x00, 0x00, 0x18, 0x6d, 0x6f, 0x6f, 0x76},
+			padding:       500,
+			expectedValid: true,
+			desc:          "header QuickTime (moov) válido deve ser aceito",
+		},
+		{
+			name:          "6_bytes_no_magic_at_offset_4",
+			magicBytes:    []byte{0x00, 0x00, 0x00, 0x00, 0x00, 0x00},
+			padding:       0,
+			expectedValid: false,
+			desc:          "arquivo com apenas 6 bytes (sem assinatura em offset 4) é inválido",
+		},
+		{
+			name:          "corrupted_magic",
+			magicBytes:    []byte{0x1a, 0x45, 0xdf, 0xa4}, // último byte adulterado
+			padding:       512,
+			expectedValid: false,
+			desc:          "MKV com último byte corrupto não é reconhecido",
+		},
+		{
+			name:          "random_bytes",
+			magicBytes:    []byte{0xff, 0xfe, 0xfd, 0xfc, 0xfb, 0xfa, 0xf9, 0xf8},
+			padding:       256,
+			expectedValid: false,
+			desc:          "bytes aleatórios não correspondem a nenhuma assinatura",
+		},
+		{
+			name:          "text_file",
+			magicBytes:    []byte("Hello World!!!"),
+			padding:       100,
+			expectedValid: false,
+			desc:          "conteúdo de texto não é um contêiner de vídeo",
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			tmpFile, err := os.CreateTemp(t.TempDir(), "test-*.bin")
+			if err != nil {
+				t.Fatalf("falha ao criar arquivo temporário: %v", err)
+			}
+			defer tmpFile.Close()
+
+			if _, err := tmpFile.Write(tc.magicBytes); err != nil {
+				t.Fatalf("falha ao escrever magic bytes: %v", err)
+			}
+			if tc.padding > 0 {
+				if _, err := tmpFile.Write(make([]byte, tc.padding)); err != nil {
+					t.Fatalf("falha ao escrever padding: %v", err)
+				}
+			}
+			tmpFile.Sync()
+
+			valid, err := validateMagicBytes(tmpFile.Name())
+			if err != nil && tc.expectedValid {
+				t.Errorf("%s: esperava válido mas retornou erro: %v", tc.desc, err)
+			}
+			if valid != tc.expectedValid {
+				t.Errorf("%s: esperado %v, obtido %v", tc.desc, tc.expectedValid, valid)
+			}
+		})
+	}
+}
+
+// TestValidateFileSize_EdgeCases testa tamanhos extremos e edge cases
+func TestValidateFileSize_EdgeCases(t *testing.T) {
+	cases := []struct {
+		name         string
+		actualBytes  int64
+		declaredBytes int64
+		shouldErr    bool
+		desc         string
+	}{
+		{
+			name:          "max_int64",
+			actualBytes:   9223372036854775807,
+			declaredBytes: 9223372036854775807,
+			shouldErr:     false,
+			desc:          "máximo int64 igual em ambos os lados",
+		},
+		{
+			name:          "one_byte_diff",
+			actualBytes:   1024,
+			declaredBytes: 1025,
+			shouldErr:     true,
+			desc:          "diferença de 1 byte deve ser rejeitada",
+		},
+		{
+			name:          "large_diff",
+			actualBytes:   1024,
+			declaredBytes: 1024000000,
+			shouldErr:     true,
+			desc:          "diferença de milhões de bytes deve ser rejeitada",
+		},
+		{
+			name:          "negative_actual",
+			actualBytes:   -100,
+			declaredBytes: 100,
+			shouldErr:     true,
+			desc:          "tamanho real negativo é erro (nunca ocorre na prática)",
+		},
+		{
+			name:          "negative_declared",
+			actualBytes:   100,
+			declaredBytes: -100,
+			shouldErr:     true,
+			desc:          "tamanho declarado negativo é erro",
+		},
+		{
+			name:          "both_negative",
+			actualBytes:   -100,
+			declaredBytes: -100,
+			shouldErr:     false,
+			desc:          "ambos negativos e iguais passam (sem lógica de domínio)",
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			err := validateFileSize(tc.actualBytes, tc.declaredBytes)
+			if tc.shouldErr && err == nil {
+				t.Errorf("%s: esperava erro, mas retornou nil", tc.desc)
+			} else if !tc.shouldErr && err != nil {
+				t.Errorf("%s: esperava sucesso, mas retornou erro: %v", tc.desc, err)
+			}
+		})
 	}
 }

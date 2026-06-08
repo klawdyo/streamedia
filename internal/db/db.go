@@ -6,21 +6,32 @@ import (
 	"os"
 	"path/filepath"
 
+	"github.com/pressly/goose/v3"
+
+	"github.com/klawdyo/streamedia/internal/db/migrations"
+
 	_ "modernc.org/sqlite" // driver SQLite em Go puro, sem CGo
 )
 
 // Open abre (ou cria) o banco SQLite no caminho informado.
 // Cria o diretório pai se necessário, ativa WAL mode, foreign keys,
-// busy timeout e aplica o schema completo.
+// busy timeout e aplica as migrations pendentes via goose.
+//
+// As migrations rodam automaticamente a cada inicialização do servidor
+// e são idempotentes: o goose mantém a tabela goose_db_version com o
+// histórico do que já foi aplicado, então cada migration roda exatamente
+// uma vez por banco.
 func Open(path string) (*sql.DB, error) {
 	// Para banco em memória, pula a verificação de diretório
 	if path != ":memory:" {
-		// Exige que o diretório pai exista. Não criamos diretórios
-		// arbitrários: abrir um banco em um caminho cujo diretório
-		// não existe é um erro de configuração e deve falhar.
+		// Garante que o diretório pai existe — cria se necessário.
+		// Em Docker com volumes nomeados, o mount point pode não ter
+		// permissão de escrita para o user não-root; o Dockerfile já
+		// trata isso com mkdir + chown, mas este fallback evita falha
+		// em setups sem o volume pré-configurado.
 		dir := filepath.Dir(path)
-		if info, err := os.Stat(dir); err != nil || !info.IsDir() {
-			return nil, fmt.Errorf("diretório do banco não existe: %s", dir)
+		if err := os.MkdirAll(dir, 0755); err != nil {
+			return nil, fmt.Errorf("erro ao criar diretório do banco %s: %w", dir, err)
 		}
 	}
 
@@ -52,10 +63,21 @@ func Open(path string) (*sql.DB, error) {
 		return nil, fmt.Errorf("erro ao configurar busy_timeout: %w", err)
 	}
 
-	// Aplica o schema completo (tabelas, índices, trigger de updated_at)
-	if _, err := db.Exec(schema); err != nil {
+	// Configura o provedor goose para SQLite3 (dialeto compatível com
+	// modernc.org/sqlite) e aplica todas as migrations pendentes, em
+	// ordem, usando os arquivos .sql embutidos no binário.
+	//
+	// Isso roda a cada inicialização do servidor e é seguro porque o
+	// goose registra o que já foi aplicado (tabela goose_db_version):
+	// migrations já executadas são puladas automaticamente.
+	goose.SetBaseFS(migrations.FS)
+	if err := goose.SetDialect("sqlite3"); err != nil {
 		db.Close()
-		return nil, fmt.Errorf("erro ao aplicar schema: %w", err)
+		return nil, fmt.Errorf("erro ao configurar dialeto goose: %w", err)
+	}
+	if err := goose.Up(db, "."); err != nil {
+		db.Close()
+		return nil, fmt.Errorf("erro ao aplicar migrations: %w", err)
 	}
 
 	return db, nil

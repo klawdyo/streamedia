@@ -13,17 +13,17 @@ services:
       - SQLITE_PATH=${SQLITE_PATH:-/data/media.db}
       - QUEUE_MAX_SIZE=${QUEUE_MAX_SIZE:-50}
       - TRANSCODE_WORKERS=${TRANSCODE_WORKERS:-1}
-      - UPLOAD_TOKEN_TTL_H=${UPLOAD_TOKEN_TTL_H:-6}
-      - PLAY_TOKEN_MAX_TTL_H=${PLAY_TOKEN_MAX_TTL_H:-6}
-      - UPLOAD_IDLE_TIMEOUT_MIN=${UPLOAD_IDLE_TIMEOUT_MIN:-10}
-      - TRANSCODE_STUCK_MIN=${TRANSCODE_STUCK_MIN:-30}
+      - UPLOAD_TOKEN_TTL_SECONDS=${UPLOAD_TOKEN_TTL_SECONDS:-1200}
+      - PLAY_TOKEN_MAX_TTL_SECONDS=${PLAY_TOKEN_MAX_TTL_SECONDS:-21600}
+      - UPLOAD_IDLE_TIMEOUT_SECONDS=${UPLOAD_IDLE_TIMEOUT_SECONDS:-600}
+      - TRANSCODE_STUCK_SECONDS=${TRANSCODE_STUCK_SECONDS:-1800}
       - MAX_TRANSCODE_ATTEMPTS=${MAX_TRANSCODE_ATTEMPTS:-3}
       - KEEP_ORIGINAL=${KEEP_ORIGINAL:-false}
       - PORT=${PORT:-3000}
       - RATE_LIMIT_PER_MIN=${RATE_LIMIT_PER_MIN:-60}
     volumes:
-      - media_files:/media
-      - db_data:/data
+      - ./media:/media
+      - ./data:/data
     ports:
       - "${PORT:-3000}:3000"
     healthcheck:
@@ -31,7 +31,3 @@ services:
       interval: 30s
       timeout: 5s
       retries: 3
-
-volumes:
-  media_files:
-  db_data:

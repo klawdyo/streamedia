@@ -48,9 +48,9 @@ func NewClient(cfg *config.Config, db *sql.DB) *Client {
 	return &Client{
 		cfg: cfg,
 		db:  db,
-		http: &http.Client{
-			Timeout: 30 * time.Second,
-		},
+		// Sem Timeout no client: o timeout por tentativa é controlado pelo
+		// context.WithTimeout de 10s em sendAttempt — evita redundância.
+		http: &http.Client{},
 	}
 }
 

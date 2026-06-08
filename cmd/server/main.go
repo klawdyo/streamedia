@@ -35,11 +35,24 @@ func main() {
 	}
 	defer database.Close()
 
+	// Garante que o projeto padrão existe — idempotente, cria na primeira
+	// execução. Todo upload pertence a um projeto (issue #10, T48): sem
+	// X-Project-Key, o upload cai no projeto "default".
+	if _, err := models.EnsureDefaultProject(database); err != nil {
+		log.Fatalf("projeto padrão: %v", err)
+	}
+
 	// Client de webhook e adaptador para os callbacks (videoID, event, errMsg).
 	webhookClient := webhook.NewClient(cfg, database)
 	sendWebhook := func(videoID, event, errMsg string) {
-		video, _ := models.GetVideo(database, videoID)
-		_ = webhookClient.Send(videoID, event, video)
+		video, err := models.GetVideo(database, videoID)
+		if err != nil {
+			log.Printf("[webhook] erro ao buscar vídeo %s para webhook %s: %v", videoID, event, err)
+			return
+		}
+		if err := webhookClient.Send(videoID, event, video); err != nil {
+			log.Printf("[webhook] erro ao enviar webhook %s para vídeo %s: %v", event, videoID, err)
+		}
 	}
 
 	// Worker e fila de transcodificação. A fila é criada com a função do
@@ -71,11 +84,26 @@ func main() {
 	defer cleanupJob.Stop()
 
 	// Monta o roteador HTTP com todas as rotas e handlers.
-	router := server.NewRouter(cfg, database, queue, webhookClient)
+	// O closer encerra recursos internos (goroutines do TUS handler, etc.)
+	// e deve ser chamado no shutdown (T59).
+	router, routerCloser, err := server.NewRouter(cfg, database, queue, webhookClient)
+	if err != nil {
+		log.Fatalf("router: %v", err)
+	}
+	defer routerCloser.Close()
 
 	srv := &http.Server{
 		Addr:    ":" + strconv.Itoa(cfg.Port),
 		Handler: router,
+		// Timeouts de rede: protegem contra Slowloris (ReadTimeout), clientes
+		// lentos (WriteTimeout) e conexões ociosas (IdleTimeout). Sem esses
+		// timeouts, um atacante pode abrir conexões e nunca enviar headers,
+		// esgotando o pool de goroutines do servidor.
+		ReadTimeout:  10 * time.Second,
+		WriteTimeout: 60 * time.Second, // generoso para servir segmentos HLS longos
+		IdleTimeout:  120 * time.Second,
+		// Limita o tamanho dos headers para prevenir ataques de header grande.
+		MaxHeaderBytes: 1 << 20, // 1MB
 	}
 
 	// Contexto cancelado em SIGINT/SIGTERM para shutdown gracioso.

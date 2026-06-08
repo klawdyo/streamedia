@@ -7,6 +7,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"log"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -33,21 +34,41 @@ func (r *RealFFmpeg) Run(ctx context.Context, args []string) error {
 	return cmd.Run()
 }
 
+// FFprobeExecutor abstrai a execução do ffprobe (análogo ao FFmpegExecutor)
+// para permitir mock nos testes — sem essa abstração probeVideo só poderia
+// ser exercitado com o binário ffprobe real instalado.
+type FFprobeExecutor interface {
+	// Output executa o ffprobe com os argumentos e devolve sua saída padrão.
+	Output(ctx context.Context, args []string) ([]byte, error)
+}
+
+// RealFFprobe é a implementação real que invoca o binário ffprobe.
+type RealFFprobe struct{}
+
+// Output executa o ffprobe com os argumentos fornecidos, respeitando o
+// contexto (timeout/cancelamento), e retorna sua saída padrão.
+func (r *RealFFprobe) Output(ctx context.Context, args []string) ([]byte, error) {
+	cmd := exec.CommandContext(ctx, "ffprobe", args...)
+	return cmd.Output()
+}
+
 // Worker encapsula a configuração, conexão ao banco, executor FFmpeg e o
 // callback de webhook usado para notificar o resultado da transcodificação.
 type Worker struct {
 	cfg       *config.Config
 	db        *sql.DB
 	ffmpeg    FFmpegExecutor
+	ffprobe   FFprobeExecutor
 	onWebhook func(videoID, event, errMsg string)
 }
 
-// NewWorker cria um Worker com o executor real do FFmpeg.
+// NewWorker cria um Worker com os executores reais do FFmpeg e do ffprobe.
 func NewWorker(cfg *config.Config, db *sql.DB, onWebhook func(videoID, event, errMsg string)) *Worker {
 	return &Worker{
 		cfg:       cfg,
 		db:        db,
 		ffmpeg:    &RealFFmpeg{},
+		ffprobe:   &RealFFprobe{},
 		onWebhook: onWebhook,
 	}
 }
@@ -166,20 +187,20 @@ type ffprobeOutput struct {
 // probeVideo executa ffprobe para obter dimensões e duração do vídeo.
 // Em caso de qualquer falha (ffprobe ausente, arquivo inválido) retorna um
 // padrão seguro de 480p (854x480) para não bloquear o pipeline.
-func probeVideo(path string) *probeResult {
+func (w *Worker) probeVideo(path string) *probeResult {
 	// Padrão seguro caso o ffprobe falhe.
 	def := &probeResult{width: 854, height: 480}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	cmd := exec.CommandContext(ctx, "ffprobe",
+	// Executa o ffprobe através do executor injetado (mockável nos testes).
+	out, err := w.ffprobe.Output(ctx, []string{
 		"-v", "quiet",
 		"-print_format", "json",
 		"-show_streams",
 		path,
-	)
-	out, err := cmd.Output()
+	})
 	if err != nil {
 		return def
 	}
@@ -219,6 +240,36 @@ func parseDurationSeconds(s string) int {
 	return int(f)
 }
 
+// renditionSegmentRe foi removido — usar models.SegmentNameRe (definição
+// única, centralizada em internal/models/hls.go, reaproveitada pelo serving
+// estático e pelo worker de transcodificação).
+
+// scanRenditionDir varre o diretório de uma variante HLS recém-gerada e
+// soma o tamanho dos segmentos .ts, contando-os — alimenta video_renditions
+// (issue #5, T36). Ignora o playlist.m3u8 deliberadamente: o pedido da
+// issue é "tamanho dos segmentos da variante", e o playlist é uma fração
+// desprezível e variável (não representa o "peso" real do vídeo).
+func scanRenditionDir(resDir string) (sizeBytes int64, segmentCount int, err error) {
+	entries, err := os.ReadDir(resDir)
+	if err != nil {
+		return 0, 0, fmt.Errorf("erro ao ler diretório da variante %s: %w", resDir, err)
+	}
+
+	for _, entry := range entries {
+		if entry.IsDir() || !models.SegmentNameRe.MatchString(entry.Name()) {
+			continue
+		}
+		info, err := entry.Info()
+		if err != nil {
+			return 0, 0, fmt.Errorf("erro ao obter informações do segmento %s: %w", entry.Name(), err)
+		}
+		sizeBytes += info.Size()
+		segmentCount++
+	}
+
+	return sizeBytes, segmentCount, nil
+}
+
 // Transcode processa um vídeo: extrai dimensões, gera as variantes HLS,
 // escreve o master playlist, marca como pronto e dispara o webhook.
 // Em caso de falha trata as tentativas e o estado conforme as regras.
@@ -240,13 +291,19 @@ func (w *Worker) Transcode(videoID string) error {
 	inputPath := filepath.Join(w.cfg.UploadTmpDir, videoID)
 
 	// 4. Extrai dimensões e duração (com padrão seguro se ffprobe falhar).
-	probe := probeVideo(inputPath)
+	probe := w.probeVideo(inputPath)
 
 	// 5. Determina quais resoluções gerar.
 	resolutions := determineResolutions(probe.width, probe.height)
 
-	// 6. Diretório de saída base do vídeo.
-	outputDir := filepath.Join(w.cfg.MediaDir, videoID)
+	// 6. Diretório de saída base do vídeo — isolado por projeto (issue #6,
+	// T34): <MEDIA_DIR>/<slug-do-projeto>/<video_id>/. ProjectID nil
+	// resolve para "" (layout legado, sem prefixo de projeto).
+	rootDir, err := models.ResolveVideoRootDir(w.db, video.ProjectID)
+	if err != nil {
+		return fmt.Errorf("erro ao resolver diretório do projeto para %s: %w", videoID, err)
+	}
+	outputDir := filepath.Join(w.cfg.MediaDir, rootDir, videoID)
 	if err := os.MkdirAll(outputDir, 0755); err != nil {
 		return w.handleTranscodeFailure(videoID, video.TranscodeAttempts,
 			fmt.Sprintf("erro ao criar diretório de saída: %v", err))
@@ -270,6 +327,17 @@ func (w *Worker) Transcode(videoID string) error {
 		if err != nil {
 			return w.handleTranscodeFailure(videoID, video.TranscodeAttempts,
 				fmt.Sprintf("erro ao transcodificar resolução %d: %v", res, err))
+		}
+
+		// Registra o tamanho e a contagem de segmentos da variante recém
+		// gerada (issue #5, T36) — alimenta as agregações de armazenamento
+		// em internal/models/storage.go. Falha aqui não compromete o vídeo
+		// (estatísticas são um recurso auxiliar): logamos e seguimos.
+		sizeBytes, segmentCount, err := scanRenditionDir(resDir)
+		if err != nil {
+			log.Printf("[transcode] %s: erro ao calcular tamanho da variante %dp: %v", videoID, res, err)
+		} else if err := models.UpsertVideoRendition(w.db, videoID, res, sizeBytes, segmentCount); err != nil {
+			log.Printf("[transcode] %s: erro ao registrar variante %dp: %v", videoID, res, err)
 		}
 	}
 
@@ -306,11 +374,15 @@ func (w *Worker) Transcode(videoID string) error {
 // reenfileirar). Caso contrário, retorna erro para permitir nova tentativa.
 func (w *Worker) handleTranscodeFailure(videoID string, currentAttempts int, errMsg string) error {
 	// Incrementa o contador de tentativas (best-effort).
-	_ = models.IncrementTranscodeAttempts(w.db, videoID)
+	if err := models.IncrementTranscodeAttempts(w.db, videoID); err != nil {
+		log.Printf("[transcode] %s: erro ao incrementar tentativas (best-effort): %v", videoID, err)
+	}
 
 	// Se atingiu (ou superou) o máximo, é falha terminal.
 	if currentAttempts+1 >= w.cfg.MaxTranscodeAttempts {
-		_ = models.UpdateStatusWithError(w.db, videoID, models.StatusFailedTranscode, errMsg)
+		if err := models.UpdateStatusWithError(w.db, videoID, models.StatusFailedTranscode, errMsg); err != nil {
+			log.Printf("[transcode] %s: erro ao marcar como falha terminal (best-effort): %v", videoID, err)
+		}
 		w.onWebhook(videoID, "failed", errMsg)
 		return nil
 	}

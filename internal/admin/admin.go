@@ -2,16 +2,33 @@
 package admin
 
 import (
+	"context"
 	"crypto/subtle"
 	"database/sql"
-	"encoding/json"
+	"log"
 	"net/http"
 	"strconv"
 	"strings"
 
+	"github.com/klawdyo/streamedia/internal/apiresponse"
 	"github.com/klawdyo/streamedia/internal/config"
 	"github.com/klawdyo/streamedia/internal/models"
 )
+
+// adminScopeContextKey é a chave usada para guardar, no contexto da
+// requisição, o escopo de projeto resolvido pelo middleware AdminAuth
+// (T33, issue #6): nil para super-admin (ADMIN_TOKEN global, sem
+// restrição), ou o ID do projeto cuja chave mestra autenticou a requisição.
+type adminScopeContextKey struct{}
+
+// ProjectScopeFromContext devolve o ID do projeto ao qual a requisição
+// admin está restrita, ou nil se a requisição for de um super-admin (sem
+// escopo — enxerga todos os projetos). Use para filtrar consultas por
+// project_id nos handlers de /admin/*.
+func ProjectScopeFromContext(ctx context.Context) *int64 {
+	scope, _ := ctx.Value(adminScopeContextKey{}).(*int64)
+	return scope
+}
 
 // AdminHandler agrega as dependências necessárias para as rotas de administração.
 type AdminHandler struct {
@@ -33,32 +50,63 @@ func NewAdminHandler(cfg *config.Config, db *sql.DB, queue interface{ Len() int 
 // AdminAuth é um middleware que valida o token de administração no header
 // Authorization: Bearer {token}. Usa ConstantTimeCompare para evitar timing attacks.
 // Retorna 401 se o token estiver ausente ou incorreto.
-func AdminAuth(adminToken string) func(http.Handler) http.Handler {
+//
+// Decisão de modelo admin (T33, issue #6 — opção (a) do spec da tarefa):
+// o ADMIN_TOKEN global continua funcionando como "super admin", sem
+// restrição — preserva 100% o comportamento e a configuração existentes.
+// Adicionalmente, a chave mestra de um projeto também autentica em
+// /admin/*, mas com o escopo restrito aos vídeos daquele projeto (resolvido
+// via models.GetProjectByMasterKeyHash e exposto aos handlers através de
+// ProjectScopeFromContext). Optou-se por (a) em vez de (b) — substituir
+// totalmente por chaves por projeto — por ser a migração mais simples e não
+// quebrar instalações que já dependem só do ADMIN_TOKEN.
+func AdminAuth(adminToken string, db *sql.DB) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			// Extrai o header Authorization
 			authHeader := r.Header.Get("Authorization")
 			if authHeader == "" {
-				http.Error(w, "Unauthorized", http.StatusUnauthorized)
+				apiresponse.Error(w, http.StatusUnauthorized, "Não autorizado.")
 				return
 			}
 
 			// Espera o formato "Bearer {token}"
 			const bearerPrefix = "Bearer "
 			if !strings.HasPrefix(authHeader, bearerPrefix) {
-				http.Error(w, "Unauthorized", http.StatusUnauthorized)
+				apiresponse.Error(w, http.StatusUnauthorized, "Não autorizado.")
 				return
 			}
 
 			token := authHeader[len(bearerPrefix):]
 
-			// Usa ConstantTimeCompare para evitar timing attacks
-			if subtle.ConstantTimeCompare([]byte(token), []byte(adminToken)) != 1 {
-				http.Error(w, "Unauthorized", http.StatusUnauthorized)
+			// 1. Super-admin: compara com o ADMIN_TOKEN global em tempo
+			// constante. Sem escopo — vê e opera sobre todos os projetos.
+			if adminToken != "" && subtle.ConstantTimeCompare([]byte(token), []byte(adminToken)) == 1 {
+				next.ServeHTTP(w, r)
 				return
 			}
 
-			next.ServeHTTP(w, r)
+			// 2. Admin de projeto: a própria chave mestra autentica — o
+			// servidor calcula o hash e resolve o projeto, sem nunca reter a
+			// chave em texto puro (mesmo princípio do X-Project-Key em
+			// /upload/init). O escopo (project_id) é propagado no contexto
+			// para os handlers filtrarem suas consultas.
+			project, err := models.GetProjectByMasterKeyHash(db, models.HashMasterKey(token))
+			if err == nil {
+				projectID := project.ID
+				ctx := context.WithValue(r.Context(), adminScopeContextKey{}, &projectID)
+				next.ServeHTTP(w, r.WithContext(ctx))
+				return
+			}
+			if err != sql.ErrNoRows {
+				// Erro de infraestrutura — não é "não encontrado"
+				log.Printf("[admin] erro ao buscar projeto por chave mestra: %v", err)
+				apiresponse.Error(w, http.StatusInternalServerError, "Erro interno ao validar credenciais.")
+				return
+			}
+
+			// sql.ErrNoRows: token não corresponde a nenhum projeto → 401
+			apiresponse.Error(w, http.StatusUnauthorized, "Não autorizado.")
 		})
 	}
 }
@@ -98,96 +146,59 @@ func (h *AdminHandler) HandleVideos(w http.ResponseWriter, r *http.Request) {
 
 	status := r.URL.Query().Get("status")
 
-	// Monta a consulta SQL com a cláusula WHERE condicional
-	var countQuery string
-	var listQuery string
+	// Monta a cláusula WHERE dinamicamente: filtro opcional por status e,
+	// quando a requisição vem autenticada com a chave mestra de um projeto
+	// (T33, issue #6), filtro obrigatório por project_id — restringe a
+	// listagem aos vídeos daquele projeto ("não enxerga vídeos de outro").
+	// Super-admin (ADMIN_TOKEN global) não tem escopo: vê todos os vídeos.
+	var conditions []string
 	var args []interface{}
-
 	if status != "" {
-		countQuery = "SELECT COUNT(*) FROM videos WHERE status = ?"
-		listQuery = "SELECT video_id, status, declared_size_bytes, actual_size_bytes, duration_s, resolutions, transcode_attempts, last_chunk_at, error_message, created_at, updated_at FROM videos WHERE status = ? ORDER BY created_at DESC LIMIT ? OFFSET ?"
-		args = []interface{}{status, limit, offset}
-	} else {
-		countQuery = "SELECT COUNT(*) FROM videos"
-		listQuery = "SELECT video_id, status, declared_size_bytes, actual_size_bytes, duration_s, resolutions, transcode_attempts, last_chunk_at, error_message, created_at, updated_at FROM videos ORDER BY created_at DESC LIMIT ? OFFSET ?"
-		args = []interface{}{limit, offset}
+		conditions = append(conditions, "status = ?")
+		args = append(args, status)
+	}
+	if scope := ProjectScopeFromContext(r.Context()); scope != nil {
+		conditions = append(conditions, "project_id = ?")
+		args = append(args, *scope)
 	}
 
-	// Conta o total de registros
+	whereClause := ""
+	if len(conditions) > 0 {
+		whereClause = " WHERE " + strings.Join(conditions, " AND ")
+	}
+
+	countQuery := "SELECT COUNT(*) FROM videos" + whereClause
+	listQuery := "SELECT " + models.SelectVideoColumns + " FROM videos" +
+		whereClause + " ORDER BY created_at DESC LIMIT ? OFFSET ?"
+
+	// Conta o total de registros (mesmos filtros, sem LIMIT/OFFSET)
 	var total int
-	var countArgs []interface{}
-	if status != "" {
-		countArgs = []interface{}{status}
-	}
-	if err := h.db.QueryRow(countQuery, countArgs...).Scan(&total); err != nil {
-		http.Error(w, "Erro ao contar vídeos", http.StatusInternalServerError)
+	if err := h.db.QueryRow(countQuery, args...).Scan(&total); err != nil {
+		apiresponse.Error(w, http.StatusInternalServerError, "Erro ao contar vídeos.")
 		return
 	}
 
 	// Executa a query de listagem
-	rows, err := h.db.Query(listQuery, args...)
+	listArgs := append(append([]interface{}{}, args...), limit, offset)
+	rows, err := h.db.Query(listQuery, listArgs...)
 	if err != nil {
-		http.Error(w, "Erro ao listar vídeos", http.StatusInternalServerError)
+		apiresponse.Error(w, http.StatusInternalServerError, "Erro ao listar vídeos.")
 		return
 	}
 	defer rows.Close()
 
 	var videos []*models.Video
 	for rows.Next() {
-		var (
-			v            models.Video
-			declaredSize sql.NullInt64
-			actualSize   sql.NullInt64
-			durationS    sql.NullInt64
-			resolutions  sql.NullString
-			lastChunkAt  sql.NullTime
-			errorMessage sql.NullString
-		)
-
-		err := rows.Scan(
-			&v.VideoID,
-			&v.Status,
-			&declaredSize,
-			&actualSize,
-			&durationS,
-			&resolutions,
-			&v.TranscodeAttempts,
-			&lastChunkAt,
-			&errorMessage,
-			&v.CreatedAt,
-			&v.UpdatedAt,
-		)
+		v, err := models.ScanVideoRow(rows.Scan)
 		if err != nil {
-			http.Error(w, "Erro ao ler vídeos", http.StatusInternalServerError)
+			apiresponse.Error(w, http.StatusInternalServerError, "Erro ao ler vídeos.")
 			return
 		}
-
-		// Desserializa os campos nullable
-		v.DeclaredSizeBytes = declaredSize.Int64
-		v.ActualSizeBytes = actualSize.Int64
-		v.DurationS = int(durationS.Int64)
-		v.ErrorMessage = errorMessage.String
-
-		if lastChunkAt.Valid {
-			v.LastChunkAt = &lastChunkAt.Time
-		}
-
-		if resolutions.Valid && resolutions.String != "" {
-			var res []int
-			if err := json.Unmarshal([]byte(resolutions.String), &res); err == nil {
-				v.Resolutions = res
-			} else {
-				v.Resolutions = []int{}
-			}
-		} else {
-			v.Resolutions = []int{}
-		}
-
-		videos = append(videos, &v)
+		videos = append(videos, v)
 	}
 
 	if err := rows.Err(); err != nil {
-		http.Error(w, "Erro ao iterar vídeos", http.StatusInternalServerError)
+		apiresponse.Error(w, http.StatusInternalServerError, "Erro ao iterar vídeos.")
 		return
 	}
 
@@ -196,17 +207,12 @@ func (h *AdminHandler) HandleVideos(w http.ResponseWriter, r *http.Request) {
 		videos = []*models.Video{}
 	}
 
-	// Monta a resposta JSON
+	// Monta a resposta JSON no envelope padrão.
 	resp := videosResponse{
 		Videos: videos,
 		Total:  total,
 	}
-
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusOK)
-	if err := json.NewEncoder(w).Encode(resp); err != nil {
-		// Log silencioso de erros de encoding - cliente já desconectou
-	}
+	apiresponse.Success(w, http.StatusOK, resp)
 }
 
 // queueResponse é a estrutura de resposta para a rota de fila.
@@ -227,9 +233,5 @@ func (h *AdminHandler) HandleQueue(w http.ResponseWriter, r *http.Request) {
 		Workers:     h.cfg.TranscodeWorkers,
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusOK)
-	if err := json.NewEncoder(w).Encode(resp); err != nil {
-		// Log silencioso de erros de encoding - cliente já desconectou
-	}
+	apiresponse.Success(w, http.StatusOK, resp)
 }

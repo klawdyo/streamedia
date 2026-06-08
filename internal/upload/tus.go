@@ -4,14 +4,17 @@ package upload
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"strconv"
 	"strings"
+	"sync"
 
 	"github.com/tus/tusd/v2/pkg/filestore"
 	tusd "github.com/tus/tusd/v2/pkg/handler"
 
+	"github.com/klawdyo/streamedia/internal/apiresponse"
 	"github.com/klawdyo/streamedia/internal/config"
 	"github.com/klawdyo/streamedia/internal/models"
 )
@@ -25,22 +28,40 @@ import (
 // video_id no contexto, de onde o preCreate o recupera para fixar o ID do upload.
 type ctxKeyVideoID struct{}
 
-// jsonContentType é o cabeçalho Content-Type usado nas respostas de erro.
-// Em tusd/v2 o HTTPResponse.Header é um map[string]string (tusd.HTTPHeader),
-// e não um http.Header.
-var jsonContentType = tusd.HTTPHeader{"Content-Type": "application/json"}
+// jsonContentType é o cabeçalho Content-Type usado nas respostas de erro
+// do tusd. Em tusd/v2 o HTTPResponse.Header é um map[string]string
+// (tusd.HTTPHeader), e não um http.Header. Inclui charset utf-8 para
+// consistência com o pacote apiresponse.
+var jsonContentType = tusd.HTTPHeader{"Content-Type": "application/json; charset=utf-8"}
+
+// tusErrorBody serializa um apiresponse.Envelope de erro como string JSON
+// para uso em tusd.HTTPResponse.Body. O tusd gerencia a escrita HTTP
+// internamente, então não podemos usar apiresponse.Error (que escreve
+// diretamente no http.ResponseWriter). Para manter o contrato de envelope
+// uniforme, serializamos manualmente o mesmo formato aqui.
+func tusErrorBody(status int, msg string) string {
+	b, _ := json.Marshal(apiresponse.Envelope{
+		Error:      true,
+		Message:    msg,
+		Data:       nil,
+		StatusCode: status,
+	})
+	return string(b)
+}
 
 // TUSHandler encapsula o handler TUS do tusd com autenticação e hooks personalizados.
 type TUSHandler struct {
 	handler  *tusd.Handler
 	cfg      *config.Config
 	db       *sql.DB
-	onFinish func(videoID string)
+	onFinish func(videoID, userAgent string)
+	stopCh   chan struct{}   // sinaliza encerramento do consumeHooks (T59)
+	wg       sync.WaitGroup // aguarda término da goroutine consumeHooks
 }
 
 // NewTUSHandler cria um novo TUSHandler com validação de token e hooks de ciclo de vida.
 // O parâmetro onFinish é chamado quando o upload completa (para validação e enfileiramento).
-func NewTUSHandler(cfg *config.Config, db *sql.DB, onFinish func(videoID string)) (*TUSHandler, error) {
+func NewTUSHandler(cfg *config.Config, db *sql.DB, onFinish func(videoID, userAgent string)) (*TUSHandler, error) {
 	// Cria o FileStore — armazena os chunks no diretório de uploads temporários.
 	store := filestore.New(cfg.UploadTmpDir)
 
@@ -52,6 +73,7 @@ func NewTUSHandler(cfg *config.Config, db *sql.DB, onFinish func(videoID string)
 		cfg:      cfg,
 		db:       db,
 		onFinish: onFinish,
+		stopCh:   make(chan struct{}),
 	}
 
 	// Configuração do handler tusd.
@@ -83,7 +105,9 @@ func NewTUSHandler(cfg *config.Config, db *sql.DB, onFinish func(videoID string)
 
 	h.handler = handler
 
-	// Consome os canais de notificação em background.
+	// Consome os canais de notificação em background (T59: registra no
+	// WaitGroup para permitir graceful shutdown via Stop).
+	h.wg.Add(1)
 	go h.consumeHooks()
 
 	return h, nil
@@ -93,15 +117,35 @@ func NewTUSHandler(cfg *config.Config, db *sql.DB, onFinish func(videoID string)
 // para os tratadores postReceive (progresso de chunk) e postFinish (upload
 // completo). Substitui os callbacks PostReceiveCallback/PostFinishCallback que
 // não existem no tusd/v2.
+//
+// T59: respeita stopCh para encerramento gracioso e verifica ok nos receives
+// para detectar canais fechados pelo tusd — evita goroutine leak e loop
+// infinito de zero-values.
 func (h *TUSHandler) consumeHooks() {
+	defer h.wg.Done()
 	for {
 		select {
-		case event := <-h.handler.UploadProgress:
+		case event, ok := <-h.handler.UploadProgress:
+			if !ok {
+				return
+			}
 			h.postReceive(event)
-		case event := <-h.handler.CompleteUploads:
+		case event, ok := <-h.handler.CompleteUploads:
+			if !ok {
+				return
+			}
 			h.postFinish(event)
+		case <-h.stopCh:
+			return
 		}
 	}
+}
+
+// Stop encerra a goroutine consumeHooks de forma graciosa e aguarda
+// seu término (T59). Deve ser chamado no shutdown do servidor.
+func (h *TUSHandler) Stop() {
+	close(h.stopCh)
+	h.wg.Wait()
 }
 
 // ServeHTTP valida o token de upload ANTES de delegar ao tusd.
@@ -111,9 +155,7 @@ func (h *TUSHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	// Extrai e valida o token para qualquer método TUS relevante.
 	token := r.Header.Get("Upload-Token")
 	if token == "" {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusUnauthorized)
-		_, _ = w.Write([]byte(`{"error":"Token de upload ausente."}`))
+		apiresponse.Error(w, http.StatusUnauthorized, "Token de upload ausente.")
 		return
 	}
 
@@ -123,17 +165,13 @@ func (h *TUSHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	// Busca e valida o token no banco.
 	uploadToken, err := models.GetUploadToken(h.db, token)
 	if err != nil || uploadToken.IsExpired() {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusUnauthorized)
-		_, _ = w.Write([]byte(`{"error":"Token de upload inválido ou expirado."}`))
+		apiresponse.Error(w, http.StatusUnauthorized, "Token de upload inválido ou expirado.")
 		return
 	}
 
 	// Garante que o token pertence ao video_id da URL (proteção contra reutilização).
 	if videoID != "" && uploadToken.VideoID != videoID {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusForbidden)
-		_, _ = w.Write([]byte(`{"error":"Token de upload não corresponde ao vídeo informado."}`))
+		apiresponse.Error(w, http.StatusForbidden, "Token de upload não corresponde ao vídeo informado.")
 		return
 	}
 
@@ -141,9 +179,7 @@ func (h *TUSHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if lengthStr := r.Header.Get("Upload-Length"); lengthStr != "" {
 		if length, err := strconv.ParseInt(lengthStr, 10, 64); err == nil {
 			if length > h.cfg.MaxUploadSizeBytes {
-				w.Header().Set("Content-Type", "application/json")
-				w.WriteHeader(http.StatusRequestEntityTooLarge)
-				_, _ = w.Write([]byte(`{"error":"O vídeo excede o tamanho máximo permitido."}`))
+				apiresponse.Error(w, http.StatusRequestEntityTooLarge, "O vídeo excede o tamanho máximo permitido.")
 				return
 			}
 		}
@@ -196,7 +232,7 @@ func (h *TUSHandler) preCreate(hook tusd.HookEvent) (tusd.HTTPResponse, tusd.Fil
 	if token == "" {
 		return tusd.HTTPResponse{
 			StatusCode: http.StatusUnauthorized,
-			Body:       `{"error":"Token de upload ausente."}`,
+			Body:       tusErrorBody(http.StatusUnauthorized, "Token de upload ausente."),
 			Header:     jsonContentType,
 		}, tusd.FileInfoChanges{}, nil
 	}
@@ -206,7 +242,7 @@ func (h *TUSHandler) preCreate(hook tusd.HookEvent) (tusd.HTTPResponse, tusd.Fil
 	if err != nil {
 		return tusd.HTTPResponse{
 			StatusCode: http.StatusUnauthorized,
-			Body:       `{"error":"Token de upload inválido ou não encontrado."}`,
+			Body:       tusErrorBody(http.StatusUnauthorized, "Token de upload inválido ou não encontrado."),
 			Header:     jsonContentType,
 		}, tusd.FileInfoChanges{}, nil
 	}
@@ -215,7 +251,7 @@ func (h *TUSHandler) preCreate(hook tusd.HookEvent) (tusd.HTTPResponse, tusd.Fil
 	if uploadToken.IsExpired() {
 		return tusd.HTTPResponse{
 			StatusCode: http.StatusUnauthorized,
-			Body:       `{"error":"Token de upload expirado."}`,
+			Body:       tusErrorBody(http.StatusUnauthorized, "Token de upload expirado."),
 			Header:     jsonContentType,
 		}, tusd.FileInfoChanges{}, nil
 	}
@@ -224,7 +260,7 @@ func (h *TUSHandler) preCreate(hook tusd.HookEvent) (tusd.HTTPResponse, tusd.Fil
 	if videoID != "" && uploadToken.VideoID != videoID {
 		return tusd.HTTPResponse{
 			StatusCode: http.StatusForbidden,
-			Body:       `{"error":"Token de upload não corresponde ao vídeo informado."}`,
+			Body:       tusErrorBody(http.StatusForbidden, "Token de upload não corresponde ao vídeo informado."),
 			Header:     jsonContentType,
 		}, tusd.FileInfoChanges{}, nil
 	}
@@ -236,7 +272,7 @@ func (h *TUSHandler) preCreate(hook tusd.HookEvent) (tusd.HTTPResponse, tusd.Fil
 		if errLen == nil && uploadLength > h.cfg.MaxUploadSizeBytes {
 			return tusd.HTTPResponse{
 				StatusCode: http.StatusRequestEntityTooLarge,
-				Body:       `{"error":"O vídeo excede o tamanho máximo permitido."}`,
+				Body:       tusErrorBody(http.StatusRequestEntityTooLarge, "O vídeo excede o tamanho máximo permitido."),
 				Header:     jsonContentType,
 			}, tusd.FileInfoChanges{}, nil
 		}
@@ -276,7 +312,10 @@ func (h *TUSHandler) postReceive(hook tusd.HookEvent) {
 func (h *TUSHandler) postFinish(hook tusd.HookEvent) {
 	videoID := hook.Upload.ID
 	if h.onFinish != nil {
-		h.onFinish(videoID)
+		// Repassa o User-Agent da requisição de finalização para que o evento
+		// de estatística "upload_complete" (T26/T27) seja registrado com a
+		// família de SO correta.
+		h.onFinish(videoID, hook.HTTPRequest.Header.Get("User-Agent"))
 	}
 }
 

@@ -18,6 +18,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/klawdyo/streamedia/internal/apiresponse"
 	"github.com/klawdyo/streamedia/internal/auth"
 	"github.com/klawdyo/streamedia/internal/config"
 	"github.com/klawdyo/streamedia/internal/db"
@@ -79,7 +80,11 @@ func setupTestServer(t *testing.T) (*httptest.Server, *sql.DB, *config.Config) {
 	queue.Start()
 	t.Cleanup(func() { queue.Stop() })
 
-	router := server.NewRouter(cfg, database, queue, webhookClient)
+	router, routerCloser, err := server.NewRouter(cfg, database, queue, webhookClient)
+	if err != nil {
+		t.Fatalf("NewRouter: %v", err)
+	}
+	t.Cleanup(func() { _ = routerCloser.Close() })
 	srv := httptest.NewServer(router)
 	t.Cleanup(func() { srv.Close() })
 
@@ -167,57 +172,78 @@ func TestHealthz_Integration(t *testing.T) {
 	}
 }
 
-// TestUploadInit_HMACProtection_Integration verifica a proteção HMAC do endpoint
-// /upload/init: sem auth → 401, auth errada → 401, auth correta → 200.
+// TestUploadInit_HMACProtection_Integration verifica a proteção do endpoint
+// /upload/init via X-Project-Key:
+// sem header → 200 (usa projeto default),
+// X-Project-Key inválida → 401,
+// X-Project-Key válida → 200.
 func TestUploadInit_HMACProtection_Integration(t *testing.T) {
-	srv, _, cfg := setupTestServer(t)
+	srv, database, _ := setupTestServer(t)
 
-	const videoID = "550e8400-e29b-4100-8716-446655440001"
-	body := fmt.Appendf(nil, `{"video_id":%q,"declared_size_bytes":1024}`, videoID)
-
-	// --- sem header de autenticação → 401 ---
+	// --- sem header de autenticação → 200 (usa projeto default) ---
 	t.Run("sem auth", func(t *testing.T) {
+		const videoID = "550e8400-e29b-4100-8716-446655440001"
+		body := fmt.Appendf(nil, `{"video_id":%q,"declared_size_bytes":1024}`, videoID)
+
 		resp := doRequest(t, http.MethodPost, srv.URL+"/upload/init",
 			bytes.NewReader(body), nil)
-		defer resp.Body.Close()
-
-		if resp.StatusCode != http.StatusUnauthorized {
-			t.Fatalf("esperado 401, obtido %d", resp.StatusCode)
-		}
-	})
-
-	// --- HMAC com secret errado → 401 ---
-	t.Run("auth errada", func(t *testing.T) {
-		wrongSig := auth.SignBackendRequest("wrong-secret", body)
-		resp := doRequest(t, http.MethodPost, srv.URL+"/upload/init",
-			bytes.NewReader(body), map[string]string{"X-Upload-Auth": wrongSig})
-		defer resp.Body.Close()
-
-		if resp.StatusCode != http.StatusUnauthorized {
-			t.Fatalf("esperado 401, obtido %d", resp.StatusCode)
-		}
-	})
-
-	// --- HMAC correto → 200 com upload_url e token ---
-	t.Run("auth correta", func(t *testing.T) {
-		correctSig := auth.SignBackendRequest(cfg.UploadTokenSecret, body)
-		resp := doRequest(t, http.MethodPost, srv.URL+"/upload/init",
-			bytes.NewReader(body), map[string]string{"X-Upload-Auth": correctSig})
 
 		if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusCreated {
-			body, _ := io.ReadAll(resp.Body)
+			rbody, _ := io.ReadAll(resp.Body)
 			resp.Body.Close()
-			t.Fatalf("esperado 200 ou 201, obtido %d (corpo: %s)", resp.StatusCode, body)
+			t.Fatalf("esperado 200 ou 201 (projeto default), obtido %d (corpo: %s)", resp.StatusCode, rbody)
+		}
+		resp.Body.Close()
+	})
+
+	// --- X-Project-Key inválida → 401 ---
+	t.Run("auth errada", func(t *testing.T) {
+		const videoID = "550e8400-e29b-4100-8716-446655440005"
+		body := fmt.Appendf(nil, `{"video_id":%q,"declared_size_bytes":1024}`, videoID)
+
+		resp := doRequest(t, http.MethodPost, srv.URL+"/upload/init",
+			bytes.NewReader(body), map[string]string{"X-Project-Key": "chave-invalida"})
+		defer resp.Body.Close()
+
+		if resp.StatusCode != http.StatusUnauthorized {
+			t.Fatalf("esperado 401, obtido %d", resp.StatusCode)
+		}
+	})
+
+	// --- X-Project-Key válida → 200 com upload_url e token ---
+	t.Run("auth correta", func(t *testing.T) {
+		const videoID = "550e8400-e29b-4100-8716-446655440006"
+		body := fmt.Appendf(nil, `{"video_id":%q,"declared_size_bytes":1024}`, videoID)
+
+		project, masterKey, err := models.CreateProject(database, "Integration Test")
+		if err != nil {
+			t.Fatalf("CreateProject: %v", err)
+		}
+		_ = project
+		resp := doRequest(t, http.MethodPost, srv.URL+"/upload/init",
+			bytes.NewReader(body), map[string]string{"X-Project-Key": masterKey})
+
+		if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusCreated {
+			rbody, _ := io.ReadAll(resp.Body)
+			resp.Body.Close()
+			t.Fatalf("esperado 200 ou 201, obtido %d (corpo: %s)", resp.StatusCode, rbody)
 		}
 
-		var result map[string]string
-		readJSON(t, resp, &result)
+		var env apiresponse.Envelope
+		readJSON(t, resp, &env)
 
-		if result["upload_url"] == "" {
-			t.Errorf("esperado upload_url não vazio, obtido %q", result["upload_url"])
+		data, ok := env.Data.(map[string]interface{})
+		if !ok {
+			t.Fatalf("data não é um mapa, tipo: %T", env.Data)
 		}
-		if result["token"] == "" {
-			t.Errorf("esperado token não vazio, obtido %q", result["token"])
+		uploadURL, _ := data["upload_url"].(string)
+		token, _ := data["token"].(string)
+
+		if uploadURL == "" {
+			t.Errorf("esperado upload_url não vazio, obtido %q", uploadURL)
+		}
+		if token == "" {
+			t.Errorf("esperado token não vazio, obtido %q", token)
 		}
 	})
 }
@@ -306,11 +332,14 @@ func TestAdminRoutes_Integration(t *testing.T) {
 			t.Fatalf("esperado 200, obtido %d (corpo: %s)", resp.StatusCode, body)
 		}
 
-		var result map[string]interface{}
-		readJSON(t, resp, &result)
+		var env apiresponse.Envelope
+		readJSON(t, resp, &env)
 
-		// Resposta deve ter o campo "videos" como array.
-		if _, ok := result["videos"]; !ok {
+		data, ok := env.Data.(map[string]interface{})
+		if !ok {
+			t.Fatalf("data não é um mapa, tipo: %T", env.Data)
+		}
+		if _, ok := data["videos"]; !ok {
 			t.Errorf("resposta deveria conter campo 'videos'")
 		}
 	})
@@ -326,10 +355,14 @@ func TestAdminRoutes_Integration(t *testing.T) {
 			t.Fatalf("esperado 200, obtido %d (corpo: %s)", resp.StatusCode, body)
 		}
 
-		var result map[string]interface{}
-		readJSON(t, resp, &result)
+		var env apiresponse.Envelope
+		readJSON(t, resp, &env)
 
-		if _, ok := result["queue_length"]; !ok {
+		data, ok := env.Data.(map[string]interface{})
+		if !ok {
+			t.Fatalf("data não é um mapa, tipo: %T", env.Data)
+		}
+		if _, ok := data["queue_length"]; !ok {
 			t.Errorf("resposta deveria conter campo 'queue_length'")
 		}
 	})
@@ -369,23 +402,33 @@ func TestStatusRoute_Integration(t *testing.T) {
 			t.Fatalf("esperado 200, obtido %d (corpo: %s)", resp.StatusCode, body)
 		}
 
-		var result map[string]interface{}
-		readJSON(t, resp, &result)
+		var env apiresponse.Envelope
+		readJSON(t, resp, &env)
 
-		if result["status"] != "ready" {
-			t.Errorf("esperado status \"ready\", obtido %q", result["status"])
+		data, ok := env.Data.(map[string]interface{})
+		if !ok {
+			t.Fatalf("data não é um mapa, tipo: %T", env.Data)
+		}
+		if data["status"] != "ready" {
+			t.Errorf("esperado status \"ready\", obtido %q", data["status"])
 		}
 	})
 }
 
 // TestConcurrentUploads_Integration envia 5 requisições concorrentes ao
-// /upload/init com HMAC válido e verifica que todas retornam 200/201.
+// /upload/init com X-Project-Key válida e verifica que todas retornam 200/201.
 func TestConcurrentUploads_Integration(t *testing.T) {
 	if testing.Short() {
 		t.Skip("pulando teste de uploads concorrentes em modo short")
 	}
 
-	srv, _, cfg := setupTestServer(t)
+	srv, database, _ := setupTestServer(t)
+
+	project, masterKey, err := models.CreateProject(database, "Integration Test")
+	if err != nil {
+		t.Fatalf("CreateProject: %v", err)
+	}
+	_ = project
 
 	const n = 5
 	// UUIDs v4 válidos para cada upload concorrente.
@@ -411,10 +454,9 @@ func TestConcurrentUploads_Integration(t *testing.T) {
 			defer wg.Done()
 
 			body := fmt.Appendf(nil, `{"video_id":%q,"declared_size_bytes":1024}`, videoIDs[idx])
-			sig := auth.SignBackendRequest(cfg.UploadTokenSecret, body)
 
 			resp := doRequest(t, http.MethodPost, srv.URL+"/upload/init",
-				bytes.NewReader(body), map[string]string{"X-Upload-Auth": sig})
+				bytes.NewReader(body), map[string]string{"X-Project-Key": masterKey})
 			defer resp.Body.Close()
 
 			bodyBytes, _ := io.ReadAll(resp.Body)
@@ -431,12 +473,17 @@ func TestConcurrentUploads_Integration(t *testing.T) {
 		}
 
 		// Verifica que a resposta contém upload_url.
-		var parsed map[string]string
-		if err := json.Unmarshal([]byte(r.body), &parsed); err != nil {
+		var env apiresponse.Envelope
+		if err := json.Unmarshal([]byte(r.body), &env); err != nil {
 			t.Errorf("upload %d: resposta não é JSON válido: %v", i, err)
 			continue
 		}
-		if parsed["upload_url"] == "" {
+		data, ok := env.Data.(map[string]interface{})
+		if !ok {
+			t.Errorf("upload %d: data não é um mapa", i)
+			continue
+		}
+		if uploadURL, _ := data["upload_url"].(string); uploadURL == "" {
 			t.Errorf("upload %d: esperado upload_url não vazio", i)
 		}
 	}

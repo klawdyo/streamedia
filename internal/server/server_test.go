@@ -9,10 +9,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/klawdyo/streamedia/internal/auth"
+	"github.com/klawdyo/streamedia/internal/apiresponse"
 	"github.com/klawdyo/streamedia/internal/config"
 	"github.com/klawdyo/streamedia/internal/db"
 	"github.com/klawdyo/streamedia/internal/middleware"
+	"github.com/klawdyo/streamedia/internal/models"
 	"github.com/klawdyo/streamedia/internal/transcode"
 	"github.com/klawdyo/streamedia/internal/webhook"
 )
@@ -53,7 +54,12 @@ func newTestRouter(t *testing.T, cfg *config.Config) (http.Handler, *sql.DB) {
 	// Worker no-op: os testes não precisam transcodificar de verdade.
 	queue := transcode.NewQueue(cfg, database, func(string) error { return nil })
 
-	return NewRouter(cfg, database, queue, wc), database
+	router, closer, err := NewRouter(cfg, database, queue, wc)
+	if err != nil {
+		t.Fatalf("NewRouter: %v", err)
+	}
+	t.Cleanup(func() { _ = closer.Close() })
+	return router, database
 }
 
 // TestHealthz verifica que /healthz responde 200 com "ok".
@@ -69,6 +75,45 @@ func TestHealthz(t *testing.T) {
 	}
 	if !strings.Contains(rec.Body.String(), "ok") {
 		t.Fatalf("corpo deveria conter \"ok\", obtido %q", rec.Body.String())
+	}
+}
+
+// TestApiVersionRoute verifica que GET /api retorna nome, versão e status
+// no envelope padrão, sem exigir autenticação.
+func TestApiVersionRoute(t *testing.T) {
+	router, _ := newTestRouter(t, newTestConfig(t))
+
+	req := httptest.NewRequest(http.MethodGet, "/api", nil)
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("esperado 200, obtido %d (body: %s)", rec.Code, rec.Body.String())
+	}
+
+	var env apiresponse.Envelope
+	if err := json.Unmarshal(rec.Body.Bytes(), &env); err != nil {
+		t.Fatalf("corpo não é JSON válido: %v", err)
+	}
+	if env.Error {
+		t.Errorf("esperado error=false, obtido true: %s", env.Message)
+	}
+	if env.Message != "ok" {
+		t.Errorf("esperado message='ok', obtido %q", env.Message)
+	}
+
+	data, ok := env.Data.(map[string]interface{})
+	if !ok {
+		t.Fatalf("data não é um objeto: %T", env.Data)
+	}
+	if name, _ := data["name"].(string); name != "Streamedia" {
+		t.Errorf("esperado name='Streamedia', obtido %q", name)
+	}
+	if v, _ := data["version"].(string); v == "" {
+		t.Error("version está vazio")
+	}
+	if status, _ := data["status"].(string); status != "ok" {
+		t.Errorf("esperado status='ok', obtido %q", status)
 	}
 }
 
@@ -96,17 +141,23 @@ func TestAllRoutesRegistered(t *testing.T) {
 		name   string
 		method string
 		path   string
+		body   string
 		want   int
 	}{
-		{"upload init sem auth", http.MethodPost, "/upload/init", http.StatusUnauthorized},
-		{"status sem auth", http.MethodGet, "/api/status/" + validUUID, http.StatusUnauthorized},
-		{"admin videos sem auth", http.MethodGet, "/admin/videos", http.StatusUnauthorized},
-		{"healthz", http.MethodGet, "/healthz", http.StatusOK},
+		{"upload init sem auth", http.MethodPost, "/upload/init", `{"video_id":"` + validUUID + `","declared_size_bytes":1024}`, http.StatusOK},
+		{"status sem auth", http.MethodGet, "/api/status/" + validUUID, "", http.StatusUnauthorized},
+		{"admin videos sem auth", http.MethodGet, "/admin/videos", "", http.StatusUnauthorized},
+		{"healthz", http.MethodGet, "/healthz", "", http.StatusOK},
 	}
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			req := httptest.NewRequest(tc.method, tc.path, nil)
+			var req *http.Request
+			if tc.body != "" {
+				req = httptest.NewRequest(tc.method, tc.path, strings.NewReader(tc.body))
+			} else {
+				req = httptest.NewRequest(tc.method, tc.path, nil)
+			}
 			rec := httptest.NewRecorder()
 			router.ServeHTTP(rec, req)
 
@@ -120,18 +171,23 @@ func TestAllRoutesRegistered(t *testing.T) {
 	}
 }
 
-// TestUploadInitE2E faz um POST /upload/init completo com HMAC válido e
-// verifica que a resposta 200 traz upload_url e token.
+// TestUploadInitE2E faz um POST /upload/init completo com X-Project-Key válido
+// e verifica que a resposta 200 traz upload_url e token.
 func TestUploadInitE2E(t *testing.T) {
 	cfg := newTestConfig(t)
-	router, _ := newTestRouter(t, cfg)
+	router, db := newTestRouter(t, cfg)
+
+	project, key, err := models.CreateProject(db, "Server Test")
+	if err != nil {
+		t.Fatalf("CreateProject: %v", err)
+	}
+	_ = project
 
 	const validUUID = "550e8400-e29b-4100-8716-446655440000"
 	body := []byte(`{"video_id":"` + validUUID + `","declared_size_bytes":1024}`)
-	sig := auth.SignBackendRequest(cfg.UploadTokenSecret, body)
 
 	req := httptest.NewRequest(http.MethodPost, "/upload/init", strings.NewReader(string(body)))
-	req.Header.Set("X-Upload-Auth", sig)
+	req.Header.Set("X-Project-Key", key)
 	rec := httptest.NewRecorder()
 	router.ServeHTTP(rec, req)
 
@@ -139,18 +195,24 @@ func TestUploadInitE2E(t *testing.T) {
 		t.Fatalf("esperado 200, obtido %d (corpo: %s)", rec.Code, rec.Body.String())
 	}
 
-	var resp map[string]string
-	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+	var env apiresponse.Envelope
+	if err := json.Unmarshal(rec.Body.Bytes(), &env); err != nil {
 		t.Fatalf("resposta não é JSON válido: %v", err)
 	}
-	if resp["upload_url"] == "" {
-		t.Errorf("esperado upload_url não vazio, obtido %q", resp["upload_url"])
+	data, ok := env.Data.(map[string]interface{})
+	if !ok {
+		t.Fatalf("data deveria ser um objeto, obtido %T", env.Data)
 	}
-	if resp["token"] == "" {
-		t.Errorf("esperado token não vazio, obtido %q", resp["token"])
+	uploadURL, _ := data["upload_url"].(string)
+	token, _ := data["token"].(string)
+	if uploadURL == "" {
+		t.Errorf("esperado upload_url não vazio, obtido %q", uploadURL)
 	}
-	if !strings.Contains(resp["upload_url"], validUUID) {
-		t.Errorf("upload_url deveria conter o video_id, obtido %q", resp["upload_url"])
+	if token == "" {
+		t.Errorf("esperado token não vazio, obtido %q", token)
+	}
+	if !strings.Contains(uploadURL, validUUID) {
+		t.Errorf("upload_url deveria conter o video_id, obtido %q", uploadURL)
 	}
 }
 

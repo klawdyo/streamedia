@@ -178,10 +178,16 @@ func TestTranscodeWorker_FFmpegNotAvailable(t *testing.T) {
 	}
 	defer database.Close()
 
+	// Garante o projeto padrão — ResolveVideoRootDir exige project_id (T48).
+	project, err := models.EnsureDefaultProject(database)
+	if err != nil {
+		t.Fatalf("EnsureDefaultProject: %v", err)
+	}
+
 	// Insere um vídeo com status 'transcoding' e tentativas = 2 (uma menos que max=3)
 	_, err = database.Exec(
-		"INSERT INTO videos (video_id, status, transcode_attempts) VALUES (?, ?, ?)",
-		"test-ffmpeg-fail", "transcoding", 2,
+		"INSERT INTO videos (video_id, project_id, status, transcode_attempts) VALUES (?, ?, ?, ?)",
+		"test-ffmpeg-fail", project.ID, "transcoding", 2,
 	)
 	if err != nil {
 		t.Fatalf("erro ao inserir vídeo: %v", err)
@@ -251,6 +257,12 @@ func TestTranscodeWorker_UpdatesStatus(t *testing.T) {
 	}
 	defer database.Close()
 
+	// Garante o projeto padrão — ResolveVideoRootDir exige project_id (T48).
+	project, err := models.EnsureDefaultProject(database)
+	if err != nil {
+		t.Fatalf("EnsureDefaultProject: %v", err)
+	}
+
 	tempDir := t.TempDir()
 	uploadTmpDir := filepath.Join(tempDir, "uploads")
 	mediaDir := filepath.Join(tempDir, "media")
@@ -264,8 +276,8 @@ func TestTranscodeWorker_UpdatesStatus(t *testing.T) {
 
 	// Insere um vídeo com status 'upload_complete'
 	_, err = database.Exec(
-		"INSERT INTO videos (video_id, status) VALUES (?, ?)",
-		"test-success", "upload_complete",
+		"INSERT INTO videos (video_id, project_id, status) VALUES (?, ?, ?)",
+		"test-success", project.ID, "upload_complete",
 	)
 	if err != nil {
 		t.Fatalf("erro ao inserir vídeo: %v", err)
@@ -373,26 +385,3 @@ func setWorkerExecutor(w *Worker, exec FFmpegExecutor) {
 	w.ffmpeg = exec
 }
 
-// sliceEqual verifica se dois slices de int são iguais.
-func sliceEqual(a, b []int) bool {
-	if len(a) != len(b) {
-		return false
-	}
-	for i := range a {
-		if a[i] != b[i] {
-			return false
-		}
-	}
-	return true
-}
-
-// containsArg verifica se uma string está presente em um slice de strings.
-// Útil para validar que um argumento específico está nos argumentos FFmpeg.
-func containsArg(args []string, target string) bool {
-	for _, arg := range args {
-		if arg == target || strings.Contains(arg, target) {
-			return true
-		}
-	}
-	return false
-}

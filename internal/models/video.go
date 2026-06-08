@@ -33,8 +33,12 @@ type Video struct {
 	TranscodeAttempts int
 	LastChunkAt       *time.Time
 	ErrorMessage      string
-	CreatedAt         time.Time
-	UpdatedAt         time.Time
+	// ProjectID vincula o vídeo a um projeto interno (issue #6, T33). É nil
+	// para vídeos do fluxo legado (sem projeto), criados antes da issue #6
+	// ou via a chave global UPLOAD_TOKEN_SECRET.
+	ProjectID *int64
+	CreatedAt time.Time
+	UpdatedAt time.Time
 }
 
 // validTransitions define as transições permitidas por estado.
@@ -61,11 +65,82 @@ func isValidTransition(from, to VideoStatus) bool {
 	return false
 }
 
+// SelectVideoColumns é a lista canônica de colunas para SELECT de vídeos.
+// Usada em GetVideo, ListByStatus e admin.HandleVideos para garantir que
+// todas as queries retornam as mesmas colunas na mesma ordem.
+const SelectVideoColumns = `video_id, status, declared_size_bytes, actual_size_bytes,
+	duration_s, resolutions, transcode_attempts, last_chunk_at,
+	error_message, project_id, created_at, updated_at`
+
+// ScanVideoRow lê uma linha de Video do banco, tratando campos nullable.
+// Aceita qualquer função que implemente a assinatura de Scan (sql.Row e
+// sql.Rows compartilham a mesma assinatura).
+func ScanVideoRow(scan func(dest ...any) error) (*Video, error) {
+	var (
+		v            Video
+		declaredSize sql.NullInt64
+		actualSize   sql.NullInt64
+		durationS    sql.NullInt64
+		resolutions  sql.NullString
+		lastChunkAt  sql.NullTime
+		errorMessage sql.NullString
+		projectID    sql.NullInt64
+	)
+
+	err := scan(
+		&v.VideoID,
+		&v.Status,
+		&declaredSize,
+		&actualSize,
+		&durationS,
+		&resolutions,
+		&v.TranscodeAttempts,
+		&lastChunkAt,
+		&errorMessage,
+		&projectID,
+		&v.CreatedAt,
+		&v.UpdatedAt,
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	v.DeclaredSizeBytes = declaredSize.Int64
+	v.ActualSizeBytes = actualSize.Int64
+	v.DurationS = int(durationS.Int64)
+	v.ErrorMessage = errorMessage.String
+	if projectID.Valid {
+		v.ProjectID = &projectID.Int64
+	}
+
+	if lastChunkAt.Valid {
+		t := lastChunkAt.Time
+		v.LastChunkAt = &t
+	}
+
+	if resolutions.Valid && resolutions.String != "" {
+		if err := json.Unmarshal([]byte(resolutions.String), &v.Resolutions); err != nil {
+			return nil, fmt.Errorf("erro ao deserializar resolutions: %w", err)
+		}
+	} else {
+		v.Resolutions = []int{}
+	}
+
+	return &v, nil
+}
+
 // InsertVideo cria um novo registro de vídeo com o status inicial pending_upload.
 func InsertVideo(db *sql.DB, videoID string, declaredSize int64) error {
+	return InsertVideoForProject(db, videoID, declaredSize, nil)
+}
+
+// InsertVideoForProject cria um novo registro de vídeo associado a um
+// projeto (issue #6, T33). projectID nil cria um vídeo "sem projeto"
+// (fluxo legado, compatível com instalações que não usam projetos).
+func InsertVideoForProject(db *sql.DB, videoID string, declaredSize int64, projectID *int64) error {
 	_, err := db.Exec(
-		"INSERT INTO videos (video_id, declared_size_bytes) VALUES (?, ?)",
-		videoID, declaredSize,
+		"INSERT INTO videos (video_id, declared_size_bytes, project_id) VALUES (?, ?, ?)",
+		videoID, declaredSize, projectID,
 	)
 	if err != nil {
 		return fmt.Errorf("erro ao inserir vídeo: %w", err)
@@ -77,62 +152,11 @@ func InsertVideo(db *sql.DB, videoID string, declaredSize int64) error {
 // Trata corretamente os campos que podem ser NULL no banco.
 func GetVideo(db *sql.DB, videoID string) (*Video, error) {
 	row := db.QueryRow(
-		`SELECT video_id, status, declared_size_bytes, actual_size_bytes,
-		        duration_s, resolutions, transcode_attempts, last_chunk_at,
-		        error_message, created_at, updated_at
-		   FROM videos WHERE video_id = ?`,
+		`SELECT `+SelectVideoColumns+` FROM videos WHERE video_id = ?`,
 		videoID,
 	)
-
-	var (
-		v            Video
-		declaredSize sql.NullInt64
-		actualSize   sql.NullInt64
-		durationS    sql.NullInt64
-		resolutions  sql.NullString
-		lastChunkAt  sql.NullTime
-		errorMessage sql.NullString
-	)
-
-	err := row.Scan(
-		&v.VideoID,
-		&v.Status,
-		&declaredSize,
-		&actualSize,
-		&durationS,
-		&resolutions,
-		&v.TranscodeAttempts,
-		&lastChunkAt,
-		&errorMessage,
-		&v.CreatedAt,
-		&v.UpdatedAt,
-	)
-	if err != nil {
-		// Repassa sql.ErrNoRows sem embrulhar para o chamador poder identificar
-		return nil, err
-	}
-
-	// Converte os campos nulos para os tipos da struct
-	v.DeclaredSizeBytes = declaredSize.Int64
-	v.ActualSizeBytes = actualSize.Int64
-	v.DurationS = int(durationS.Int64)
-	v.ErrorMessage = errorMessage.String
-
-	if lastChunkAt.Valid {
-		t := lastChunkAt.Time
-		v.LastChunkAt = &t
-	}
-
-	// Deserializa resolutions: NULL → []int{}, caso contrário faz unmarshal do JSON
-	if resolutions.Valid && resolutions.String != "" {
-		if err := json.Unmarshal([]byte(resolutions.String), &v.Resolutions); err != nil {
-			return nil, fmt.Errorf("erro ao deserializar resolutions: %w", err)
-		}
-	} else {
-		v.Resolutions = []int{}
-	}
-
-	return &v, nil
+	// Repassa sql.ErrNoRows sem embrulhar para o chamador poder identificar
+	return ScanVideoRow(row.Scan)
 }
 
 // UpdateStatus altera o status do vídeo, validando a transição na máquina de estados.
@@ -246,10 +270,7 @@ func IncrementTranscodeAttempts(db *sql.DB, videoID string) error {
 // ListByStatus retorna todos os vídeos que estão no status informado.
 func ListByStatus(db *sql.DB, status VideoStatus) ([]*Video, error) {
 	rows, err := db.Query(
-		`SELECT video_id, status, declared_size_bytes, actual_size_bytes,
-		        duration_s, resolutions, transcode_attempts, last_chunk_at,
-		        error_message, created_at, updated_at
-		   FROM videos WHERE status = ?`,
+		`SELECT `+SelectVideoColumns+` FROM videos WHERE status = ?`,
 		status,
 	)
 	if err != nil {
@@ -259,52 +280,11 @@ func ListByStatus(db *sql.DB, status VideoStatus) ([]*Video, error) {
 
 	var videos []*Video
 	for rows.Next() {
-		var (
-			v            Video
-			declaredSize sql.NullInt64
-			actualSize   sql.NullInt64
-			durationS    sql.NullInt64
-			resolutions  sql.NullString
-			lastChunkAt  sql.NullTime
-			errorMessage sql.NullString
-		)
-
-		err := rows.Scan(
-			&v.VideoID,
-			&v.Status,
-			&declaredSize,
-			&actualSize,
-			&durationS,
-			&resolutions,
-			&v.TranscodeAttempts,
-			&lastChunkAt,
-			&errorMessage,
-			&v.CreatedAt,
-			&v.UpdatedAt,
-		)
+		v, err := ScanVideoRow(rows.Scan)
 		if err != nil {
 			return nil, fmt.Errorf("erro ao ler linha de vídeo: %w", err)
 		}
-
-		v.DeclaredSizeBytes = declaredSize.Int64
-		v.ActualSizeBytes = actualSize.Int64
-		v.DurationS = int(durationS.Int64)
-		v.ErrorMessage = errorMessage.String
-
-		if lastChunkAt.Valid {
-			t := lastChunkAt.Time
-			v.LastChunkAt = &t
-		}
-
-		if resolutions.Valid && resolutions.String != "" {
-			if err := json.Unmarshal([]byte(resolutions.String), &v.Resolutions); err != nil {
-				return nil, fmt.Errorf("erro ao deserializar resolutions: %w", err)
-			}
-		} else {
-			v.Resolutions = []int{}
-		}
-
-		videos = append(videos, &v)
+		videos = append(videos, v)
 	}
 
 	if err := rows.Err(); err != nil {
