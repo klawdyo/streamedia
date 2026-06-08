@@ -1,6 +1,11 @@
 services:
   mediaserver:
-    build: .
+    build:
+      context: .
+      args:
+        # Commit do git para a versão exibida no /version. Opcional — fica
+        # "unknown" quando GIT_COMMIT não é fornecido (ex.: build no Coolify).
+        GIT_COMMIT: ${GIT_COMMIT:-unknown}
     restart: unless-stopped
     environment:
       - UPLOAD_TOKEN_SECRET=${UPLOAD_TOKEN_SECRET}
