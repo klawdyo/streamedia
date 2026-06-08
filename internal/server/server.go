@@ -21,6 +21,7 @@ import (
 	"github.com/klawdyo/streamedia/internal/telemetry"
 	"github.com/klawdyo/streamedia/internal/transcode"
 	"github.com/klawdyo/streamedia/internal/upload"
+	"github.com/klawdyo/streamedia/internal/version"
 	"github.com/klawdyo/streamedia/internal/webhook"
 )
 
@@ -140,6 +141,18 @@ func NewRouter(
 	// --- Health check ---
 	r.Get("/healthz", func(w http.ResponseWriter, _ *http.Request) {
 		apiresponse.Success(w, http.StatusOK, map[string]string{"status": "ok"})
+	})
+
+	// --- Versão da API (T55) ---
+	// Rota pública sem autenticação, com rate limiting baixo (10 req/min)
+	// para mitigar abuso. Expõe nome, versão semântica, commit e status.
+	// A versão é injetada via -ldflags no build (internal/version).
+	versionLimiter := middleware.NewRateLimiter(10)
+	r.Group(func(r chi.Router) {
+		r.Use(versionLimiter.Middleware)
+		r.Get("/api", func(w http.ResponseWriter, _ *http.Request) {
+			apiresponse.Success(w, http.StatusOK, version.Get())
+		})
 	})
 
 	// --- Métricas (OpenTelemetry/Prometheus, T29, issue #1) ---
