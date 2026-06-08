@@ -126,7 +126,7 @@ func TestLoad_TimeVarsDefaultsAreInSeconds(t *testing.T) {
 		got  time.Duration
 		want time.Duration
 	}{
-		{"UploadTokenTTL", cfg.UploadTokenTTL, 6 * time.Hour},
+		{"UploadTokenTTL", cfg.UploadTokenTTL, 20 * time.Minute},
 		{"PlayTokenMaxTTL", cfg.PlayTokenMaxTTL, 6 * time.Hour},
 		{"UploadIdleTimeout", cfg.UploadIdleTimeout, 10 * time.Minute},
 		{"TranscodeStuckTime", cfg.TranscodeStuckTime, 30 * time.Minute},
@@ -189,8 +189,8 @@ func TestLoad_OldTimeVarNamesAreIgnored(t *testing.T) {
 		t.Fatalf("Load() retornou erro inesperado: %v", err)
 	}
 
-	if cfg.UploadTokenTTL != 6*time.Hour {
-		t.Errorf("UploadTokenTTL: variável antiga UPLOAD_TOKEN_TTL_H não deveria ser lida; esperado default %v, obtido %v", 6*time.Hour, cfg.UploadTokenTTL)
+	if cfg.UploadTokenTTL != 20*time.Minute {
+		t.Errorf("UploadTokenTTL: variável antiga UPLOAD_TOKEN_TTL_H não deveria ser lida; esperado default %v, obtido %v", 20*time.Minute, cfg.UploadTokenTTL)
 	}
 	if cfg.PlayTokenMaxTTL != 6*time.Hour {
 		t.Errorf("PlayTokenMaxTTL: variável antiga PLAY_TOKEN_MAX_TTL_H não deveria ser lida; esperado default %v, obtido %v", 6*time.Hour, cfg.PlayTokenMaxTTL)

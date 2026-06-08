@@ -193,8 +193,8 @@ type issueUploadTokenResponse struct {
 // token "rotulado" como de outro.
 //
 // Reaproveita a mesma assinatura HMAC (auth.GenerateUploadToken com a chave
-// mestra como segredo) e o mesmo TTL curto (UploadTokenScopedTTL) do fluxo
-// de /upload/init escopado — consistência total com T33.
+// mestra como segredo) e o mesmo TTL (UploadTokenTTL) do fluxo de
+// /upload/init — consistência total com T33 e issue #10 (T50).
 func (h *AdminHandler) HandleIssueUploadToken(w http.ResponseWriter, r *http.Request) {
 	slug := chi.URLParam(r, "slug")
 
@@ -244,7 +244,7 @@ func (h *AdminHandler) HandleIssueUploadToken(w http.ResponseWriter, r *http.Req
 	}
 
 	token := auth.GenerateUploadToken(projectKey, videoID)
-	expiresAt := time.Now().Add(h.cfg.UploadTokenScopedTTL)
+	expiresAt := time.Now().Add(h.cfg.UploadTokenTTL)
 	if err := models.InsertUploadTokenForProject(h.db, token, videoID, expiresAt, &project.ID); err != nil {
 		apiresponse.Error(w, http.StatusInternalServerError, "Falha ao registrar o token de upload.")
 		return

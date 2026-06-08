@@ -6,6 +6,7 @@ import (
 	"database/sql"
 	"encoding/hex"
 	"fmt"
+	"log"
 	"strings"
 	"time"
 	"unicode"
@@ -215,17 +216,58 @@ func GetProjectByMasterKeyHash(db *sql.DB, hash string) (*Project, error) {
 	return scanProject(row.Scan)
 }
 
+// defaultProjectName é o nome do projeto automático para uploads que não
+// especificam um projeto via X-Project-Key — issue #10, T48. Substitui o
+// antigo projeto "Legacy" (getOrCreateLegacyProject em jobs/project_migration.go,
+// removido nesta mesma task): "default" descreve melhor o propósito
+// ("projeto que recebe uploads quando nenhum é especificado") do que
+// "Legacy" (que carregava a semântica errada de "vídeos antigos").
+const defaultProjectName = "Default"
+
+// EnsureDefaultProject garante que o projeto padrão existe, criando-o na
+// primeira chamada. Idempotente: se o projeto já existir (busca por slug),
+// retorna a instância existente sem criar outro. Na primeira criação, loga
+// a chave mestra gerada — é a única vez que ela aparece em texto puro, e o
+// operador deve registrá-la se quiser usar o projeto padrão explicitamente
+// (ex.: para emitir tokens de upload via X-Project-Key).
+func EnsureDefaultProject(db *sql.DB) (*Project, error) {
+	slug := Slugify(defaultProjectName)
+	project, err := GetProjectBySlug(db, slug)
+	if err == nil {
+		return project, nil
+	}
+	if err != sql.ErrNoRows {
+		return nil, err
+	}
+	project, masterKey, err := CreateProject(db, defaultProjectName)
+	if err != nil {
+		// Concorrência: outra goroutine pode ter criado o projeto entre
+		// o GetProjectBySlug (não encontrou) e o CreateProject (UNIQUE).
+		// Nesse caso, busca de novo — o projeto já existe.
+		if strings.Contains(err.Error(), "UNIQUE") {
+			project, err2 := GetProjectBySlug(db, slug)
+			if err2 != nil {
+				return nil, err2
+			}
+			return project, nil
+		}
+		return nil, err
+	}
+	log.Printf("[project] projeto padrão criado: slug=%s master_key=%s (guarde esta chave — ela não será exibida novamente)", project.Slug, masterKey)
+	return project, nil
+}
+
 // ResolveVideoRootDir devolve o diretório raiz (relativo a MEDIA_DIR) onde
 // os arquivos de um vídeo devem ser gravados/lidos — issue #6, T34: cada
 // projeto isola seus vídeos sob <MEDIA_DIR>/<slug>/<video_id>/...
 //
-// projectID nil devolve "" (layout legado: <MEDIA_DIR>/<video_id>/...) —
-// preserva compatibilidade para o raríssimo caso de um vídeo ainda não
-// migrado (ver internal/jobs.MigrateLegacyVideos, que assume todos os
-// vídeos antigos para um projeto "legacy" na inicialização).
+// projectID nil é estado inválido desde a issue #10 (T48): todo upload
+// sempre pertence a um projeto (padrão ou explícito). Retorna erro para nil
+// em vez do antigo fallback "" (layout legado), que era um caminho morto
+// mantido apenas para compatibilidade com vídeos pré-migração de projeto.
 func ResolveVideoRootDir(db *sql.DB, projectID *int64) (string, error) {
 	if projectID == nil {
-		return "", nil
+		return "", fmt.Errorf("project_id é obrigatório: todo vídeo deve pertencer a um projeto")
 	}
 	project, err := GetProjectByID(db, *projectID)
 	if err != nil {

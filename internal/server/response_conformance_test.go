@@ -17,7 +17,6 @@ import (
 	"github.com/go-chi/chi/v5"
 
 	"github.com/klawdyo/streamedia/internal/apiresponse"
-	"github.com/klawdyo/streamedia/internal/auth"
 	"github.com/klawdyo/streamedia/internal/middleware"
 	"github.com/klawdyo/streamedia/internal/models"
 )
@@ -185,13 +184,18 @@ func TestAllJSONRoutes_SuccessResponses_FollowEnvelope(t *testing.T) {
 		}
 	})
 
-	// --- Upload init com HMAC válido ---
+	// --- Upload init com X-Project-Key válido ---
 	t.Run("POST /upload/init com auth", func(t *testing.T) {
+		project, key, err := models.CreateProject(db, "Conformance Test")
+		if err != nil {
+			t.Fatalf("CreateProject: %v", err)
+		}
+		_ = project
+
 		body := `{"video_id":"` + uuidUploadInit + `","declared_size_bytes":1024}`
-		sig := auth.SignBackendRequest(cfg.UploadTokenSecret, []byte(body))
 
 		req := httptest.NewRequest(http.MethodPost, "/upload/init", strings.NewReader(body))
-		req.Header.Set("X-Upload-Auth", sig)
+		req.Header.Set("X-Project-Key", key)
 		rec := httptest.NewRecorder()
 		router.ServeHTTP(rec, req)
 

@@ -16,7 +16,7 @@ import (
 func TestStatusRoute_ValidRequest(t *testing.T) {
 	cfg := newTestConfig(t)
 	database := newTestDB(t)
-	insertVideo(t, database, testVideoID, "ready")
+	insertVideo(t, database, testVideoID, "ready", nil)
 
 	h := NewStatusHandler(cfg, database)
 
@@ -56,7 +56,7 @@ func TestStatusRoute_ValidRequest(t *testing.T) {
 func TestStatusRoute_InvalidAuth(t *testing.T) {
 	cfg := newTestConfig(t)
 	database := newTestDB(t)
-	insertVideo(t, database, testVideoID, "ready")
+	insertVideo(t, database, testVideoID, "ready", nil)
 
 	h := NewStatusHandler(cfg, database)
 
@@ -76,7 +76,7 @@ func TestStatusRoute_InvalidAuth(t *testing.T) {
 func TestStatusRoute_InvalidAuth_MissingHeader(t *testing.T) {
 	cfg := newTestConfig(t)
 	database := newTestDB(t)
-	insertVideo(t, database, testVideoID, "ready")
+	insertVideo(t, database, testVideoID, "ready", nil)
 
 	h := NewStatusHandler(cfg, database)
 

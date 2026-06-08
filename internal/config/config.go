@@ -21,8 +21,7 @@ type Config struct {
 	SQLitePath           string
 	QueueMaxSize         int
 	TranscodeWorkers     int
-	UploadTokenTTL       time.Duration // de segundos (UPLOAD_TOKEN_TTL_SECONDS)
-	UploadTokenScopedTTL time.Duration // de segundos (UPLOAD_TOKEN_SCOPED_TTL_SECONDS) — token de upload de projeto (T33, issue #6): vida curta, 15-20min
+	UploadTokenTTL       time.Duration // de segundos (UPLOAD_TOKEN_TTL_SECONDS) — TTL do token de upload (vida curta, ~20min)
 	PlayTokenMaxTTL      time.Duration // de segundos (PLAY_TOKEN_MAX_TTL_SECONDS)
 	UploadIdleTimeout    time.Duration // de segundos (UPLOAD_IDLE_TIMEOUT_SECONDS)
 	TranscodeStuckTime   time.Duration // de segundos (TRANSCODE_STUCK_SECONDS)
@@ -65,16 +64,11 @@ func Load() (*Config, error) {
 	// Padronização em segundos (issue #4): todas as variáveis de tempo usam
 	// o sufixo _SECONDS, eliminando a mistura de unidades (horas e minutos)
 	// que existia antes (UPLOAD_TOKEN_TTL_H, UPLOAD_IDLE_TIMEOUT_MIN, etc.).
-	// Defaults equivalentes aos valores anteriores: 6h = 21600s, 10min = 600s,
-	// 30min = 1800s.
-	uploadTokenTTLSeconds, err := getEnvInt("UPLOAD_TOKEN_TTL_SECONDS", 21600)
-	if err != nil {
-		return nil, err
-	}
-	// Token de upload escopado a projeto (T33, issue #6): a issue pede vida
-	// curta — "no máximo 15 ou 20 minutos" — bem menor que o TTL global do
-	// fluxo legado (UPLOAD_TOKEN_TTL_SECONDS, default 6h). Default: 1200s = 20min.
-	uploadTokenScopedTTLSeconds, err := getEnvInt("UPLOAD_TOKEN_SCOPED_TTL_SECONDS", 1200)
+	// Defaults equivalentes aos valores anteriores: 10min = 600s, 30min = 1800s.
+	// UPLOAD_TOKEN_TTL_SECONDS: TTL do token de upload. Com a unificação da
+	// issue #10 (T50), o valor padrão passou de 21600 (6h, semântica do fluxo
+	// legado HMAC que foi removido na T49) para 1200 (20min, "um único arquivo").
+	uploadTokenTTLSeconds, err := getEnvInt("UPLOAD_TOKEN_TTL_SECONDS", 1200)
 	if err != nil {
 		return nil, err
 	}
@@ -115,7 +109,6 @@ func Load() (*Config, error) {
 		QueueMaxSize:         queueMaxSize,
 		TranscodeWorkers:     transcodeWorkers,
 		UploadTokenTTL:       time.Second * time.Duration(uploadTokenTTLSeconds),
-		UploadTokenScopedTTL: time.Second * time.Duration(uploadTokenScopedTTLSeconds),
 		PlayTokenMaxTTL:      time.Second * time.Duration(playTokenMaxTTLSeconds),
 		UploadIdleTimeout:    time.Second * time.Duration(uploadIdleTimeoutSeconds),
 		TranscodeStuckTime:   time.Second * time.Duration(transcodeStuckSeconds),

@@ -23,12 +23,10 @@ func fazRequestInitComProjectKey(masterKey string, body []byte) *http.Request {
 }
 
 // TestUploadToken_ExpiresInScopedTTL verifica que um upload autenticado com
-// a chave mestra de um projeto gera um token com TTL curto
-// (UploadTokenScopedTTL, ~15-20min) e vinculado a project_id + video_id —
-// não o TTL global de horas do fluxo legado.
+// a chave mestra de um projeto gera um token com TTL curto (~20min).
 func TestUploadToken_ExpiresInScopedTTL(t *testing.T) {
 	cfg := configInit(t)
-	cfg.UploadTokenScopedTTL = 18 * time.Minute
+	cfg.UploadTokenTTL = 18 * time.Minute
 	database := abreDBInit(t)
 	handler := NewInitHandler(cfg, database)
 
@@ -70,11 +68,8 @@ func TestUploadToken_ExpiresInScopedTTL(t *testing.T) {
 	}
 
 	gotTTL := uploadToken.ExpiresAt.Sub(time.Now())
-	if gotTTL <= 0 || gotTTL > cfg.UploadTokenScopedTTL {
-		t.Errorf("TTL do token deveria ser curto (~%s), obteve %s", cfg.UploadTokenScopedTTL, gotTTL)
-	}
-	if gotTTL >= cfg.UploadTokenTTL {
-		t.Errorf("TTL escopado (%s) não deveria alcançar o TTL global legado (%s)", gotTTL, cfg.UploadTokenTTL)
+	if gotTTL <= 0 || gotTTL > cfg.UploadTokenTTL {
+		t.Errorf("TTL do token deveria ser curto (~%s), obteve %s", cfg.UploadTokenTTL, gotTTL)
 	}
 
 	// O vídeo também deve carregar o vínculo com o projeto.

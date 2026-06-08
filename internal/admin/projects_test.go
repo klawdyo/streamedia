@@ -260,11 +260,10 @@ func TestIssueUploadToken_RequiresProjectMasterKey(t *testing.T) {
 
 // TestIssueUploadToken_ShortTTL verifica que o token emitido por
 // POST /admin/projects/{slug}/upload-tokens expira dentro da janela curta
-// configurada para uploads escopados (UploadTokenScopedTTL, ~15-20min,
-// T33) — não o TTL longo do fluxo legado.
+// configurada para uploads (UploadTokenTTL, ~20min, issue #10/T50).
 func TestIssueUploadToken_ShortTTL(t *testing.T) {
 	database, cfg := setupAdminTest(t)
-	cfg.UploadTokenScopedTTL = 18 * time.Minute
+	cfg.UploadTokenTTL = 18 * time.Minute
 	handler := NewAdminHandler(cfg, database, &mockQueue{})
 	router := newProjectsTestRouter(t, handler, cfg.AdminToken, database)
 

@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/klawdyo/streamedia/internal/auth"
+	"github.com/klawdyo/streamedia/internal/models"
 )
 
 // secondVideoID é um segundo UUID v4 válido fixo, distinto de testVideoID,
@@ -24,12 +25,17 @@ const secondVideoID = "b1ffcd88-8d1a-4d59-9c7c-7cc0ce491b22"
 func TestPlayToken_ScopedToSingleVideo(t *testing.T) {
 	cfg := newTestConfig(t)
 	database := newTestDB(t)
-	insertVideo(t, database, testVideoID, "ready")
-	insertVideo(t, database, secondVideoID, "ready")
+
+	project, err := models.EnsureDefaultProject(database)
+	if err != nil {
+		t.Fatalf("EnsureDefaultProject: %v", err)
+	}
+	insertVideo(t, database, testVideoID, "ready", &project.ID)
+	insertVideo(t, database, secondVideoID, "ready", &project.ID)
 
 	const m3u8Content = "#EXTM3U\n#EXT-X-VERSION:3\n"
-	writeFile(t, filepath.Join(cfg.MediaDir, testVideoID, "master.m3u8"), m3u8Content)
-	writeFile(t, filepath.Join(cfg.MediaDir, secondVideoID, "master.m3u8"), m3u8Content)
+	writeFile(t, filepath.Join(cfg.MediaDir, project.RootDir, testVideoID, "master.m3u8"), m3u8Content)
+	writeFile(t, filepath.Join(cfg.MediaDir, project.RootDir, secondVideoID, "master.m3u8"), m3u8Content)
 
 	expires := time.Now().Add(time.Hour).Unix()
 	tokenForFirst := auth.GeneratePlayToken(testSecret, testVideoID, expires)

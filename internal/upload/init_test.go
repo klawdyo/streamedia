@@ -11,7 +11,6 @@ import (
 	"time"
 
 	"github.com/klawdyo/streamedia/internal/apiresponse"
-	"github.com/klawdyo/streamedia/internal/auth"
 	"github.com/klawdyo/streamedia/internal/config"
 	"github.com/klawdyo/streamedia/internal/db"
 	"github.com/klawdyo/streamedia/internal/models"
@@ -21,12 +20,11 @@ import (
 func configInit(t *testing.T) *config.Config {
 	t.Helper()
 	return &config.Config{
-		UploadTokenSecret:  "secret-init-test",
-		WebhookURL:         "http://localhost",
-		WebhookSecret:      "wh-secret",
-		MaxUploadSizeBytes: 50 * 1024 * 1024,
-		UploadTokenTTL:     6 * time.Hour,
-		UploadTmpDir:       t.TempDir(),
+		WebhookURL:          "http://localhost",
+		WebhookSecret:       "wh-secret",
+		MaxUploadSizeBytes:  50 * 1024 * 1024,
+		UploadTokenTTL: 15 * time.Minute,
+		UploadTmpDir:        t.TempDir(),
 	}
 }
 
@@ -41,14 +39,23 @@ func abreDBInit(t *testing.T) *sql.DB {
 	return database
 }
 
-// fazRequestInit constrói um POST /upload/init com HMAC correto.
-func fazRequestInit(t *testing.T, cfg *config.Config, body []byte) *http.Request {
+// fazRequestInit constrói um POST /upload/init autenticado com X-Project-Key.
+func fazRequestInit(t *testing.T, body []byte, projectKey string) *http.Request {
 	t.Helper()
-	sig := auth.SignBackendRequest(cfg.UploadTokenSecret, body)
 	req := httptest.NewRequest(http.MethodPost, "/upload/init", bytes.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("X-Upload-Auth", sig)
+	req.Header.Set("X-Project-Key", projectKey)
 	return req
+}
+
+// setupProject cria um projeto de teste e retorna sua chave mestra.
+func setupProject(t *testing.T, db *sql.DB) string {
+	t.Helper()
+	_, key, err := models.CreateProject(db, "Test Project")
+	if err != nil {
+		t.Fatalf("CreateProject: %v", err)
+	}
+	return key
 }
 
 func TestUploadInit_Success(t *testing.T) {
@@ -56,9 +63,10 @@ func TestUploadInit_Success(t *testing.T) {
 	cfg := configInit(t)
 	database := abreDBInit(t)
 	handler := NewInitHandler(cfg, database)
+	projectKey := setupProject(t, database)
 
 	body := []byte(`{"video_id":"550e8400-e29b-41d4-a716-446655440010","declared_size_bytes":1024000}`)
-	req := fazRequestInit(t, cfg, body)
+	req := fazRequestInit(t, body, projectKey)
 	rec := httptest.NewRecorder()
 	handler.ServeHTTP(rec, req)
 
@@ -85,8 +93,8 @@ func TestUploadInit_Success(t *testing.T) {
 	}
 }
 
-func TestUploadInit_InvalidHMAC(t *testing.T) {
-	// Verifica que requisição com HMAC errado é rejeitada com 401.
+func TestUploadInit_InvalidProjectKey(t *testing.T) {
+	// Verifica que requisição com X-Project-Key inválida é rejeitada com 401.
 	cfg := configInit(t)
 	database := abreDBInit(t)
 	handler := NewInitHandler(cfg, database)
@@ -94,18 +102,18 @@ func TestUploadInit_InvalidHMAC(t *testing.T) {
 	body := []byte(`{"video_id":"550e8400-e29b-41d4-a716-446655440011","declared_size_bytes":1024}`)
 	req := httptest.NewRequest(http.MethodPost, "/upload/init", bytes.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("X-Upload-Auth", "assinatura-errada-123")
+	req.Header.Set("X-Project-Key", "chave-invalida-zzz")
 
 	rec := httptest.NewRecorder()
 	handler.ServeHTTP(rec, req)
 
 	if rec.Code != http.StatusUnauthorized {
-		t.Errorf("HMAC inválido deveria retornar 401, obteve %d", rec.Code)
+		t.Errorf("chave de projeto inválida deveria retornar 401, obteve %d", rec.Code)
 	}
 }
 
 func TestUploadInit_MissingAuthHeader(t *testing.T) {
-	// Verifica que requisição sem header X-Upload-Auth retorna 401.
+	// Verifica que requisição sem header X-Project-Key retorna 401.
 	cfg := configInit(t)
 	database := abreDBInit(t)
 	handler := NewInitHandler(cfg, database)
@@ -113,7 +121,7 @@ func TestUploadInit_MissingAuthHeader(t *testing.T) {
 	body := []byte(`{"video_id":"550e8400-e29b-41d4-a716-446655440012","declared_size_bytes":1024}`)
 	req := httptest.NewRequest(http.MethodPost, "/upload/init", bytes.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
-	// Sem X-Upload-Auth
+	// Sem X-Project-Key
 
 	rec := httptest.NewRecorder()
 	handler.ServeHTTP(rec, req)
@@ -128,9 +136,10 @@ func TestUploadInit_InvalidVideoID_NotUUID(t *testing.T) {
 	cfg := configInit(t)
 	database := abreDBInit(t)
 	handler := NewInitHandler(cfg, database)
+	projectKey := setupProject(t, database)
 
 	body := []byte(`{"video_id":"nao-e-um-uuid-valido","declared_size_bytes":1024}`)
-	req := fazRequestInit(t, cfg, body)
+	req := fazRequestInit(t, body, projectKey)
 	rec := httptest.NewRecorder()
 	handler.ServeHTTP(rec, req)
 
@@ -144,9 +153,10 @@ func TestUploadInit_InvalidVideoID_PathTraversal(t *testing.T) {
 	cfg := configInit(t)
 	database := abreDBInit(t)
 	handler := NewInitHandler(cfg, database)
+	projectKey := setupProject(t, database)
 
 	body := []byte(`{"video_id":"../etc/passwd","declared_size_bytes":1024}`)
-	req := fazRequestInit(t, cfg, body)
+	req := fazRequestInit(t, body, projectKey)
 	rec := httptest.NewRecorder()
 	handler.ServeHTTP(rec, req)
 
@@ -167,11 +177,12 @@ func TestUploadInit_DuplicateVideoID(t *testing.T) {
 		t.Fatal(err)
 	}
 
+	projectKey := setupProject(t, database)
 	body, _ := json.Marshal(map[string]interface{}{
 		"video_id":            videoID,
 		"declared_size_bytes": 1024,
 	})
-	req := fazRequestInit(t, cfg, body)
+	req := fazRequestInit(t, body, projectKey)
 	rec := httptest.NewRecorder()
 	handler.ServeHTTP(rec, req)
 
@@ -185,9 +196,10 @@ func TestUploadInit_ZeroSize(t *testing.T) {
 	cfg := configInit(t)
 	database := abreDBInit(t)
 	handler := NewInitHandler(cfg, database)
+	projectKey := setupProject(t, database)
 
 	body := []byte(`{"video_id":"550e8400-e29b-41d4-a716-446655440014","declared_size_bytes":0}`)
-	req := fazRequestInit(t, cfg, body)
+	req := fazRequestInit(t, body, projectKey)
 	rec := httptest.NewRecorder()
 	handler.ServeHTTP(rec, req)
 
@@ -202,9 +214,10 @@ func TestUploadInit_SizeExceedsLimit(t *testing.T) {
 	cfg.MaxUploadSizeBytes = 1024 // limite de 1KB para o teste
 	database := abreDBInit(t)
 	handler := NewInitHandler(cfg, database)
+	projectKey := setupProject(t, database)
 
 	body := []byte(`{"video_id":"550e8400-e29b-41d4-a716-446655440015","declared_size_bytes":9999999}`)
-	req := fazRequestInit(t, cfg, body)
+	req := fazRequestInit(t, body, projectKey)
 	rec := httptest.NewRecorder()
 	handler.ServeHTTP(rec, req)
 
@@ -218,13 +231,14 @@ func TestUploadInit_TokenStoredInDB(t *testing.T) {
 	cfg := configInit(t)
 	database := abreDBInit(t)
 	handler := NewInitHandler(cfg, database)
+	projectKey := setupProject(t, database)
 
 	videoID := "550e8400-e29b-41d4-a716-446655440016"
 	body, _ := json.Marshal(map[string]interface{}{
 		"video_id":            videoID,
 		"declared_size_bytes": 2048,
 	})
-	req := fazRequestInit(t, cfg, body)
+	req := fazRequestInit(t, body, projectKey)
 	rec := httptest.NewRecorder()
 	handler.ServeHTTP(rec, req)
 
@@ -247,13 +261,14 @@ func TestUploadInit_VideoCreatedInDB(t *testing.T) {
 	cfg := configInit(t)
 	database := abreDBInit(t)
 	handler := NewInitHandler(cfg, database)
+	projectKey := setupProject(t, database)
 
 	videoID := "550e8400-e29b-41d4-a716-446655440017"
 	body, _ := json.Marshal(map[string]interface{}{
 		"video_id":            videoID,
 		"declared_size_bytes": 4096,
 	})
-	req := fazRequestInit(t, cfg, body)
+	req := fazRequestInit(t, body, projectKey)
 	rec := httptest.NewRecorder()
 	handler.ServeHTTP(rec, req)
 
@@ -279,6 +294,7 @@ func TestUploadInit_MalformedJSON(t *testing.T) {
 	cfg := configInit(t)
 	database := abreDBInit(t)
 	handler := NewInitHandler(cfg, database)
+	projectKey := setupProject(t, database)
 
 	cases := []struct {
 		name     string
@@ -316,8 +332,7 @@ func TestUploadInit_MalformedJSON(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			req := httptest.NewRequest(http.MethodPost, "/upload/init", bytes.NewReader([]byte(tc.jsonBody)))
 			req.Header.Set("Content-Type", "application/json")
-			sig := auth.SignBackendRequest(cfg.UploadTokenSecret, []byte(tc.jsonBody))
-			req.Header.Set("X-Upload-Auth", sig)
+			req.Header.Set("X-Project-Key", projectKey)
 			rec := httptest.NewRecorder()
 			handler.ServeHTTP(rec, req)
 
@@ -334,6 +349,7 @@ func TestUploadInit_NegativeSizeAndOverflow(t *testing.T) {
 	cfg := configInit(t)
 	database := abreDBInit(t)
 	handler := NewInitHandler(cfg, database)
+	projectKey := setupProject(t, database)
 
 	cases := []struct {
 		name    string
@@ -375,7 +391,7 @@ func TestUploadInit_NegativeSizeAndOverflow(t *testing.T) {
 				"video_id":            uuid,
 				"declared_size_bytes": tc.size,
 			})
-			req := fazRequestInit(t, cfg, body)
+			req := fazRequestInit(t, body, projectKey)
 			rec := httptest.NewRecorder()
 			handler.ServeHTTP(rec, req)
 
@@ -393,6 +409,7 @@ func TestUploadInit_InvalidUUIDFormats(t *testing.T) {
 	cfg := configInit(t)
 	database := abreDBInit(t)
 	handler := NewInitHandler(cfg, database)
+	projectKey := setupProject(t, database)
 
 	cases := []struct {
 		name   string
@@ -435,7 +452,7 @@ func TestUploadInit_InvalidUUIDFormats(t *testing.T) {
 				"video_id":            tc.videoID,
 				"declared_size_bytes": 1024,
 			})
-			req := fazRequestInit(t, cfg, body)
+			req := fazRequestInit(t, body, projectKey)
 			rec := httptest.NewRecorder()
 			handler.ServeHTTP(rec, req)
 
@@ -452,6 +469,7 @@ func TestUploadInit_BodyTooLarge(t *testing.T) {
 	cfg := configInit(t)
 	database := abreDBInit(t)
 	handler := NewInitHandler(cfg, database)
+	projectKey := setupProject(t, database)
 
 	// Cria um body com 2MB (limite é 1MB)
 	largeBody := make([]byte, 2*1024*1024)
@@ -461,8 +479,7 @@ func TestUploadInit_BodyTooLarge(t *testing.T) {
 
 	req := httptest.NewRequest(http.MethodPost, "/upload/init", bytes.NewReader(largeBody))
 	req.Header.Set("Content-Type", "application/json")
-	sig := auth.SignBackendRequest(cfg.UploadTokenSecret, largeBody[:1024*1024]) // signa apenas 1MB
-	req.Header.Set("X-Upload-Auth", sig)
+	req.Header.Set("X-Project-Key", projectKey)
 	rec := httptest.NewRecorder()
 	handler.ServeHTTP(rec, req)
 
@@ -472,76 +489,13 @@ func TestUploadInit_BodyTooLarge(t *testing.T) {
 	}
 }
 
-// TestUploadInit_HMACConstantTime é um teste documental para time-constant HMAC
-func TestUploadInit_HMACConstantTime(t *testing.T) {
-	cfg := configInit(t)
-	database := abreDBInit(t)
-	handler := NewInitHandler(cfg, database)
-
-	videoID := "550e8400-e29b-41d4-a716-446655440100"
-	body, _ := json.Marshal(map[string]interface{}{
-		"video_id":            videoID,
-		"declared_size_bytes": 1024,
-	})
-
-	// Calcula HMAC correto
-	correctSig := auth.SignBackendRequest(cfg.UploadTokenSecret, body)
-
-	cases := []struct {
-		name      string
-		signature string
-		desc      string
-		shouldAccept bool
-	}{
-		{
-			name:      "correct_sig",
-			signature: correctSig,
-			desc:      "HMAC correto deve ser aceito",
-			shouldAccept: true,
-		},
-		{
-			name:      "first_byte_wrong",
-			signature: "zz" + correctSig[2:],
-			desc:      "HMAC com primeiro byte errado deve ser rejeitado",
-			shouldAccept: false,
-		},
-		{
-			name:      "last_byte_wrong",
-			signature: correctSig[:len(correctSig)-2] + "zz",
-			desc:      "HMAC com último byte errado deve ser rejeitado",
-			shouldAccept: false,
-		},
-		{
-			name:      "middle_byte_wrong",
-			signature: correctSig[:len(correctSig)/2] + "zz" + correctSig[len(correctSig)/2+2:],
-			desc:      "HMAC com byte do meio errado deve ser rejeitado",
-			shouldAccept: false,
-		},
-	}
-
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			req := httptest.NewRequest(http.MethodPost, "/upload/init", bytes.NewReader(body))
-			req.Header.Set("Content-Type", "application/json")
-			req.Header.Set("X-Upload-Auth", tc.signature)
-			rec := httptest.NewRecorder()
-			handler.ServeHTTP(rec, req)
-
-			if tc.shouldAccept && rec.Code != http.StatusOK {
-				t.Errorf("%s: esperava aceitar, obteve %d", tc.desc, rec.Code)
-			} else if !tc.shouldAccept && rec.Code == http.StatusOK {
-				t.Errorf("%s: esperava rejeitar, mas foi aceito", tc.desc)
-			}
-		})
-	}
-}
-
 // TestUploadInit_AnyUUIDVersionAccepted verifica que qualquer versão de UUID
 // (v1, v3, v4, v5, v7) informada pelo cliente é aceita (T44).
 func TestUploadInit_AnyUUIDVersionAccepted(t *testing.T) {
 	cfg := configInit(t)
 	database := abreDBInit(t)
 	handler := NewInitHandler(cfg, database)
+	projectKey := setupProject(t, database)
 
 	cases := []struct {
 		name    string
@@ -560,7 +514,7 @@ func TestUploadInit_AnyUUIDVersionAccepted(t *testing.T) {
 				"video_id":            tc.videoID,
 				"declared_size_bytes": 1024,
 			})
-			req := fazRequestInit(t, cfg, body)
+			req := fazRequestInit(t, body, projectKey)
 			rec := httptest.NewRecorder()
 			handler.ServeHTTP(rec, req)
 

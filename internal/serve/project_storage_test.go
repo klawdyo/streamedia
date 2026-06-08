@@ -93,33 +93,44 @@ func TestServingResolvesProjectDirectory(t *testing.T) {
 	}
 }
 
-// TestServingFallsBackToLegacyDirectory verifica que vídeos sem project_id
-// (layout legado, project_id NULL) continuam sendo servidos a partir de
-// <MEDIA_DIR>/<video_id>/... — models.ResolveVideoRootDir resolve "" para
-// projectID nil, preservando compatibilidade (issue #6, T34).
-func TestServingFallsBackToLegacyDirectory(t *testing.T) {
+// TestServingUsesDefaultProjectDirectory verifica que vídeos criados com o
+// projeto padrão (EnsureDefaultProject) — substituindo o antigo layout legado
+// (project_id NULL, removido na issue #10, T48) — são servidos a partir de
+// <MEDIA_DIR>/<slug-do-projeto-padrao>/<video_id>/...
+func TestServingUsesDefaultProjectDirectory(t *testing.T) {
 	cfg := newTestConfig(t)
 	database := newTestDB(t)
 
-	insertVideo(t, database, testVideoID, "ready")
+	project, err := models.EnsureDefaultProject(database)
+	if err != nil {
+		t.Fatalf("EnsureDefaultProject: %v", err)
+	}
+
+	// Insere um vídeo "ready" associado ao projeto padrão (EnsureDefaultProject).
+	if _, err := database.Exec(
+		"INSERT INTO videos (video_id, status, project_id) VALUES (?, ?, ?)",
+		thirdVideoID, "ready", project.ID,
+	); err != nil {
+		t.Fatalf("erro ao inserir vídeo: %v", err)
+	}
 
 	const masterContent = "#EXTM3U\n#EXT-X-VERSION:3\n480/playlist.m3u8\n"
-	masterPath := filepath.Join(cfg.MediaDir, testVideoID, "master.m3u8")
+	masterPath := filepath.Join(cfg.MediaDir, project.RootDir, thirdVideoID, "master.m3u8")
 	writeFile(t, masterPath, masterContent)
 
 	expires := time.Now().Add(time.Hour).Unix()
-	token := auth.GeneratePlayToken(testSecret, testVideoID, expires)
+	token := auth.GeneratePlayToken(testSecret, thirdVideoID, expires)
 
 	masterHandler := NewMasterHandler(cfg, database)
 	req := httptest.NewRequest(http.MethodGet,
-		"/videos/"+testVideoID+"/master.m3u8?expires="+itoa(expires)+"&token="+token, nil)
+		"/videos/"+thirdVideoID+"/master.m3u8?expires="+itoa(expires)+"&token="+token, nil)
 	rec := httptest.NewRecorder()
 	masterHandler.ServeHTTP(rec, req)
 
 	if rec.Code != http.StatusOK {
-		t.Fatalf("esperava 200 ao servir layout legado, obteve %d (corpo: %s)", rec.Code, rec.Body.String())
+		t.Fatalf("esperava 200 ao servir vídeo do projeto padrão, obteve %d (corpo: %s)", rec.Code, rec.Body.String())
 	}
 	if rec.Body.String() != masterContent {
-		t.Errorf("corpo inesperado: esperava servir o master.m3u8 do diretório legado <MEDIA_DIR>/<video_id>/")
+		t.Errorf("corpo inesperado: esperava servir o master.m3u8 do diretório <MEDIA_DIR>/<slug-do-projeto-padrao>/<video_id>/")
 	}
 }

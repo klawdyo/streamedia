@@ -10,10 +10,10 @@ import (
 	"time"
 
 	"github.com/klawdyo/streamedia/internal/apiresponse"
-	"github.com/klawdyo/streamedia/internal/auth"
 	"github.com/klawdyo/streamedia/internal/config"
 	"github.com/klawdyo/streamedia/internal/db"
 	"github.com/klawdyo/streamedia/internal/middleware"
+	"github.com/klawdyo/streamedia/internal/models"
 	"github.com/klawdyo/streamedia/internal/transcode"
 	"github.com/klawdyo/streamedia/internal/webhook"
 )
@@ -121,18 +121,23 @@ func TestAllRoutesRegistered(t *testing.T) {
 	}
 }
 
-// TestUploadInitE2E faz um POST /upload/init completo com HMAC válido e
-// verifica que a resposta 200 traz upload_url e token.
+// TestUploadInitE2E faz um POST /upload/init completo com X-Project-Key válido
+// e verifica que a resposta 200 traz upload_url e token.
 func TestUploadInitE2E(t *testing.T) {
 	cfg := newTestConfig(t)
-	router, _ := newTestRouter(t, cfg)
+	router, db := newTestRouter(t, cfg)
+
+	project, key, err := models.CreateProject(db, "Server Test")
+	if err != nil {
+		t.Fatalf("CreateProject: %v", err)
+	}
+	_ = project
 
 	const validUUID = "550e8400-e29b-4100-8716-446655440000"
 	body := []byte(`{"video_id":"` + validUUID + `","declared_size_bytes":1024}`)
-	sig := auth.SignBackendRequest(cfg.UploadTokenSecret, body)
 
 	req := httptest.NewRequest(http.MethodPost, "/upload/init", strings.NewReader(string(body)))
-	req.Header.Set("X-Upload-Auth", sig)
+	req.Header.Set("X-Project-Key", key)
 	rec := httptest.NewRecorder()
 	router.ServeHTTP(rec, req)
 
