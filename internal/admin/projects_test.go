@@ -154,8 +154,8 @@ func TestListProjects_OmitsMasterKeyHash(t *testing.T) {
 	dataJSON, _ := json.Marshal(env.Data)
 	var resp listProjectsResponse
 	json.Unmarshal(dataJSON, &resp)
-	if resp.Total != 2 {
-		t.Errorf("esperava 2 projetos, obteve %d", resp.Total)
+	if resp.Total != 3 { // 2 criados no teste + 1 "Default" da migration
+		t.Errorf("esperava 3 projetos, obteve %d", resp.Total)
 	}
 }
 

@@ -107,11 +107,11 @@ func TestListProjects_ReturnsAllOrderedByName(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ListProjects retornou erro: %v", err)
 	}
-	if len(projects) != 2 {
-		t.Fatalf("esperava 2 projetos, obteve %d", len(projects))
+	if len(projects) != 3 {
+		t.Fatalf("esperava 3 projetos (Alpha, Default, Zeta), obteve %d", len(projects))
 	}
-	if projects[0].Name != "Alpha" || projects[1].Name != "Zeta" {
-		t.Errorf("ordem inesperada: %q, %q", projects[0].Name, projects[1].Name)
+	if projects[0].Name != "Alpha" || projects[1].Name != "Default" || projects[2].Name != "Zeta" {
+		t.Errorf("ordem inesperada: %q, %q, %q", projects[0].Name, projects[1].Name, projects[2].Name)
 	}
 }
 
