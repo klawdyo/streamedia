@@ -6,9 +6,9 @@ Status possíveis: `pending` | `in-progress` | `done` | `blocked`
 ## Progresso geral
 
 ```
-Total: 55 tarefas
-Done:  54
-Pending: 1 (T55: rota /api)
+Total: 68 tarefas
+Done:  67
+Pending: 1 (T55)
 ```
 
 ## Lista de tarefas
@@ -70,8 +70,51 @@ Pending: 1 (T55: rota /api)
 | T53 | `.tasks/53-fix-listbystatus-project-id.md` | Corrigir ListByStatus — omissão de project_id na query SELECT | done | depende T04, T33 — origem: análise de código — bug funcional |
 | T54 | `.tasks/54-fix-queue-enqueue-silent-db-error.md` | Corrigir Queue.Enqueue — ignora erro de banco silenciosamente | done | depende T10 — origem: análise de código — bug de consistência |
 | T55 | `.tasks/55-api-version-route.md` | Rota GET /api — nome, status e versão da API com rate limiting baixo | pending | origem: solicitação direta — cria pacote internal/version com ldflags, expõe versão sem autenticação |
+| T56 | `.tasks/56-fix-nil-deref-webhook-send.md` | Fix: nil pointer dereference em `sendWebhook` quando `GetVideo` falha | done | **critica** — crash em produção; server.go:43 |
+| T57 | `.tasks/57-fix-tus-handler-error-ignored.md` | Fix: erro de `NewTUSHandler` ignorado — servidor sobe com handler nil | done | **critica** — crash em produção; server.go:57 |
+| T58 | `.tasks/58-fix-enqueue-bypass-state-machine.md` | Fix: `Enqueue` bypassa máquina de estados com UPDATE direto | done | **critica** — corrupção de estado; queue.go:92 |
+| T59 | `.tasks/59-fix-tus-consumehooks-no-shutdown.md` | Fix: goroutine `consumeHooks` sem graceful shutdown | done | **critica** — goroutine leak; tus.go:114 |
+| T60 | `.tasks/60-fix-ratelimiter-memory-leak.md` | Fix: `sync.Map` do rate limiter sem eviction — memory leak | done | **alta** — eviction periódica com limiterEntry.lastSeen |
+| T61 | `.tasks/61-fix-adminauth-silent-db-error.md` | Fix: `AdminAuth` silencia erro de banco como 401 | done | **alta** — distingue sql.ErrNoRows de erro real |
+| T62 | `.tasks/62-fix-decompose-replacer-allocation.md` | Fix: `strings.NewReplacer` recriado a cada chamada de `decompose` | done | **alta** — movido para var de pacote |
+| T63 | `.tasks/63-fix-timestamp-format-inconsistency.md` | Fix: formato de timestamp inconsistente entre `Enqueue` e demais escritas | done | **alta** — resolvida junto com T58 |
+| T64 | `.tasks/64-refactor-video-scan-duplication.md` | Refactor: extrair `scanVideoRow` — código de scan duplicado 3x | done | **media** — ScanVideoRow exportada, ~80 linhas de duplicação removidas |
+| T65 | `.tasks/65-fix-handle-transcode-failure-silent-errors.md` | Fix: `handleTranscodeFailure` ignora erros de banco silenciosamente | done | **media** — logging adicionado, best-effort mantido |
+| T66 | `.tasks/66-fix-recovery-hardcoded-status-strings.md` | Fix: strings literais de status em `recovery.go` em vez de constantes | done | **media** — constantes models.Status* usadas |
+| T67 | `.tasks/67-fix-jobs-stop-no-waitgroup.md` | Fix: jobs periódicos sem `WaitGroup` no `Stop` — race no shutdown | done | **media** — WaitGroup em todos os 3 jobs |
+| T68 | `.tasks/68-fix-webhook-timeout-mismatch.md` | Fix: timeout incoerente no webhook client (30s client vs 10s context) | done | **media** — client timeout removido, só context 10s |
 
-## Próxima onda — ordem de prioridade sugerida (T31-T37)
+## Próxima onda — correções da análise de código (T56-T68)
+
+Ordem de prioridade por severidade e dependências:
+
+### Críticas (crash em produção / corrupção de estado)
+1. **T56** — nil deref no webhook (crash imediato, fix trivial)
+2. **T57** — TUS handler nil (crash em qualquer upload, fix trivial)
+3. **T58** — Enqueue bypassa state machine (corrupção de estado; T63
+   pode ser resolvida junto se T58 usar `models.UpdateStatus`)
+4. **T59** — consumeHooks sem shutdown (goroutine leak)
+
+### Altas (degradação progressiva / erros invisíveis)
+5. **T61** — AdminAuth silencia erro de banco (fix trivial, alto impacto diagnóstico)
+6. **T62** — Replacer alocado a cada chamada (fix de uma linha)
+7. **T63** — Timestamp inconsistente (pode ser resolvida junto com T58)
+8. **T60** — Rate limiter memory leak (mais complexa, exige design de eviction)
+
+### Médias (qualidade / manutenção / robustez)
+9. **T65** — handleTranscodeFailure silent errors (adicionar logs)
+10. **T66** — Recovery hardcoded strings (substituir por constantes)
+11. **T67** — Jobs sem WaitGroup (adicionar sync no shutdown)
+12. **T68** — Webhook timeout mismatch (alinhar timeouts)
+13. **T64** — Scan duplicado 3x (refatoração maior, mas previne bugs futuros)
+
+Notas:
+- T58 + T63 podem ser resolvidas numa única task (mesmo arquivo, mesmo SQL)
+- T56, T57, T61, T62 são fixes triviais (1-5 linhas cada) e podem ser
+  feitas todas em sequência rápida
+- T60 é a mais complexa — exige design de eviction e goroutine de cleanup
+
+## Onda anterior — ordem de prioridade (T31-T37)
 
 A ordem abaixo respeita as dependências técnicas reais entre as tarefas
 (uma micro-tarefa só aparece depois de tudo que ela precisa já estar pronto).
@@ -101,6 +144,28 @@ Resumo por issue:
   a cadeia de projetos)
 
 ## Log de mudanças de status
+
+[2026-06-07] T56: pending → done (sendWebhook trata erros de GetVideo e wc.Send — evita nil deref)
+[2026-06-07] T57: pending → done (NewRouter retorna (Handler, io.Closer, error) — TUS handler nil impossível)
+[2026-06-07] T58: pending → done (Enqueue usa models.UpdateStatus — valida transições via state machine)
+[2026-06-07] T59: pending → done (consumeHooks com stopCh + WaitGroup + ok check — graceful shutdown)
+[2026-06-07] T63: pending → done (resolvida junto com T58 — strftime manual eliminado)
+[2026-06-08] T62: pending → done (accentReplacer movido para var de pacote)
+[2026-06-08] T65: pending → done (logging nos erros best-effort de handleTranscodeFailure)
+[2026-06-08] T66: pending → done (strings hardcoded substituídas por models.Status* em recovery.go)
+[2026-06-08] T67: pending → done (WaitGroup adicionado a TokenCleanupJob, UploadKillerJob, TranscodeRequeueJob)
+[2026-06-08] T68: pending → done (Timeout: 30s removido do http.Client — só context 10s)
+[2026-06-08] T61+T64: pending → done (AdminAuth distingue sql.ErrNoRows; ScanVideoRow+SelectVideoColumns extraídas)
+[2026-06-08] T60: pending → done (limiterEntry com lastSeen, evictLoop periódico, Stop() no shutdown)
+
+[2026-06-07] Análise completa de código: geradas T56-T68 (13 tasks) a partir de
+  revisão profunda de todos os arquivos .go de produção (~20k linhas).
+  Classificação: 4 críticas (T56-T59: crashes/corrupção), 4 altas
+  (T60-T63: degradação/erros invisíveis), 5 médias (T64-T68: qualidade/robustez).
+  Principais achados: nil deref no webhook (T56), TUS handler nil (T57),
+  bypass da máquina de estados no Enqueue (T58), goroutine leak no TUS (T59),
+  memory leak no rate limiter (T60), scan de Video duplicado 3x (T64).
+  Status inicial de todas: pending.
 
 [2026-06-07] CTO: geradas T53-T54 a partir de análise estática do código existente
   — bugs encontrados durante revisão geral:
