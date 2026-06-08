@@ -35,6 +35,13 @@ func main() {
 	}
 	defer database.Close()
 
+	// Garante que o projeto padrão existe — idempotente, cria na primeira
+	// execução. Todo upload pertence a um projeto (issue #10, T48): sem
+	// X-Project-Key, o upload cai no projeto "default".
+	if _, err := models.EnsureDefaultProject(database); err != nil {
+		log.Fatalf("projeto padrão: %v", err)
+	}
+
 	// Client de webhook e adaptador para os callbacks (videoID, event, errMsg).
 	webhookClient := webhook.NewClient(cfg, database)
 	sendWebhook := func(videoID, event, errMsg string) {
@@ -50,14 +57,6 @@ func main() {
 	// Recupera vídeos em estado inconsistente após crash.
 	if err := transcode.RunStartupRecovery(database, cfg, queue.Enqueue, sendWebhook); err != nil {
 		log.Printf("recovery: %v", err)
-	}
-
-	// Migração de armazenamento por projeto (issue #6, T34): garante que
-	// todo vídeo tenha um projeto associado, movendo vídeos antigos
-	// (sem project_id) para o projeto "Legacy" — único layout de
-	// armazenamento, idempotente, seguro para rodar a cada start.
-	if _, err := jobs.MigrateLegacyVideos(database, cfg.MediaDir); err != nil {
-		log.Printf("migration: %v", err)
 	}
 
 	queue.Start()

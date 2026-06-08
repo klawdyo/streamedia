@@ -7,8 +7,8 @@ Status possíveis: `pending` | `in-progress` | `done` | `blocked`
 
 ```
 Total: 55 tarefas
-Done:  50
-Pending: 5 (T48-T50: issue #10; T52: issue #13; T55: rota /api/version)
+Done:  53
+Pending: 2 (T52: issue #13; T55: rota /api)
 ```
 
 ## Lista de tarefas
@@ -62,9 +62,9 @@ Pending: 5 (T48-T50: issue #10; T52: issue #13; T55: rota /api/version)
 | T45 | `.tasks/45-standard-response-envelope.md` | Pacote central de resposta padronizada `{error, message, data, status_code}` | done | issue #9 — fundação criada (pacote apiresponse, middleware recovery, spec atualizada) |
 | T46 | `.tasks/46-migrate-routes-standard-response.md` | Migrar todas as rotas para o envelope padrão + testes de conformidade | done | issue #9 — todas as rotas migradas, respondError/respondJSONError/http.Error removidos, testes adaptados, conformance suite criada — fecha issue #9 |
 | T47 | `.tasks/47-centralize-hls-regex-and-url-builder.md` | Centralizar regex de segmento HLS e construção de URL pública (scheme/host) | done | SegmentNameRe em models/hls.go; PublicUploadURL em httputil/url.go; duplicações removidas de serve.go, worker.go, init.go, projects.go |
-| T48 | `.tasks/48-default-project-always-assigned.md` | Todo upload sempre pertence a um projeto — projeto padrão automático | pending | origem: issue #10; depende de T32-T35; fundação — T49 e T50 dependem desta |
-| T49 | `.tasks/49-remove-legacy-upload-auth-flow.md` | Remover fluxo de autenticação legado (HMAC global) de /upload/init | pending | origem: issue #10; depende T48 — preserva UploadTokenSecret/ValidateBackendAuth/ValidatePlayToken (usados fora do upload) |
-| T50 | `.tasks/50-unify-upload-token-ttl.md` | Unificar UPLOAD_TOKEN_TTL_SECONDS e UPLOAD_TOKEN_SCOPED_TTL_SECONDS em uma única variável | pending | origem: issue #10; depende T49; fecha a issue #10 (cadeia T48→T49→T50) |
+| T48 | `.tasks/48-default-project-always-assigned.md` | Todo upload sempre pertence a um projeto — projeto padrão automático | done | issue #10 — EnsureDefaultProject em models/project.go, init.go sempre resolve projeto, ResolveVideoRootDir retorna erro p/ nil, project_migration.go removido |
+| T49 | `.tasks/49-remove-legacy-upload-auth-flow.md` | Remover fluxo de autenticação legado (HMAC global) de /upload/init | done | issue #10 — X-Project-Key obrigatório, branch HMAC/X-Upload-Auth removido, token usa chave do projeto, UploadTokenSecret preservado p/ serve/status |
+| T50 | `.tasks/50-unify-upload-token-ttl.md` | Unificar UPLOAD_TOKEN_TTL_SECONDS e UPLOAD_TOKEN_SCOPED_TTL_SECONDS em uma única variável | done | issue #10 — UploadTokenScopedTTL removido, UploadTokenTTL com default 1200s (20min), fecha issue #10 (cadeia T48→T49→T50) |
 | T51 | `.tasks/51-docs-ui-scalar.md` | Trocar UI de documentação da API de Swagger para Scalar | done | origem: issue #12 (continuação da issue #3/T30); troca só a UI, spec OpenAPI inalterada |
 | T52 | `.tasks/52-db-migrations.md` | Migrations versionadas (goose) substituindo schema.go monolítico | pending | depende T03 — origem: issue #13 — fecha a issue #13 |
 | T53 | `.tasks/53-fix-listbystatus-project-id.md` | Corrigir ListByStatus — omissão de project_id na query SELECT | done | depende T04, T33 — origem: análise de código — bug funcional |
@@ -124,6 +124,9 @@ Resumo por issue:
 [2026-06-07 20:15] T45: pending → in-progress → done (pacote apiresponse criado: Envelope, Success, Error; RecoveryMiddleware em internal/middleware substituindo chimw.Recoverer no server.go; spec atualizada com nova seção 10 "Formato padrão de resposta da API" — Refs #9)
 [2026-06-07 20:35] T46: pending → in-progress → done (migração completa: respondError/respondJSONError/http.Error removidos de serve, upload, admin; tus.go raw writes e tusd.HTTPResponse bodies migrados para envelope; healthz migrado; rate limiter migrado; todos os testes adaptados; response_conformance_test.go criado com 4 suítes — fecha issue #9)
 [2026-06-07 20:45] T47: pending → in-progress → done (SegmentNameRe centralizada em models/hls.go, removida duplicação serve/worker; PublicUploadURL centralizada em httputil/url.go, removida duplicação init.go/projects.go; testes table-driven para ambos os contratos)
+[2026-06-07 21:11] T48: pending → in-progress → done (EnsureDefaultProject em models/project.go com race handling; init.go resolve projeto padrão no fluxo HMAC legado; project_migration.go + teste + chamada main.go removidos; ResolveVideoRootDir rejeita nil; EnsureDefaultProject chamado no startup main.go — Refs #10)
+[2026-06-07 21:18] T49: pending → in-progress → done (branch HMAC/X-Upload-Auth removido de init.go; X-Project-Key obrigatório; token usa chave do projeto; UploadTokenSecret/ValidateBackendAuth preservados em serve/status — Refs #10)
+[2026-06-07 21:26] T50: pending → in-progress → done (UploadTokenScopedTTL removido da config; UploadTokenTTL default 1200s = 20min; referências atualizadas em init.go, projects.go, config_test.go, init_test.go, project_scope_test.go, projects_test.go — fecha issue #10)
 
 <!-- CTO registra aqui cada transição com data/hora -->
 <!-- Formato: [YYYY-MM-DD HH:MM] TNN: pending → in-progress -->

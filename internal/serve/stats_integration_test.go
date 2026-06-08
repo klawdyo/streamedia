@@ -28,8 +28,13 @@ func awaitStats(n int) (onDone func(error), wait func()) {
 func TestMasterHandler_RecordsPlaybackEvent(t *testing.T) {
 	cfg := newTestConfig(t)
 	database := newTestDB(t)
-	insertVideo(t, database, testVideoID, "ready")
-	writeFile(t, filepath.Join(cfg.MediaDir, testVideoID, "master.m3u8"), "#EXTM3U\n")
+
+	project, err := models.EnsureDefaultProject(database)
+	if err != nil {
+		t.Fatalf("EnsureDefaultProject: %v", err)
+	}
+	insertVideo(t, database, testVideoID, "ready", &project.ID)
+	writeFile(t, filepath.Join(cfg.MediaDir, project.RootDir, testVideoID, "master.m3u8"), "#EXTM3U\n")
 
 	expires := time.Now().Add(time.Hour).Unix()
 	token := auth.GeneratePlayToken(testSecret, testVideoID, expires)
@@ -70,8 +75,13 @@ func TestMasterHandler_RecordsPlaybackEvent(t *testing.T) {
 func TestStaticHandler_RecordsSegmentDownloadEvent(t *testing.T) {
 	cfg := newTestConfig(t)
 	database := newTestDB(t)
-	insertVideo(t, database, testVideoID, "ready")
-	writeFile(t, filepath.Join(cfg.MediaDir, testVideoID, "720", "0.ts"), "TS_DATA")
+
+	project, err := models.EnsureDefaultProject(database)
+	if err != nil {
+		t.Fatalf("EnsureDefaultProject: %v", err)
+	}
+	insertVideo(t, database, testVideoID, "ready", &project.ID)
+	writeFile(t, filepath.Join(cfg.MediaDir, project.RootDir, testVideoID, "720", "0.ts"), "TS_DATA")
 
 	onDone, wait := awaitStats(1)
 	h := NewStaticHandler(cfg, database)
@@ -134,7 +144,7 @@ func TestUploadCompleteRecordsEvent(t *testing.T) {
 	// comentário no hook). Aqui testamos diretamente o contrato de
 	// gravação esperado: RecordEvent gera um registro "upload_complete".
 	database := newTestDB(t)
-	insertVideo(t, database, testVideoID, "ready")
+	insertVideo(t, database, testVideoID, "ready", nil)
 
 	if err := models.RecordEvent(database, testVideoID, "upload_complete", nil, ""); err != nil {
 		t.Fatalf("RecordEvent falhou: %v", err)

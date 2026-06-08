@@ -101,11 +101,14 @@ func TestUploadStoresUnderProjectDirectory(t *testing.T) {
 	}
 }
 
-// TestUploadStoresUnderLegacyDirectory verifica que vídeos sem projeto
-// associado (project_id NULL) continuam sendo gravados diretamente sob
-// <MEDIA_DIR>/<video_id>/... — preserva o layout legado para vídeos ainda
-// não migrados (issue #6, T34; ResolveVideoRootDir resolve "" para nil).
-func TestUploadStoresUnderLegacyDirectory(t *testing.T) {
+// TestUploadStoresUnderDefaultProjectDirectory adapta o antigo teste de
+// layout legado (project_id NULL) para a realidade pós-T48 (issue #10):
+// project_id NULL não é mais aceito por ResolveVideoRootDir — todo vídeo
+// pertence a um projeto, e o projeto padrão ("Default") é criado via
+// models.EnsureDefaultProject. O teste verifica que a saída HLS é gravada
+// sob <MEDIA_DIR>/<slug-do-projeto-padrao>/<video_id>/... em vez do
+// antigo layout legado <MEDIA_DIR>/<video_id>/...
+func TestUploadStoresUnderDefaultProjectDirectory(t *testing.T) {
 	database, err := db.Open(":memory:")
 	if err != nil {
 		t.Fatalf("erro ao abrir banco: %v", err)
@@ -122,10 +125,18 @@ func TestUploadStoresUnderLegacyDirectory(t *testing.T) {
 		t.Fatalf("erro ao criar mediaDir: %v", err)
 	}
 
-	const videoID = "test-legacy-storage"
+	// Cria (ou obtém) o projeto padrão — desde a T48, todo vídeo deve
+	// pertencer a um projeto, e o projeto "Default" é atribuído a uploads
+	// que não especificam projeto via X-Project-Key.
+	defaultProject, err := models.EnsureDefaultProject(database)
+	if err != nil {
+		t.Fatalf("erro ao garantir projeto padrão: %v", err)
+	}
+
+	const videoID = "test-default-project-storage"
 	if _, err := database.Exec(
-		"INSERT INTO videos (video_id, status) VALUES (?, ?)",
-		videoID, "upload_complete",
+		"INSERT INTO videos (video_id, status, project_id) VALUES (?, ?, ?)",
+		videoID, "upload_complete", defaultProject.ID,
 	); err != nil {
 		t.Fatalf("erro ao inserir vídeo: %v", err)
 	}
@@ -144,7 +155,8 @@ func TestUploadStoresUnderLegacyDirectory(t *testing.T) {
 
 	w := NewWorker(cfg, database, func(videoID, event, errMsg string) {})
 
-	expectedOutputDir := filepath.Join(mediaDir, videoID)
+	// A saída deve ser escrita sob <MEDIA_DIR>/<root-dir-do-projeto>/<video_id>/
+	expectedOutputDir := filepath.Join(mediaDir, defaultProject.RootDir, videoID)
 	mockExec := &mockFFmpeg{
 		err: nil,
 		createFiles: func(args []string) {
@@ -162,8 +174,15 @@ func TestUploadStoresUnderLegacyDirectory(t *testing.T) {
 		t.Fatalf("Transcode retornou erro: %v", err)
 	}
 
+	// Verifica que o master.m3u8 foi escrito sob o diretório isolado por projeto.
 	masterPath := filepath.Join(expectedOutputDir, "master.m3u8")
 	if _, err := os.Stat(masterPath); err != nil {
-		t.Errorf("esperava master.m3u8 em %s (layout legado), mas: %v", masterPath, err)
+		t.Errorf("esperava master.m3u8 em %s (diretório isolado por projeto padrão), mas: %v", masterPath, err)
+	}
+
+	// Verifica que NADA foi gravado sob o layout legado <MEDIA_DIR>/<video_id>/.
+	legacyMasterPath := filepath.Join(mediaDir, videoID, "master.m3u8")
+	if _, err := os.Stat(legacyMasterPath); err == nil {
+		t.Errorf("não esperava master.m3u8 no caminho legado %s quando o vídeo está vinculado ao projeto padrão", legacyMasterPath)
 	}
 }

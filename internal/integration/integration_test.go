@@ -168,10 +168,10 @@ func TestHealthz_Integration(t *testing.T) {
 	}
 }
 
-// TestUploadInit_HMACProtection_Integration verifica a proteção HMAC do endpoint
-// /upload/init: sem auth → 401, auth errada → 401, auth correta → 200.
+// TestUploadInit_HMACProtection_Integration verifica a proteção do endpoint
+// /upload/init via X-Project-Key: sem auth → 401, auth errada → 401, auth correta → 200.
 func TestUploadInit_HMACProtection_Integration(t *testing.T) {
-	srv, _, cfg := setupTestServer(t)
+	srv, database, _ := setupTestServer(t)
 
 	const videoID = "550e8400-e29b-4100-8716-446655440001"
 	body := fmt.Appendf(nil, `{"video_id":%q,"declared_size_bytes":1024}`, videoID)
@@ -187,11 +187,10 @@ func TestUploadInit_HMACProtection_Integration(t *testing.T) {
 		}
 	})
 
-	// --- HMAC com secret errado → 401 ---
+	// --- X-Project-Key inválida → 401 ---
 	t.Run("auth errada", func(t *testing.T) {
-		wrongSig := auth.SignBackendRequest("wrong-secret", body)
 		resp := doRequest(t, http.MethodPost, srv.URL+"/upload/init",
-			bytes.NewReader(body), map[string]string{"X-Upload-Auth": wrongSig})
+			bytes.NewReader(body), map[string]string{"X-Project-Key": "chave-invalida"})
 		defer resp.Body.Close()
 
 		if resp.StatusCode != http.StatusUnauthorized {
@@ -199,11 +198,15 @@ func TestUploadInit_HMACProtection_Integration(t *testing.T) {
 		}
 	})
 
-	// --- HMAC correto → 200 com upload_url e token ---
+	// --- X-Project-Key válida → 200 com upload_url e token ---
 	t.Run("auth correta", func(t *testing.T) {
-		correctSig := auth.SignBackendRequest(cfg.UploadTokenSecret, body)
+		project, masterKey, err := models.CreateProject(database, "Integration Test")
+		if err != nil {
+			t.Fatalf("CreateProject: %v", err)
+		}
+		_ = project
 		resp := doRequest(t, http.MethodPost, srv.URL+"/upload/init",
-			bytes.NewReader(body), map[string]string{"X-Upload-Auth": correctSig})
+			bytes.NewReader(body), map[string]string{"X-Project-Key": masterKey})
 
 		if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusCreated {
 			body, _ := io.ReadAll(resp.Body)
@@ -398,13 +401,19 @@ func TestStatusRoute_Integration(t *testing.T) {
 }
 
 // TestConcurrentUploads_Integration envia 5 requisições concorrentes ao
-// /upload/init com HMAC válido e verifica que todas retornam 200/201.
+// /upload/init com X-Project-Key válida e verifica que todas retornam 200/201.
 func TestConcurrentUploads_Integration(t *testing.T) {
 	if testing.Short() {
 		t.Skip("pulando teste de uploads concorrentes em modo short")
 	}
 
-	srv, _, cfg := setupTestServer(t)
+	srv, database, _ := setupTestServer(t)
+
+	project, masterKey, err := models.CreateProject(database, "Integration Test")
+	if err != nil {
+		t.Fatalf("CreateProject: %v", err)
+	}
+	_ = project
 
 	const n = 5
 	// UUIDs v4 válidos para cada upload concorrente.
@@ -430,10 +439,9 @@ func TestConcurrentUploads_Integration(t *testing.T) {
 			defer wg.Done()
 
 			body := fmt.Appendf(nil, `{"video_id":%q,"declared_size_bytes":1024}`, videoIDs[idx])
-			sig := auth.SignBackendRequest(cfg.UploadTokenSecret, body)
 
 			resp := doRequest(t, http.MethodPost, srv.URL+"/upload/init",
-				bytes.NewReader(body), map[string]string{"X-Upload-Auth": sig})
+				bytes.NewReader(body), map[string]string{"X-Project-Key": masterKey})
 			defer resp.Body.Close()
 
 			bodyBytes, _ := io.ReadAll(resp.Body)

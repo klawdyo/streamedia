@@ -138,12 +138,67 @@ compatibilidade com confiança.
 
 ## Definition of Done
 
-- [ ] Mecanismo de projeto padrão implementado, idempotente e testado
-- [ ] `POST /upload/init` sempre resolve um projeto (nunca mais
+- [x] Mecanismo de projeto padrão implementado, idempotente e testado
+- [x] `POST /upload/init` sempre resolve um projeto (nunca mais
       `project_id = NULL` em uploads novos)
-- [ ] `internal/jobs/project_migration.go` removido (código morto
+- [x] `internal/jobs/project_migration.go` removido (código morto
       eliminado, sem testes órfãos)
-- [ ] `ResolveVideoRootDir` simplificado/documentado
-- [ ] Decisão sobre `project_id NOT NULL` tomada, documentada e
+- [x] `ResolveVideoRootDir` simplificado/documentado
+- [x] Decisão sobre `project_id NOT NULL` tomada, documentada e
       implementada
-- [ ] `go test ./...` passa sem regressões
+- [x] `go test ./...` passa sem regressões
+
+## Resolução
+
+### 1. Projeto padrão automático — `EnsureDefaultProject`
+
+**Arquivo**: `internal/models/project.go:227-257`
+
+Função idempotente que garante que um projeto "Default" (slug `default`) sempre existe:
+- Busca por slug → se existe, retorna
+- Se não existe, cria via `CreateProject`
+- **Race condition tratada**: se `CreateProject` falhar com UNIQUE (outra goroutine criou entre a busca e o insert), busca novamente — resolve o problema de concorrência que aparecia em `TestConcurrentUploads_Integration`
+
+O projeto é criado em dois momentos:
+1. **Startup** (`cmd/server/main.go:39-41`): `EnsureDefaultProject(database)` logo após `db.Open` — garante que o projeto padrão existe antes de qualquer requisição
+2. **On-demand** (`internal/upload/init.go`): durante o fluxo HMAC legado, se o projeto ainda não existir (improvável, mas seguro)
+
+### 2. `POST /upload/init` sempre resolve um projeto
+
+**Arquivo**: `internal/upload/init.go:59-89`
+
+- `X-Project-Key` presente → fluxo escopado (como antes)
+- `X-Project-Key` ausente (HMAC legado) → resolve `models.EnsureDefaultProject(h.db)`
+- `var usedProjectKey bool` rastreia qual fluxo foi usado → TTL correto (scoped vs global)
+- `projectID` sempre preenchido (nunca mais `nil`)
+
+### 3. `jobs/project_migration.go` removido
+
+**Arquivos removidos**:
+- `internal/jobs/project_migration.go` (127 linhas)
+- `internal/jobs/project_migration_test.go`
+
+**Chamada removida**: `cmd/server/main.go:55-61` — bloco `MigrateLegacyVideos` eliminado
+
+A função `getOrCreateLegacyProject` foi substituída por `EnsureDefaultProject` em `models/project.go`, mas sem a lógica de migração de diretórios (não há vídeos órfãos para migrar).
+
+### 4. `ResolveVideoRootDir` simplificado
+
+**Arquivo**: `internal/models/project.go:259-273`
+
+`projectID == nil` agora retorna erro: `"project_id é obrigatório: todo vídeo deve pertencer a um projeto"` — o antigo fallback `""` (layout legado) foi removido.
+
+### 5. Decisão sobre `project_id NOT NULL`
+
+**Opção escolhida: A** — manter coluna nullable no schema, garantir via código.
+
+**Justificativa**: SQLite não suporta `ALTER TABLE ... ALTER COLUMN NOT NULL` sem reconstrução de tabela. Como o sistema garante que toda inserção passa um `project_id` não-nulo (via `InsertVideoForProject`, `insertVideo` nos testes, e a lógica do `init.go`), o risco de NULL na prática é zero. A Opção B (reconstruir tabela) seria desproporcional ao benefício — o schema é simples (3 tabelas) e a garantia via código é "limpa o suficiente" sem o custo de manutenção de migração de schema complexa.
+
+### Testes atualizados
+
+- `internal/serve/serve_test.go` — `insertVideo` aceita `projectID *int64`; testes de serving criam projeto padrão
+- `internal/serve/stats_integration_test.go` — `EnsureDefaultProject` nos testes que servem arquivos
+- `internal/serve/project_storage_test.go` — `TestServingFallsBackToLegacyDirectory` renomeado para `TestServingUsesDefaultProjectDirectory`
+- `internal/transcode/worker_test.go` — `EnsureDefaultProject` + `project_id` nos INSERTs
+- `internal/transcode/project_storage_test.go` — `TestUploadStoresUnderLegacyDirectory` renomeado para `TestUploadStoresUnderDefaultProjectDirectory`
+- `internal/upload/init_test.go` — `configInit` inclui `UploadTokenScopedTTL: 15 * time.Minute`
