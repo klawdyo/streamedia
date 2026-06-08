@@ -195,9 +195,11 @@ func NewRouter(
 		apiresponse.Error(w, http.StatusNotFound, "Rota não encontrada.")
 	})
 
-	// Closer que encerra recursos internos (goroutine do TUS handler).
+	// Closer que encerra recursos internos (goroutines do TUS handler e rate limiters).
 	closer := closerFunc(func() error {
 		tusHandler.Stop()
+		rateLimiter.Stop()
+		versionLimiter.Stop()
 		return nil
 	})
 

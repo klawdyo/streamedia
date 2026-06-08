@@ -374,11 +374,15 @@ func (w *Worker) Transcode(videoID string) error {
 // reenfileirar). Caso contrário, retorna erro para permitir nova tentativa.
 func (w *Worker) handleTranscodeFailure(videoID string, currentAttempts int, errMsg string) error {
 	// Incrementa o contador de tentativas (best-effort).
-	_ = models.IncrementTranscodeAttempts(w.db, videoID)
+	if err := models.IncrementTranscodeAttempts(w.db, videoID); err != nil {
+		log.Printf("[transcode] %s: erro ao incrementar tentativas (best-effort): %v", videoID, err)
+	}
 
 	// Se atingiu (ou superou) o máximo, é falha terminal.
 	if currentAttempts+1 >= w.cfg.MaxTranscodeAttempts {
-		_ = models.UpdateStatusWithError(w.db, videoID, models.StatusFailedTranscode, errMsg)
+		if err := models.UpdateStatusWithError(w.db, videoID, models.StatusFailedTranscode, errMsg); err != nil {
+			log.Printf("[transcode] %s: erro ao marcar como falha terminal (best-effort): %v", videoID, err)
+		}
 		w.onWebhook(videoID, "failed", errMsg)
 		return nil
 	}

@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"fmt"
 	"log"
+	"sync"
 	"time"
 
 	"github.com/klawdyo/streamedia/internal/config"
@@ -23,6 +24,7 @@ type TranscodeRequeueJob struct {
 	onWebhook func(videoID, event, errMsg string)
 	ticker    *time.Ticker
 	stopCh    chan struct{}
+	wg        sync.WaitGroup
 }
 
 // NewTranscodeRequeueJob cria uma nova instância do job de reenfileiramento
@@ -47,7 +49,9 @@ func NewTranscodeRequeueJob(
 
 // Start inicia a goroutine que executa o job a cada intervalo do ticker.
 func (j *TranscodeRequeueJob) Start() {
+	j.wg.Add(1)
 	go func() {
+		defer j.wg.Done()
 		for {
 			select {
 			case <-j.ticker.C:
@@ -61,9 +65,10 @@ func (j *TranscodeRequeueJob) Start() {
 	}()
 }
 
-// Stop encerra a goroutine do job.
+// Stop encerra a goroutine do job e aguarda sua finalização.
 func (j *TranscodeRequeueJob) Stop() {
 	close(j.stopCh)
+	j.wg.Wait()
 }
 
 // runOnce executa uma única varredura: encontra transcodificações travadas,
