@@ -77,6 +77,31 @@ Resumo das regras, aplicadas em ordem cronológica desde a última tag:
 Exemplo: `fix, fix, feat, fix` a partir de `0.0.0` → `0.0.1` → `0.0.2` → `0.1.0` → `0.1.1`.
 Se vier outro `feat` em seguida, o ciclo reinicia: `feat, fix` → `0.2.0` → `0.2.1`.
 
+### Regra obrigatória de prefixo nos commits
+
+**Todo commit que implementa uma tarefa DEVE usar um prefixo Conventional Commits.**
+O Versioner classifica commits exclusivamente pelo prefixo — commits sem ele
+(como `"T33: chaves de API..."`) **não são reconhecidos** e a versão não
+avança, mesmo que o conteúdo seja uma feature completa.
+
+Ao commitar, escolha o prefixo conforme o tipo de mudança:
+
+| Tipo de tarefa | Prefixo | Exemplo |
+|---------------|---------|---------|
+| Nova funcionalidade | `feat:` | `feat(T33): chaves de API escopadas por projeto` |
+| Correção de bug | `fix:` | `fix(T53): adiciona project_id na query de ListByStatus` |
+| Refatoração (sem mudança de comportamento) | `refactor:` | `refactor(T47): centraliza regex HLS` |
+| Testes (sem mudança de produção) | `test:` | `test(T38): fecha lacunas de cobertura na camada de dados` |
+| Documentação | `docs:` | `docs: atualiza especificação com novo padrão de resposta` |
+| Tarefa administrativa/gerencial | `chore:` | `chore: gera micro-tarefas a partir das issues` |
+
+**Sem exceção**: o prefixo é obrigatório em todo commit. A numeração da task
+(`T33`) pode vir em seguida, entre parênteses ou após o escopo — o que importa
+é que o primeiro token do título seja um prefixo reconhecido pelo Versioner.
+
+O agente CTO é responsável por revisar as mensagens de commit antes do merge
+e rejeitar qualquer uma que não siga esta regra.
+
 ### Commit-checkpoint `release:`
 
 Para não precisar reler todo o histórico a cada cálculo, o agente Versioner usa
