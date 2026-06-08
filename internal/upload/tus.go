@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"sync"
 
 	"github.com/tus/tusd/v2/pkg/filestore"
 	tusd "github.com/tus/tusd/v2/pkg/handler"
@@ -54,6 +55,8 @@ type TUSHandler struct {
 	cfg      *config.Config
 	db       *sql.DB
 	onFinish func(videoID, userAgent string)
+	stopCh   chan struct{}   // sinaliza encerramento do consumeHooks (T59)
+	wg       sync.WaitGroup // aguarda término da goroutine consumeHooks
 }
 
 // NewTUSHandler cria um novo TUSHandler com validação de token e hooks de ciclo de vida.
@@ -70,6 +73,7 @@ func NewTUSHandler(cfg *config.Config, db *sql.DB, onFinish func(videoID, userAg
 		cfg:      cfg,
 		db:       db,
 		onFinish: onFinish,
+		stopCh:   make(chan struct{}),
 	}
 
 	// Configuração do handler tusd.
@@ -101,7 +105,9 @@ func NewTUSHandler(cfg *config.Config, db *sql.DB, onFinish func(videoID, userAg
 
 	h.handler = handler
 
-	// Consome os canais de notificação em background.
+	// Consome os canais de notificação em background (T59: registra no
+	// WaitGroup para permitir graceful shutdown via Stop).
+	h.wg.Add(1)
 	go h.consumeHooks()
 
 	return h, nil
@@ -111,15 +117,35 @@ func NewTUSHandler(cfg *config.Config, db *sql.DB, onFinish func(videoID, userAg
 // para os tratadores postReceive (progresso de chunk) e postFinish (upload
 // completo). Substitui os callbacks PostReceiveCallback/PostFinishCallback que
 // não existem no tusd/v2.
+//
+// T59: respeita stopCh para encerramento gracioso e verifica ok nos receives
+// para detectar canais fechados pelo tusd — evita goroutine leak e loop
+// infinito de zero-values.
 func (h *TUSHandler) consumeHooks() {
+	defer h.wg.Done()
 	for {
 		select {
-		case event := <-h.handler.UploadProgress:
+		case event, ok := <-h.handler.UploadProgress:
+			if !ok {
+				return
+			}
 			h.postReceive(event)
-		case event := <-h.handler.CompleteUploads:
+		case event, ok := <-h.handler.CompleteUploads:
+			if !ok {
+				return
+			}
 			h.postFinish(event)
+		case <-h.stopCh:
+			return
 		}
 	}
+}
+
+// Stop encerra a goroutine consumeHooks de forma graciosa e aguarda
+// seu término (T59). Deve ser chamado no shutdown do servidor.
+func (h *TUSHandler) Stop() {
+	close(h.stopCh)
+	h.wg.Wait()
 }
 
 // ServeHTTP valida o token de upload ANTES de delegar ao tusd.
