@@ -7,8 +7,8 @@ Status possíveis: `pending` | `in-progress` | `done` | `blocked`
 
 ```
 Total: 55 tarefas
-Done:  53
-Pending: 2 (T52: issue #13; T55: rota /api)
+Done:  54
+Pending: 1 (T55: rota /api)
 ```
 
 ## Lista de tarefas
@@ -66,7 +66,7 @@ Pending: 2 (T52: issue #13; T55: rota /api)
 | T49 | `.tasks/49-remove-legacy-upload-auth-flow.md` | Remover fluxo de autenticação legado (HMAC global) de /upload/init | done | issue #10 — X-Project-Key obrigatório, branch HMAC/X-Upload-Auth removido, token usa chave do projeto, UploadTokenSecret preservado p/ serve/status |
 | T50 | `.tasks/50-unify-upload-token-ttl.md` | Unificar UPLOAD_TOKEN_TTL_SECONDS e UPLOAD_TOKEN_SCOPED_TTL_SECONDS em uma única variável | done | issue #10 — UploadTokenScopedTTL removido, UploadTokenTTL com default 1200s (20min), fecha issue #10 (cadeia T48→T49→T50) |
 | T51 | `.tasks/51-docs-ui-scalar.md` | Trocar UI de documentação da API de Swagger para Scalar | done | origem: issue #12 (continuação da issue #3/T30); troca só a UI, spec OpenAPI inalterada |
-| T52 | `.tasks/52-db-migrations.md` | Migrations versionadas (goose) substituindo schema.go monolítico | pending | depende T03 — origem: issue #13 — fecha a issue #13 |
+| T52 | `.tasks/52-db-migrations.md` | Migrations versionadas (goose) substituindo schema.go monolítico | done | issue #13 — pressly/goose/v3 como bib embutida, 0001_init.sql com schema completo via go:embed, schema.go removido, ensureColumn removido, project_id nasce no CREATE TABLE — fecha issue #13 |
 | T53 | `.tasks/53-fix-listbystatus-project-id.md` | Corrigir ListByStatus — omissão de project_id na query SELECT | done | depende T04, T33 — origem: análise de código — bug funcional |
 | T54 | `.tasks/54-fix-queue-enqueue-silent-db-error.md` | Corrigir Queue.Enqueue — ignora erro de banco silenciosamente | done | depende T10 — origem: análise de código — bug de consistência |
 | T55 | `.tasks/55-api-version-route.md` | Rota GET /api — nome, status e versão da API com rate limiting baixo | pending | origem: solicitação direta — cria pacote internal/version com ldflags, expõe versão sem autenticação |
@@ -127,6 +127,7 @@ Resumo por issue:
 [2026-06-07 21:11] T48: pending → in-progress → done (EnsureDefaultProject em models/project.go com race handling; init.go resolve projeto padrão no fluxo HMAC legado; project_migration.go + teste + chamada main.go removidos; ResolveVideoRootDir rejeita nil; EnsureDefaultProject chamado no startup main.go — Refs #10)
 [2026-06-07 21:18] T49: pending → in-progress → done (branch HMAC/X-Upload-Auth removido de init.go; X-Project-Key obrigatório; token usa chave do projeto; UploadTokenSecret/ValidateBackendAuth preservados em serve/status — Refs #10)
 [2026-06-07 21:26] T50: pending → in-progress → done (UploadTokenScopedTTL removido da config; UploadTokenTTL default 1200s = 20min; referências atualizadas em init.go, projects.go, config_test.go, init_test.go, project_scope_test.go, projects_test.go — fecha issue #10)
+[2026-06-07 21:44] T52: pending → in-progress → done (pressly/goose/v3 adicionado; migrations/migrations.go com go:embed; 0001_init.sql com schema completo; db.go troca schema.go+ensureColumn por goose.Up; schema.go e ensureColumn removidos; 26 testes passam — fecha issue #13)
 
 <!-- CTO registra aqui cada transição com data/hora -->
 <!-- Formato: [YYYY-MM-DD HH:MM] TNN: pending → in-progress -->

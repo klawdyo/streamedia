@@ -6,12 +6,21 @@ import (
 	"os"
 	"path/filepath"
 
+	"github.com/pressly/goose/v3"
+
+	"github.com/klawdyo/streamedia/internal/db/migrations"
+
 	_ "modernc.org/sqlite" // driver SQLite em Go puro, sem CGo
 )
 
 // Open abre (ou cria) o banco SQLite no caminho informado.
 // Cria o diretório pai se necessário, ativa WAL mode, foreign keys,
-// busy timeout e aplica o schema completo.
+// busy timeout e aplica as migrations pendentes via goose.
+//
+// As migrations rodam automaticamente a cada inicialização do servidor
+// e são idempotentes: o goose mantém a tabela goose_db_version com o
+// histórico do que já foi aplicado, então cada migration roda exatamente
+// uma vez por banco.
 func Open(path string) (*sql.DB, error) {
 	// Para banco em memória, pula a verificação de diretório
 	if path != ":memory:" {
@@ -52,64 +61,22 @@ func Open(path string) (*sql.DB, error) {
 		return nil, fmt.Errorf("erro ao configurar busy_timeout: %w", err)
 	}
 
-	// Aplica o schema completo (tabelas, índices, trigger de updated_at)
-	if _, err := db.Exec(schema); err != nil {
+	// Configura o provedor goose para SQLite3 (dialeto compatível com
+	// modernc.org/sqlite) e aplica todas as migrations pendentes, em
+	// ordem, usando os arquivos .sql embutidos no binário.
+	//
+	// Isso roda a cada inicialização do servidor e é seguro porque o
+	// goose registra o que já foi aplicado (tabela goose_db_version):
+	// migrations já executadas são puladas automaticamente.
+	goose.SetBaseFS(migrations.FS)
+	if err := goose.SetDialect("sqlite3"); err != nil {
 		db.Close()
-		return nil, fmt.Errorf("erro ao aplicar schema: %w", err)
+		return nil, fmt.Errorf("erro ao configurar dialeto goose: %w", err)
 	}
-
-	// Migração leve (T33, issue #6): associa vídeos e tokens de upload a um
-	// projeto. CREATE TABLE IF NOT EXISTS não altera tabelas já existentes
-	// em instalações antigas — por isso a coluna é adicionada à parte, de
-	// forma idempotente, em vez de fazer parte do DDL de criação acima.
-	if err := ensureColumn(db, "videos", "project_id", "project_id INTEGER REFERENCES projects(id)"); err != nil {
+	if err := goose.Up(db, "."); err != nil {
 		db.Close()
-		return nil, err
-	}
-	if err := ensureColumn(db, "upload_tokens", "project_id", "project_id INTEGER REFERENCES projects(id)"); err != nil {
-		db.Close()
-		return nil, err
-	}
-	if _, err := db.Exec(`CREATE INDEX IF NOT EXISTS idx_videos_project ON videos(project_id)`); err != nil {
-		db.Close()
-		return nil, fmt.Errorf("erro ao criar índice idx_videos_project: %w", err)
-	}
-	if _, err := db.Exec(`CREATE INDEX IF NOT EXISTS idx_upload_tokens_project ON upload_tokens(project_id)`); err != nil {
-		db.Close()
-		return nil, fmt.Errorf("erro ao criar índice idx_upload_tokens_project: %w", err)
+		return nil, fmt.Errorf("erro ao aplicar migrations: %w", err)
 	}
 
 	return db, nil
-}
-
-// ensureColumn adiciona a coluna informada à tabela caso ela ainda não
-// exista. Necessário porque "CREATE TABLE IF NOT EXISTS" não modifica
-// tabelas já criadas — sem isso, instalações existentes nunca ganhariam a
-// coluna nova (não há sistema de migrações versionadas neste projeto).
-func ensureColumn(db *sql.DB, table, column, columnDDL string) error {
-	rows, err := db.Query(fmt.Sprintf("PRAGMA table_info(%s)", table))
-	if err != nil {
-		return fmt.Errorf("erro ao inspecionar colunas de %s: %w", table, err)
-	}
-	defer rows.Close()
-
-	for rows.Next() {
-		var cid, notNull, pk int
-		var name, ctype string
-		var dfltValue sql.NullString
-		if err := rows.Scan(&cid, &name, &ctype, &notNull, &dfltValue, &pk); err != nil {
-			return fmt.Errorf("erro ao ler metadados de %s: %w", table, err)
-		}
-		if name == column {
-			return nil // coluna já existe — nada a fazer
-		}
-	}
-	if err := rows.Err(); err != nil {
-		return fmt.Errorf("erro ao iterar colunas de %s: %w", table, err)
-	}
-
-	if _, err := db.Exec(fmt.Sprintf("ALTER TABLE %s ADD COLUMN %s", table, columnDDL)); err != nil {
-		return fmt.Errorf("erro ao adicionar coluna %s em %s: %w", column, table, err)
-	}
-	return nil
 }
