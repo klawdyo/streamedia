@@ -73,6 +73,45 @@ func TestHealthz(t *testing.T) {
 	}
 }
 
+// TestApiVersionRoute verifica que GET /api retorna nome, versão e status
+// no envelope padrão, sem exigir autenticação.
+func TestApiVersionRoute(t *testing.T) {
+	router, _ := newTestRouter(t, newTestConfig(t))
+
+	req := httptest.NewRequest(http.MethodGet, "/api", nil)
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("esperado 200, obtido %d (body: %s)", rec.Code, rec.Body.String())
+	}
+
+	var env apiresponse.Envelope
+	if err := json.Unmarshal(rec.Body.Bytes(), &env); err != nil {
+		t.Fatalf("corpo não é JSON válido: %v", err)
+	}
+	if env.Error {
+		t.Errorf("esperado error=false, obtido true: %s", env.Message)
+	}
+	if env.Message != "ok" {
+		t.Errorf("esperado message='ok', obtido %q", env.Message)
+	}
+
+	data, ok := env.Data.(map[string]interface{})
+	if !ok {
+		t.Fatalf("data não é um objeto: %T", env.Data)
+	}
+	if name, _ := data["name"].(string); name != "Streamedia" {
+		t.Errorf("esperado name='Streamedia', obtido %q", name)
+	}
+	if v, _ := data["version"].(string); v == "" {
+		t.Error("version está vazio")
+	}
+	if status, _ := data["status"].(string); status != "ok" {
+		t.Errorf("esperado status='ok', obtido %q", status)
+	}
+}
+
 // TestRouteNotFound verifica que uma rota não registrada devolve 404.
 func TestRouteNotFound(t *testing.T) {
 	router, _ := newTestRouter(t, newTestConfig(t))
