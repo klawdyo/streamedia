@@ -10,9 +10,17 @@ import (
 	"github.com/klawdyo/streamedia/internal/apiresponse"
 )
 
+// newTestRateLimiter cria um RateLimiter e registra cleanup para parar o goroutine de eviction.
+func newTestRateLimiter(t *testing.T, perMin int) *RateLimiter {
+	t.Helper()
+	rl := NewRateLimiter(perMin)
+	t.Cleanup(rl.Stop)
+	return rl
+}
+
 // TestRateLimit_AllowsUnderLimit verifica se requisições dentro do limite são permitidas.
 func TestRateLimit_AllowsUnderLimit(t *testing.T) {
-	limiter := NewRateLimiter(5) // 5 requisições por minuto
+	limiter := newTestRateLimiter(t,5) // 5 requisições por minuto
 	handler := limiter.Middleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	}))
@@ -33,7 +41,7 @@ func TestRateLimit_AllowsUnderLimit(t *testing.T) {
 
 // TestRateLimit_BlocksOverLimit verifica se requisições acima do limite são bloqueadas.
 func TestRateLimit_BlocksOverLimit(t *testing.T) {
-	limiter := NewRateLimiter(3) // 3 requisições por minuto
+	limiter := newTestRateLimiter(t,3) // 3 requisições por minuto
 	handler := limiter.Middleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	}))
@@ -62,7 +70,7 @@ func TestRateLimit_BlocksOverLimit(t *testing.T) {
 
 // TestRateLimit_DifferentIPsAreIndependent verifica se IPs diferentes têm limites independentes.
 func TestRateLimit_DifferentIPsAreIndependent(t *testing.T) {
-	limiter := NewRateLimiter(2) // 2 requisições por minuto
+	limiter := newTestRateLimiter(t,2) // 2 requisições por minuto
 	handler := limiter.Middleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	}))
@@ -106,7 +114,7 @@ func TestRateLimit_DifferentIPsAreIndependent(t *testing.T) {
 
 // TestRateLimit_HeaderRetryAfter verifica se a resposta bloqueada contém o header Retry-After.
 func TestRateLimit_HeaderRetryAfter(t *testing.T) {
-	limiter := NewRateLimiter(1) // 1 requisição por minuto
+	limiter := newTestRateLimiter(t,1) // 1 requisição por minuto
 	handler := limiter.Middleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	}))
@@ -137,7 +145,7 @@ func TestRateLimit_HeaderRetryAfter(t *testing.T) {
 
 // TestRateLimit_ExtractsRealIP verifica se o header X-Real-IP é extraído corretamente.
 func TestRateLimit_ExtractsRealIP(t *testing.T) {
-	limiter := NewRateLimiter(1) // 1 requisição por minuto
+	limiter := newTestRateLimiter(t,1) // 1 requisição por minuto
 	handler := limiter.Middleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	}))
@@ -178,7 +186,7 @@ func TestRateLimit_ExtractsRealIP(t *testing.T) {
 
 // TestRateLimit_ResponseJSON verifica se a resposta bloqueada é um JSON válido com campo "error".
 func TestRateLimit_ResponseJSON(t *testing.T) {
-	limiter := NewRateLimiter(1) // 1 requisição por minuto
+	limiter := newTestRateLimiter(t,1) // 1 requisição por minuto
 	handler := limiter.Middleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	}))
@@ -229,7 +237,7 @@ func TestRateLimit_ResponseJSON(t *testing.T) {
 
 // TestRateLimit_XForwardedFor verifica se o header X-Forwarded-For é extraído corretamente.
 func TestRateLimit_XForwardedFor(t *testing.T) {
-	limiter := NewRateLimiter(1) // 1 requisição por minuto
+	limiter := newTestRateLimiter(t,1) // 1 requisição por minuto
 	handler := limiter.Middleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	}))
@@ -259,7 +267,7 @@ func TestRateLimit_XForwardedFor(t *testing.T) {
 
 // TestRateLimit_RemoteAddrWithoutPort verifica se RemoteAddr sem porta é tratado corretamente.
 func TestRateLimit_RemoteAddrWithoutPort(t *testing.T) {
-	limiter := NewRateLimiter(1)
+	limiter := newTestRateLimiter(t,1)
 	handler := limiter.Middleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	}))
