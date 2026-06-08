@@ -22,8 +22,8 @@ services:
       - PORT=${PORT:-3000}
       - RATE_LIMIT_PER_MIN=${RATE_LIMIT_PER_MIN:-60}
     volumes:
-      - media_files:/media
-      - db_data:/data
+      - media:/media
+      - data:/data
     ports:
       - "${PORT:-3000}:3000"
     healthcheck:
@@ -33,5 +33,5 @@ services:
       retries: 3
 
 volumes:
-  media_files:
-  db_data:
+  media:
+  data:
