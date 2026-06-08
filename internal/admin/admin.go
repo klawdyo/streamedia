@@ -5,7 +5,7 @@ import (
 	"context"
 	"crypto/subtle"
 	"database/sql"
-	"encoding/json"
+	"log"
 	"net/http"
 	"strconv"
 	"strings"
@@ -91,13 +91,21 @@ func AdminAuth(adminToken string, db *sql.DB) func(http.Handler) http.Handler {
 			// chave em texto puro (mesmo princípio do X-Project-Key em
 			// /upload/init). O escopo (project_id) é propagado no contexto
 			// para os handlers filtrarem suas consultas.
-			if project, err := models.GetProjectByMasterKeyHash(db, models.HashMasterKey(token)); err == nil {
+			project, err := models.GetProjectByMasterKeyHash(db, models.HashMasterKey(token))
+			if err == nil {
 				projectID := project.ID
 				ctx := context.WithValue(r.Context(), adminScopeContextKey{}, &projectID)
 				next.ServeHTTP(w, r.WithContext(ctx))
 				return
 			}
+			if err != sql.ErrNoRows {
+				// Erro de infraestrutura — não é "não encontrado"
+				log.Printf("[admin] erro ao buscar projeto por chave mestra: %v", err)
+				apiresponse.Error(w, http.StatusInternalServerError, "Erro interno ao validar credenciais.")
+				return
+			}
 
+			// sql.ErrNoRows: token não corresponde a nenhum projeto → 401
 			apiresponse.Error(w, http.StatusUnauthorized, "Não autorizado.")
 		})
 	}
@@ -160,7 +168,7 @@ func (h *AdminHandler) HandleVideos(w http.ResponseWriter, r *http.Request) {
 	}
 
 	countQuery := "SELECT COUNT(*) FROM videos" + whereClause
-	listQuery := "SELECT video_id, status, declared_size_bytes, actual_size_bytes, duration_s, resolutions, transcode_attempts, last_chunk_at, error_message, project_id, created_at, updated_at FROM videos" +
+	listQuery := "SELECT " + models.SelectVideoColumns + " FROM videos" +
 		whereClause + " ORDER BY created_at DESC LIMIT ? OFFSET ?"
 
 	// Conta o total de registros (mesmos filtros, sem LIMIT/OFFSET)
@@ -181,64 +189,15 @@ func (h *AdminHandler) HandleVideos(w http.ResponseWriter, r *http.Request) {
 
 	var videos []*models.Video
 	for rows.Next() {
-		var (
-			v            models.Video
-			declaredSize sql.NullInt64
-			actualSize   sql.NullInt64
-			durationS    sql.NullInt64
-			resolutions  sql.NullString
-			lastChunkAt  sql.NullTime
-			errorMessage sql.NullString
-			projectID    sql.NullInt64
-		)
-
-		err := rows.Scan(
-			&v.VideoID,
-			&v.Status,
-			&declaredSize,
-			&actualSize,
-			&durationS,
-			&resolutions,
-			&v.TranscodeAttempts,
-			&lastChunkAt,
-			&errorMessage,
-			&projectID,
-			&v.CreatedAt,
-			&v.UpdatedAt,
-		)
+		v, err := models.ScanVideoRow(rows.Scan)
 		if err != nil {
 			apiresponse.Error(w, http.StatusInternalServerError, "Erro ao ler vídeos.")
 			return
 		}
-
-		// Desserializa os campos nullable
-		v.DeclaredSizeBytes = declaredSize.Int64
-		v.ActualSizeBytes = actualSize.Int64
-		v.DurationS = int(durationS.Int64)
-		v.ErrorMessage = errorMessage.String
-		if projectID.Valid {
-			v.ProjectID = &projectID.Int64
-		}
-
-		if lastChunkAt.Valid {
-			v.LastChunkAt = &lastChunkAt.Time
-		}
-
-		if resolutions.Valid && resolutions.String != "" {
-			var res []int
-			if err := json.Unmarshal([]byte(resolutions.String), &res); err == nil {
-				v.Resolutions = res
-			} else {
-				v.Resolutions = []int{}
-			}
-		} else {
-			v.Resolutions = []int{}
-		}
-
-		videos = append(videos, &v)
+		videos = append(videos, v)
 	}
 
-		if err := rows.Err(); err != nil {
+	if err := rows.Err(); err != nil {
 		apiresponse.Error(w, http.StatusInternalServerError, "Erro ao iterar vídeos.")
 		return
 	}
