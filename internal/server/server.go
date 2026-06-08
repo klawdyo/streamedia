@@ -164,11 +164,23 @@ func NewRouter(
 		r.Get("/metrics", telemetryProvider.Handler.ServeHTTP)
 	}
 
-	// --- Documentação da API (Swagger/OpenAPI, T30, issue #3) ---
+	// --- Documentação da API (Scalar UI, T51, issue #12) ---
 	// Sem autenticação — ver decisão registrada em internal/docs/docs.go.
 	docsHandler := docs.NewHandler()
 	r.Get("/docs/", docsHandler.ServeUI)
+	r.Get("/docs", func(w http.ResponseWriter, r *http.Request) {
+		// Redireciona /docs → /docs/ para evitar 404 quando o usuário
+		// esquece a barra final. O chi casa paths exatos — /docs sem
+		// barra não casa /docs/.
+		http.Redirect(w, r, "/docs/", http.StatusMovedPermanently)
+	})
 	r.Get("/docs/openapi.json", docsHandler.ServeOpenAPISpec)
+
+	// Handler 404 customizado — responde no envelope padrão da API em vez
+	// do texto puro "404 page not found" padrão do chi.
+	r.NotFound(func(w http.ResponseWriter, r *http.Request) {
+		apiresponse.Error(w, http.StatusNotFound, "Rota não encontrada.")
+	})
 
 	return r
 }
