@@ -166,10 +166,12 @@ func NewRouter(
 
 	// --- Documentação da API (Scalar UI, T51, issue #12) ---
 	// Sem autenticação — ver decisão registrada em internal/docs/docs.go.
+	// r.Route normaliza trailing slash: /docs e /docs/ batem no mesmo handler.
 	docsHandler := docs.NewHandler()
-	r.Get("/docs", docsHandler.ServeUI)
-	r.Get("/docs/", docsHandler.ServeUI)
-	r.Get("/docs/openapi.json", docsHandler.ServeOpenAPISpec)
+	r.Route("/docs", func(r chi.Router) {
+		r.Get("/", docsHandler.ServeUI)
+		r.Get("/openapi.json", docsHandler.ServeOpenAPISpec)
+	})
 
 	// Handler 404 customizado — responde no envelope padrão da API em vez
 	// do texto puro "404 page not found" padrão do chi.
