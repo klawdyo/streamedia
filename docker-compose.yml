@@ -27,8 +27,12 @@ services:
       - PORT=${PORT:-3000}
       - RATE_LIMIT_PER_MIN=${RATE_LIMIT_PER_MIN:-60}
     volumes:
-      - ./media:/media
-      - ./data:/data
+      # Volumes nomeados (não bind mounts): o Docker inicializa o ponto de
+      # montagem herdando a ownership do diretório na imagem (appuser:appuser),
+      # então o processo não-root consegue escrever. Bind mounts do host
+      # (./data) seriam criados como root e quebrariam o SQLite (erro 14).
+      - media:/media
+      - data:/data
     ports:
       - "${PORT:-3000}:3000"
     healthcheck:
@@ -36,3 +40,9 @@ services:
       interval: 30s
       timeout: 5s
       retries: 3
+
+# Volumes nomeados persistentes — gerenciados pelo Docker/Coolify, sobrevivem
+# a recriações do container e preservam a ownership não-root da imagem.
+volumes:
+  media:
+  data:
