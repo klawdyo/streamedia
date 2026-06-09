@@ -3,9 +3,9 @@ package version
 import "testing"
 
 // TestGet_ReturnsDefaults verifica que em ambiente de teste (sem -ldflags),
-// Get() retorna os valores padrão: "0.0.0-dev", "unknown", "ok".
+// Get() retorna os valores padrão de build e o ambiente informado.
 func TestGet_ReturnsDefaults(t *testing.T) {
-	info := Get()
+	info := Get("development")
 
 	if info.Name != "Streamedia" {
 		t.Errorf("Name: esperado 'Streamedia', obtido %q", info.Name)
@@ -13,20 +13,25 @@ func TestGet_ReturnsDefaults(t *testing.T) {
 	if info.Version != "0.0.0-dev" {
 		t.Errorf("Version: esperado '0.0.0-dev', obtido %q", info.Version)
 	}
-	if info.Commit != "unknown" {
-		t.Errorf("Commit: esperado 'unknown', obtido %q", info.Commit)
-	}
-	if info.BuildTime != "unknown" {
-		t.Errorf("BuildTime: esperado 'unknown', obtido %q", info.BuildTime)
+	if info.Environment != "development" {
+		t.Errorf("Environment: esperado 'development', obtido %q", info.Environment)
 	}
 	if info.Status != "ok" {
 		t.Errorf("Status: esperado 'ok', obtido %q", info.Status)
 	}
 }
 
+// TestGet_PropagatesEnvironment verifica que o ambiente passado pelo chamador
+// (config/ENV) é refletido na resposta — inclusive "production".
+func TestGet_PropagatesEnvironment(t *testing.T) {
+	if info := Get("production"); info.Environment != "production" {
+		t.Errorf("Environment: esperado 'production', obtido %q", info.Environment)
+	}
+}
+
 // TestGet_FieldsAreNonEmpty verifica que nenhum campo essencial está vazio.
 func TestGet_FieldsAreNonEmpty(t *testing.T) {
-	info := Get()
+	info := Get("development")
 
 	if info.Name == "" {
 		t.Error("Name está vazio")

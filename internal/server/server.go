@@ -169,13 +169,14 @@ func NewRouter(
 
 	// --- Versão da API (T55) ---
 	// Rota pública sem autenticação, com rate limiting baixo (10 req/min)
-	// para mitigar abuso. Expõe nome, versão semântica, commit e status.
-	// A versão é injetada via -ldflags no build (internal/version).
+	// para mitigar abuso. Expõe nome, versão semântica, ambiente e status.
+	// A versão é injetada via -ldflags no build (internal/version); o ambiente
+	// vem da config (variável ENV). O commit deixou de ser exposto aqui.
 	versionLimiter := middleware.NewRateLimiter(10)
 	r.Group(func(r chi.Router) {
 		r.Use(versionLimiter.Middleware)
 		r.Get("/api", func(w http.ResponseWriter, _ *http.Request) {
-			apiresponse.Success(w, http.StatusOK, version.Get())
+			apiresponse.Success(w, http.StatusOK, version.Get(cfg.Environment))
 		})
 	})
 
