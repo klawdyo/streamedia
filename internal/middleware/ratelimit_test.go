@@ -265,6 +265,43 @@ func TestRateLimit_XForwardedFor(t *testing.T) {
 	}
 }
 
+// TestRateLimit_SpoofedHeaderFromPublicIPIgnored garante a defesa anti-spoofing:
+// quando a conexão vem direto de um IP PÚBLICO (sem proxy reverso na frente),
+// os headers X-Real-IP/X-Forwarded-For são controlados pelo cliente e devem
+// ser IGNORADOS — caso contrário um bot trocaria o header a cada requisição
+// para ganhar um balde de rate limit novo e burlar o limite. Todas as
+// requisições com o mesmo RemoteAddr público devem cair no mesmo balde,
+// mesmo variando o X-Real-IP.
+func TestRateLimit_SpoofedHeaderFromPublicIPIgnored(t *testing.T) {
+	limiter := newTestRateLimiter(t, 1) // 1 requisição por minuto
+	handler := limiter.Middleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+
+	// Primeira requisição de um IP público, com X-Real-IP forjado.
+	req := httptest.NewRequest("GET", "/", nil)
+	req.RemoteAddr = "203.0.113.10:5678" // IP público (TEST-NET-3)
+	req.Header.Set("X-Real-IP", "10.0.0.1")
+	w := httptest.NewRecorder()
+	handler.ServeHTTP(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("primeira requisição: esperado %d, obtido %d", http.StatusOK, w.Code)
+	}
+
+	// Segunda requisição do MESMO IP público, mas trocando o X-Real-IP forjado.
+	// Se o header fosse honrado, cairia em outro balde e passaria — o que
+	// caracterizaria o bypass. Esperamos 429 (mesmo balde do IP real).
+	req = httptest.NewRequest("GET", "/", nil)
+	req.RemoteAddr = "203.0.113.10:5678"
+	req.Header.Set("X-Real-IP", "10.0.0.2") // forjado diferente
+	w = httptest.NewRecorder()
+	handler.ServeHTTP(w, req)
+	if w.Code != http.StatusTooManyRequests {
+		t.Errorf("header spoofado de IP público burlou o rate limit: esperado %d, obtido %d",
+			http.StatusTooManyRequests, w.Code)
+	}
+}
+
 // TestRateLimit_RemoteAddrWithoutPort verifica se RemoteAddr sem porta é tratado corretamente.
 func TestRateLimit_RemoteAddrWithoutPort(t *testing.T) {
 	limiter := newTestRateLimiter(t,1)
