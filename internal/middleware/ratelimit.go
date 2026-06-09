@@ -90,35 +90,44 @@ func (rl *RateLimiter) getLimiter(ip string) *rate.Limiter {
 	return e.limiter
 }
 
-// extractIP extrai o endereço IP da requisição.
-// Prioridade:
-// 1. X-Real-IP
-// 2. X-Forwarded-For (primeiro valor)
-// 3. RemoteAddr (com remoção da porta)
+// extractIP determina o IP do cliente para fins de rate limiting.
+//
+// Segurança (anti-spoofing): X-Real-IP e X-Forwarded-For são headers
+// definidos pelo cliente e, portanto, FALSIFICÁVEIS. Se confiássemos neles
+// incondicionalmente, um bot batendo direto na porta trocaria o header a cada
+// requisição e ganharia um balde de rate limit novo a cada vez — burlando o
+// limite por completo. Por isso só honramos esses headers quando a conexão
+// chega de um proxy reverso na rede interna (loopback ou IP privado RFC1918/
+// ULA) — o caso do Coolify/Traefik, que fala com o container pela rede do
+// Docker. Quando a requisição vem direto de um IP público (app exposto sem
+// proxy, ou scanner na porta crua), ignoramos os headers e usamos o IP real
+// da conexão TCP (RemoteAddr), que é o único valor não-falsificável.
 func extractIP(r *http.Request) string {
-	// Tenta X-Real-IP
-	if ip := r.Header.Get("X-Real-IP"); ip != "" {
-		return ip
+	// RemoteAddr é o peer real da conexão (host:porta). Separa o host.
+	host := r.RemoteAddr
+	if h, _, err := net.SplitHostPort(r.RemoteAddr); err == nil {
+		host = h
 	}
 
-	// Tenta X-Forwarded-For
+	// Só confia nos headers de proxy se a conexão veio de origem confiável
+	// (rede interna). Caso contrário, o IP da conexão é a resposta correta.
+	if ip := net.ParseIP(host); ip == nil || (!ip.IsLoopback() && !ip.IsPrivate()) {
+		return host
+	}
+
+	// Conexão de proxy confiável: honra o IP original que ele encaminhou.
+	if xr := strings.TrimSpace(r.Header.Get("X-Real-IP")); xr != "" {
+		return xr
+	}
 	if forwarded := r.Header.Get("X-Forwarded-For"); forwarded != "" {
-		// Pega o primeiro IP da lista (separado por vírgula)
-		ips := strings.Split(forwarded, ",")
-		if len(ips) > 0 {
-			if ip := strings.TrimSpace(ips[0]); ip != "" {
-				return ip
-			}
+		// O primeiro IP da lista é o cliente original (os demais são proxies).
+		if first := strings.TrimSpace(strings.Split(forwarded, ",")[0]); first != "" {
+			return first
 		}
 	}
 
-	// Extrai IP de RemoteAddr removendo a porta
-	if ip, _, err := net.SplitHostPort(r.RemoteAddr); err == nil {
-		return ip
-	}
-
-	// Fallback: retorna RemoteAddr como está
-	return r.RemoteAddr
+	// Proxy confiável mas sem headers de IP: usa o próprio host.
+	return host
 }
 
 // Middleware retorna um middleware HTTP que aplica rate limiting por IP.

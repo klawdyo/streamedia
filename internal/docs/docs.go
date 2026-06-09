@@ -10,12 +10,13 @@
 // nenhuma mudança de contrato — apenas a página HTML servida em /docs/ foi
 // alterada.
 //
-// Decisão de autenticação: a documentação fica SEM autenticação, no mesmo
-// espírito da rota /metrics (T29) — é material de referência para quem
-// integra com a API (incluindo as rotas administrativas, que continuam
-// protegidas por AdminAuth/HMAC nas próprias rotas reais; a spec apenas
-// descreve seus contratos, não dá acesso a elas). O rate limiter global
-// (T19) já mitiga abuso de scraping da documentação.
+// Decisão de autenticação (revisada — endurecimento de segurança): a
+// documentação era SERVIDA SEM autenticação, mas passou a exigir token de
+// admin (AdminAuth), no mesmo grupo da rota /metrics. Motivo: descrever toda
+// a superfície da API é informação valiosa para reconhecimento por
+// scanners/bots que varrem IPs públicos. A montagem do middleware é feita no
+// roteador (internal/server/server.go), não aqui — este handler só serve o
+// conteúdo. O rate limiter global (T19) continua mitigando abuso.
 package docs
 
 import (
