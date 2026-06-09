@@ -1,6 +1,11 @@
 services:
   mediaserver:
-    build: .
+    build:
+      context: .
+      args:
+        # Commit do git para a versão exibida no /version. Opcional — fica
+        # "unknown" quando GIT_COMMIT não é fornecido (ex.: build no Coolify).
+        GIT_COMMIT: ${GIT_COMMIT:-unknown}
     restart: unless-stopped
     environment:
       - UPLOAD_TOKEN_SECRET=${UPLOAD_TOKEN_SECRET}
@@ -22,12 +27,25 @@ services:
       - PORT=${PORT:-3000}
       - RATE_LIMIT_PER_MIN=${RATE_LIMIT_PER_MIN:-60}
     volumes:
-      - ./media:/media
-      - ./data:/data
+      # Volumes nomeados (não bind mounts): o Docker inicializa o ponto de
+      # montagem herdando a ownership do diretório na imagem (appuser:appuser),
+      # então o processo não-root consegue escrever. Bind mounts do host
+      # (./data) seriam criados como root e quebrariam o SQLite (erro 14).
+      - media:/media
+      - data:/data
     ports:
       - "${PORT:-3000}:3000"
     healthcheck:
-      test: ["CMD", "wget", "--spider", "-q", "http://localhost:3000/healthz"]
+      # Usa GET (-O /dev/null), não HEAD (--spider): a app responde 200 em GET
+      # /healthz. Um HEAD retornaria 405 e marcaria o container como unhealthy,
+      # fazendo o proxy do Coolify deixar de rotear o tráfego para ele.
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://localhost:3000/healthz"]
       interval: 30s
       timeout: 5s
       retries: 3
+
+# Volumes nomeados persistentes — gerenciados pelo Docker/Coolify, sobrevivem
+# a recriações do container e preservam a ownership não-root da imagem.
+volumes:
+  media:
+  data:

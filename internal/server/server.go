@@ -157,9 +157,15 @@ func NewRouter(
 	r.Post("/admin/projects/{slug}/upload-tokens", adminHandler.HandleIssueUploadToken)
 
 	// --- Health check ---
-	r.Get("/healthz", func(w http.ResponseWriter, _ *http.Request) {
+	// Aceita GET e HEAD: o healthcheck do Docker e proxies/monitores podem
+	// sondar com HEAD. Sem o HEAD registrado, o chi responderia 405 e o
+	// healthcheck falharia, marcando o container como unhealthy (e fazendo
+	// o proxy do Coolify deixar de rotear o tráfego para ele).
+	healthz := func(w http.ResponseWriter, _ *http.Request) {
 		apiresponse.Success(w, http.StatusOK, map[string]string{"status": "ok"})
-	})
+	}
+	r.Get("/healthz", healthz)
+	r.Head("/healthz", healthz)
 
 	// --- Versão da API (T55) ---
 	// Rota pública sem autenticação, com rate limiting baixo (10 req/min)
@@ -190,9 +196,20 @@ func NewRouter(
 	r.Get("/docs/openapi.json", docsHandler.ServeOpenAPISpec)
 
 	// Handler 404 customizado — responde no envelope padrão da API em vez
-	// do texto puro "404 page not found" padrão do chi.
+	// do texto puro "404 page not found" padrão do chi. Inclui o método e o
+	// caminho para tornar o erro mais explícito ao depurar (ex. acesso à raiz
+	// "/" ou a uma rota inexistente).
 	r.NotFound(func(w http.ResponseWriter, r *http.Request) {
-		apiresponse.Error(w, http.StatusNotFound, "Rota não encontrada.")
+		apiresponse.Error(w, http.StatusNotFound,
+			fmt.Sprintf("Rota não encontrada: %s %s", r.Method, r.URL.Path))
+	})
+
+	// Handler 405 customizado — quando o caminho existe mas o método não é
+	// permitido (ex. HEAD em /healthz, que só aceita GET). Sem isto o chi
+	// responde texto puro "405 method not allowed", quebrando o contrato JSON.
+	r.MethodNotAllowed(func(w http.ResponseWriter, r *http.Request) {
+		apiresponse.Error(w, http.StatusMethodNotAllowed,
+			fmt.Sprintf("Método não permitido: %s %s", r.Method, r.URL.Path))
 	})
 
 	// Closer que encerra recursos internos (goroutines do TUS handler e rate limiters).
