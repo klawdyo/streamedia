@@ -179,21 +179,28 @@ func NewRouter(
 		})
 	})
 
-	// --- Métricas (OpenTelemetry/Prometheus, T29, issue #1) ---
-	// Sem autenticação: é o padrão do ecossistema Prometheus — a proteção,
-	// quando necessária, é feita na camada de infraestrutura/rede (ex.
-	// regra de firewall restringindo a origem do scraper), não na aplicação.
-	// O rate limiter (T19), já aplicado globalmente acima, mitiga abuso.
-	if telemetryProvider != nil {
-		r.Get("/metrics", telemetryProvider.Handler.ServeHTTP)
-	}
+	// --- Observabilidade e documentação (protegidas por token) ---
+	// /metrics (OpenTelemetry/Prometheus, T29, issue #1) e /docs (Scalar UI,
+	// T51, issue #12) eram públicas. Agora exigem o mesmo token de admin das
+	// rotas /admin/*: /metrics expõe detalhes operacionais internos (tamanho
+	// da fila, uploads em andamento, contadores de eventos) e /docs descreve
+	// toda a superfície da API — informação valiosa para reconhecimento por
+	// scanners/bots. Protegê-las com AdminAuth reduz a superfície exposta sem
+	// remover as rotas. Qualquer credencial de admin (ADMIN_TOKEN global ou
+	// chave mestra de projeto) autentica; o scraper Prometheus deve enviar
+	// `Authorization: Bearer <ADMIN_TOKEN>`. StripSlashMiddleware (global)
+	// normaliza /docs/ → /docs, sem redirect.
+	r.Group(func(r chi.Router) {
+		r.Use(admin.AdminAuth(cfg.AdminToken, database))
 
-	// --- Documentação da API (Scalar UI, T51, issue #12) ---
-	// Sem autenticação — ver decisão registrada em internal/docs/docs.go.
-	// StripSlashMiddleware (global) normaliza /docs/ → /docs, sem redirect.
-	docsHandler := docs.NewHandler()
-	r.Get("/docs", docsHandler.ServeUI)
-	r.Get("/docs/openapi.json", docsHandler.ServeOpenAPISpec)
+		if telemetryProvider != nil {
+			r.Get("/metrics", telemetryProvider.Handler.ServeHTTP)
+		}
+
+		docsHandler := docs.NewHandler()
+		r.Get("/docs", docsHandler.ServeUI)
+		r.Get("/docs/openapi.json", docsHandler.ServeOpenAPISpec)
+	})
 
 	// Handler 404 customizado — responde no envelope padrão da API em vez
 	// do texto puro "404 page not found" padrão do chi. Inclui o método e o
