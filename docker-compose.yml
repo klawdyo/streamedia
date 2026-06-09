@@ -8,6 +8,9 @@ services:
         GIT_COMMIT: ${GIT_COMMIT:-unknown}
     restart: unless-stopped
     environment:
+      # Ambiente de execução exposto em GET /api. Em produção defina ENV=production
+      # (no .env / nas variáveis do Coolify); o default é "development".
+      - ENV=${ENV:-development}
       - UPLOAD_TOKEN_SECRET=${UPLOAD_TOKEN_SECRET}
       - WEBHOOK_URL=${WEBHOOK_URL}
       - WEBHOOK_SECRET=${WEBHOOK_SECRET}
