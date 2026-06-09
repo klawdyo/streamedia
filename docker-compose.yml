@@ -36,7 +36,10 @@ services:
     ports:
       - "${PORT:-3000}:3000"
     healthcheck:
-      test: ["CMD", "wget", "--spider", "-q", "http://localhost:3000/healthz"]
+      # Usa GET (-O /dev/null), não HEAD (--spider): a app responde 200 em GET
+      # /healthz. Um HEAD retornaria 405 e marcaria o container como unhealthy,
+      # fazendo o proxy do Coolify deixar de rotear o tráfego para ele.
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://localhost:3000/healthz"]
       interval: 30s
       timeout: 5s
       retries: 3
