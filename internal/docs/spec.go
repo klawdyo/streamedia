@@ -376,7 +376,7 @@ func openAPISpec() map[string]any {
 				"get": map[string]any{
 					"tags":        []string{"observability"},
 					"summary":     "Versão e status da API",
-					"description": "Retorna nome, versão semântica, commit Git, timestamp de build e status da API. Rota pública sem autenticação, com rate limiting de 10 req/min. A versão é injetada no binário via -ldflags (lida do arquivo VERSION na raiz do repositório durante o build Docker).",
+					"description": "Retorna nome, versão semântica, ambiente de execução e status da API. Rota pública sem autenticação, com rate limiting de 10 req/min. A versão é injetada no binário via -ldflags (lida do arquivo VERSION na raiz do repositório durante o build Docker); o ambiente vem da variável de ambiente ENV.",
 					"responses": map[string]any{
 						"200": map[string]any{
 							"description": "Informações de versão no envelope padrão",
@@ -385,11 +385,10 @@ func openAPISpec() map[string]any {
 									"schema": map[string]any{
 										"type": "object",
 										"properties": map[string]any{
-											"name":       map[string]any{"type": "string", "example": "Streamedia"},
-											"version":    map[string]any{"type": "string", "example": "0.36.0"},
-											"commit":     map[string]any{"type": "string", "example": "a1b2c3d"},
-											"build_time": map[string]any{"type": "string", "example": "2026-06-07T22:00:00Z"},
-											"status":     map[string]any{"type": "string", "example": "ok"},
+											"name":        map[string]any{"type": "string", "example": "Streamedia"},
+											"version":     map[string]any{"type": "string", "example": "0.36.0"},
+											"environment": map[string]any{"type": "string", "example": "production"},
+											"status":      map[string]any{"type": "string", "example": "ok"},
 										},
 									},
 								},
