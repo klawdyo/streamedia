@@ -81,6 +81,18 @@ upload travado por minutos sem como recuperar):
   progresso. Erros são tipados (`timeout`/`abort`/`network`/`http`) para
   decidir a mensagem e o próximo estado.
 
+### Correção do `declared_size_bytes` (etapa 2 antes da 3)
+
+A versão inicial enviava `declared_size_bytes` de um campo manual (default
+10MB) na etapa 2, **antes** de o arquivo ser escolhido na etapa 3. Como o
+servidor valida no post-finish que `actual == declared` com igualdade exata
+(`internal/upload/validation.go:validateFileSize`), qualquer upload real
+terminava em `failed_upload` (bytes recebidos ≠ 10MB declarados), com o
+arquivo apagado. Correção: o seletor de arquivo passou para a etapa 2; o
+`Solicitar` só habilita após escolher o arquivo e envia
+`declared_size_bytes = file.size` (o campo virou read-only, preenchido
+automaticamente). A etapa 3 ficou só com o envio em chunks.
+
 ### Decisão de escopo — webhook não é "injetado" em `/upload/init`
 
 A issue menciona "A URL é automaticamente injetada no upload/init". O fluxo

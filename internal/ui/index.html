@@ -205,7 +205,7 @@
   <section class="step locked" id="step2">
     <div class="step-head">
       <span class="step-num">2</span>
-      <span class="step-title">Solicitar link de upload</span>
+      <span class="step-title">Selecionar arquivo e solicitar link</span>
       <span class="step-sub">POST /api/upload/init</span>
     </div>
     <div class="step-body">
@@ -213,14 +213,18 @@
         <label class="field">tag (namespace do vídeo)
           <input type="text" id="tag" value="teste-video">
         </label>
-        <label class="field">tamanho declarado (bytes)
-          <input type="number" id="declaredSize" value="10485760">
+        <label class="field">arquivo de vídeo
+          <input type="file" id="videoFile" accept="video/*">
         </label>
-        <button id="btnInit">Solicitar</button>
+        <label class="field">tamanho declarado (bytes) — do arquivo
+          <input type="number" id="declaredSize" readonly placeholder="selecione um arquivo">
+        </label>
+        <button id="btnInit" disabled>Solicitar</button>
       </div>
-      <div class="note">O tamanho real do arquivo é enviado depois, via TUS
-        (<code class="inline">Upload-Length</code>). O <code class="inline">declared_size_bytes</code>
-        só precisa ser &gt; 0 e ≤ <code class="inline">MAX_UPLOAD_SIZE_MB</code> do servidor.</div>
+      <div class="note">O <code class="inline">declared_size_bytes</code> é o tamanho <b>exato</b>
+        do arquivo. No fim do upload o servidor valida que os bytes recebidos batem com o declarado —
+        diferença de 1 byte marca o vídeo como <code class="inline">failed_upload</code>. Por isso o
+        arquivo é escolhido aqui e o tamanho é preenchido automaticamente.</div>
       <div class="meta" id="initMeta"></div>
       <div class="response" id="initResp"></div>
     </div>
@@ -235,9 +239,6 @@
     </div>
     <div class="step-body">
       <div class="row">
-        <label class="field">arquivo de vídeo
-          <input type="file" id="videoFile" accept="video/*">
-        </label>
         <label class="field">chunk (MB)
           <input type="number" id="chunkMB" value="5" min="1">
         </label>
@@ -424,8 +425,11 @@ $("btnAuth").onclick = async () => {
 // =====================================================================
 $("btnInit").onclick = async () => {
   const tag = $("tag").value.trim();
-  const declared = parseInt($("declaredSize").value, 10);
   if (!tag) { setMeta("initMeta", "err", "Informe a tag."); return; }
+  if (!selectedFile) { setMeta("initMeta", "err", "Selecione o arquivo de vídeo primeiro."); return; }
+  // declared_size_bytes precisa ser EXATO: o servidor valida actual == declared
+  // no fim do upload. Por isso enviamos o tamanho real do arquivo escolhido.
+  const declared = selectedFile.size;
   setMeta("initMeta", "load", "solicitando…");
   try {
     const r = await timedFetch(origin + "/api/upload/init", {
@@ -505,8 +509,14 @@ $("videoFile").onchange = (e) => {
   resetUpload();
   if (selectedFile) {
     const mb = (selectedFile.size / 1048576).toFixed(2);
+    // Preenche o tamanho declarado com o tamanho EXATO do arquivo (read-only).
+    $("declaredSize").value = selectedFile.size;
     $("chunkPlan").innerHTML = `<div class="meta"><span class="pill">${selectedFile.name}</span><span class="pill">${mb} MB</span></div>`;
+  } else {
+    $("declaredSize").value = "";
   }
+  // Só dá para solicitar o link depois de escolher o arquivo (precisamos do tamanho).
+  $("btnInit").disabled = !selectedFile;
   setUploadButtons("idle");
 };
 
