@@ -78,6 +78,6 @@ Cada agente recebe APENAS o que precisa para sua tarefa:
 
 ## Arquivos relevantes
 
-- `spec/ESPECIFICACAOv4.md` — Spec completa (só o CTO precisa)
+- `spec/README.md` (índice da spec) — Spec completa (só o CTO precisa)
 - `.tasks/00-manifest.md` — Estado atual de todas as tarefas
 - `.tasks/NN-*.md` — Tarefa individual (autocontida)

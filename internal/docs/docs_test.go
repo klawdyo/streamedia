@@ -91,7 +91,7 @@ func TestOpenAPISpecDocumentsKnownRoutes(t *testing.T) {
 		t.Fatal("spec não contém um objeto 'paths'")
 	}
 
-	for _, wantPath := range []string{"/upload/init", "/api/status/{video_id}", "/admin/stats"} {
+	for _, wantPath := range []string{"/api/upload/init", "/api/status/{video_id}", "/admin/stats"} {
 		if _, ok := paths[wantPath]; !ok {
 			t.Errorf("spec não documenta o path %q (paths presentes: %v)", wantPath, keysOf(paths))
 		}

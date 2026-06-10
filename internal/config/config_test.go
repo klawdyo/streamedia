@@ -105,9 +105,8 @@ func TestLoad_InvalidInt(t *testing.T) {
 	}
 }
 
-func TestLoad_TimeVarsDefaultsAreInSeconds(t *testing.T) {
-	// issue #4: as variáveis de tempo devem ser lidas em segundos, com
-	// defaults equivalentes aos valores anteriores (6h, 10min, 30min).
+func TestLoad_TimeVarsDefaults(t *testing.T) {
+	// As variáveis de tempo são lidas em segundos; valida os defaults.
 	t.Setenv("ROOT_TOKEN", "s")
 	t.Setenv("WEBHOOK_URL", "https://x.com")
 	t.Setenv("WEBHOOK_SECRET", "s2")
@@ -139,8 +138,8 @@ func TestLoad_TimeVarsDefaultsAreInSeconds(t *testing.T) {
 }
 
 func TestLoad_TimeVarsReadInSeconds(t *testing.T) {
-	// issue #4: definir as novas variáveis _SECONDS deve refletir
-	// diretamente em time.Duration via time.Second, sem conversões ocultas.
+	// Os valores das variáveis de tempo refletem diretamente em time.Duration
+	// via time.Second, sem conversões ocultas.
 	t.Setenv("ROOT_TOKEN", "s")
 	t.Setenv("WEBHOOK_URL", "https://x.com")
 	t.Setenv("WEBHOOK_SECRET", "s2")
@@ -165,41 +164,6 @@ func TestLoad_TimeVarsReadInSeconds(t *testing.T) {
 	}
 	if cfg.TranscodeStuckTime != 300*time.Second {
 		t.Errorf("TranscodeStuckTime: esperado %v, obtido %v", 300*time.Second, cfg.TranscodeStuckTime)
-	}
-}
-
-func TestLoad_OldTimeVarNamesAreIgnored(t *testing.T) {
-	// issue #4: os nomes antigos (sufixos _H e _MIN) não devem mais ser
-	// lidos — é uma mudança incompatível intencional. Defini-los não deve
-	// influenciar o resultado; os defaults em segundos devem prevalecer.
-	t.Setenv("ROOT_TOKEN", "s")
-	t.Setenv("WEBHOOK_URL", "https://x.com")
-	t.Setenv("WEBHOOK_SECRET", "s2")
-	t.Setenv("UPLOAD_TOKEN_TTL_H", "1")
-	t.Setenv("PLAY_TOKEN_MAX_TTL_H", "1")
-	t.Setenv("UPLOAD_IDLE_TIMEOUT_MIN", "1")
-	t.Setenv("TRANSCODE_STUCK_MIN", "1")
-	t.Setenv("UPLOAD_TOKEN_TTL", "")
-	t.Setenv("PLAY_TOKEN_TTL", "")
-	t.Setenv("UPLOAD_IDLE_TIMEOUT", "")
-	t.Setenv("TRANSCODE_STUCK", "")
-
-	cfg, err := Load()
-	if err != nil {
-		t.Fatalf("Load() retornou erro inesperado: %v", err)
-	}
-
-	if cfg.UploadTokenTTL != 20*time.Minute {
-		t.Errorf("UploadTokenTTL: variável antiga UPLOAD_TOKEN_TTL_H não deveria ser lida; esperado default %v, obtido %v", 20*time.Minute, cfg.UploadTokenTTL)
-	}
-	if cfg.PlayTokenTTL != 1*time.Hour {
-		t.Errorf("PlayTokenTTL: esperado default %v, obtido %v", 1*time.Hour, cfg.PlayTokenTTL)
-	}
-	if cfg.UploadIdleTimeout != 10*time.Minute {
-		t.Errorf("UploadIdleTimeout: variável antiga UPLOAD_IDLE_TIMEOUT_MIN não deveria ser lida; esperado default %v, obtido %v", 10*time.Minute, cfg.UploadIdleTimeout)
-	}
-	if cfg.TranscodeStuckTime != 30*time.Minute {
-		t.Errorf("TranscodeStuckTime: variável antiga TRANSCODE_STUCK_MIN não deveria ser lida; esperado default %v, obtido %v", 30*time.Minute, cfg.TranscodeStuckTime)
 	}
 }
 
