@@ -56,6 +56,21 @@ services:
 
 # Volumes nomeados persistentes — gerenciados pelo Docker/Coolify, sobrevivem
 # a recriações do container e preservam a ownership não-root da imagem.
+#
+# `name:` explícito: sem ele, o Coolify gera um nome com prefixo/hash do recurso
+# (ex.: `abc123def_data`), que fica difícil de identificar e parece "aleatório"
+# na aba de Persistent Storage. Fixando o nome, os volumes aparecem limpos e
+# previsíveis no Coolify (`streamedia_data` / `streamedia_media`) e são fáceis de
+# localizar/inspecionar/remover (`docker volume ls`, `docker volume rm`).
+#
+# Continuam sendo volumes NOMEADOS (não bind mounts) de propósito: o Docker
+# inicializa o ponto de montagem herdando a ownership da imagem (appuser:appuser),
+# então o processo não-root escreve sem erro. O conteúdo físico vive em
+# /var/lib/docker/volumes/<name>/_data — isso é intrínseco a volumes nomeados do
+# Docker; para um caminho de host arbitrário seria preciso usar bind mount, que
+# reintroduz o problema de permissão do usuário não-root (SQLite error 14).
 volumes:
   media:
+    name: streamedia_media
   data:
+    name: streamedia_data
