@@ -39,6 +39,15 @@ Playlists de resolução e segmentos `.ts` — **estáticos e públicos** (os no
 opacos no master funcionam como a "chave"). Validação rígida de path
 (resolução permitida, sem traversal).
 
+### `GET /video/{tag}/{video_id}/thumb_{resolution}.jpg`
+Thumbnail (poster) **JPEG** da resolução, **público e sem autenticação** (poster
+é público por natureza). Gerado ao final da transcodificação, um por resolução,
+a partir de um frame a 1s do vídeo (fallback para o primeiro frame em vídeos
+curtos), escalado preservando a proporção original (16:9, 9:16, 4:3, …) com a
+menor dimensão igual à resolução. Disco:
+`<MEDIA_DIR>/<tag>/<video_id>/thumb_<resolution>.jpg`. Só aceita as resoluções
+suportadas (480/720/1080); demais nomes retornam `400`.
+
 > Padrão recomendado de entrega: o backend devolve ao app uma URL própria
 > estável (`backend/api/video/{id}/play`); no play, autoriza e responde **302**
 > (com `Cache-Control: no-store`) para a `play_url`. Assim só há contato com o
@@ -72,7 +81,7 @@ está definida, `WEBHOOK_SECRET` passa a ser obrigatório.
 
 | Rota | Descrição |
 |---|---|
-| `GET /api/status/{video_id}` | Estado do vídeo + metadados. |
+| `GET /api/status/{video_id}` | Estado do vídeo + metadados (inclui `has_thumbnails` e `thumbnails`, mapa resolução→URL pública do poster). |
 | `GET /admin/videos` | Lista paginada; filtros `status`, `tag`, `limit`, `offset`. |
 | `GET /admin/queue` | Tamanho da fila + nº de workers. |
 | `GET /admin/stats` | Estatísticas agregadas (e armazenamento/fila na visão global). |

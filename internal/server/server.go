@@ -61,6 +61,7 @@ func NewRouter(
 	}
 	masterHandler := serve.NewMasterHandler(cfg, database)
 	staticHandler := serve.NewStaticHandler(cfg, database)
+	thumbnailHandler := serve.NewThumbnailHandler(cfg)
 	statusHandler := serve.NewStatusHandler(cfg, database)
 	playInitHandler := serve.NewPlayInitHandler(cfg, database)
 	adminHandler := admin.NewAdminHandler(cfg, database, queue)
@@ -149,6 +150,9 @@ func NewRouter(
 	// na query). As playlists de resolução e segmentos são estáticos/públicos.
 	// Os handlers fazem o parsing do path internamente (prefixo /video/).
 	r.Get("/video/{tag}/{file}", masterHandler.ServeHTTP)
+	// Thumbnail (poster) público por resolução: 3 segmentos após /video/,
+	// distinto do master (2) e do segmento (4). Sem autenticação (issue #19).
+	r.Get("/video/{tag}/{videoID}/{thumb}", thumbnailHandler.ServeHTTP)
 	r.Get("/video/{tag}/{videoID}/{res}/{segment}", staticHandler.ServeHTTP)
 
 	// --- Health check ---

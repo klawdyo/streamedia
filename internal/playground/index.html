@@ -167,7 +167,9 @@
   .players { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 16px; }
   .player-card { background: var(--bg-inset); border: 1px solid var(--border); border-radius: 8px; padding: 12px; display: flex; flex-direction: column; gap: 8px; }
   .player-card h5 { margin: 0; font-size: 13px; }
-  .player-card video { width: 100%; border-radius: 6px; background: #000; aspect-ratio: 16/9; }
+  /* object-fit: contain mantém a proporção do poster/vídeo (portrait não estica)
+     letterboxando sobre o fundo preto em vez de distorcer. */
+  .player-card video { width: 100%; border-radius: 6px; background: #000; aspect-ratio: 16/9; object-fit: contain; }
   .player-card .pstatus { font-size: 11px; color: var(--text-dim); min-height: 14px; }
 
   .note { font-size: 12px; color: var(--text-dim); background: var(--bg-inset); border-left: 2px solid var(--border-strong); padding: 8px 12px; border-radius: 0 6px 6px 0; }
@@ -290,7 +292,8 @@
     </div>
     <div class="step-body">
       <div class="note">Cada player carrega a playlist HLS pública daquela resolução e
-        <b>não</b> inicia sozinho — clique em ▶ Play para medir o tempo até começar a rodar.</div>
+        <b>não</b> inicia sozinho — clique em ▶ Play para medir o tempo até começar a rodar.
+        Antes do play, o player mostra o <b>thumbnail</b> (poster) daquela resolução.</div>
       <div class="players" id="players"></div>
     </div>
   </section>
@@ -893,11 +896,15 @@ function buildPlayers() {
   resolutions.forEach((res) => {
     // Playlist de resolução é pública: /video/<tag>/<id>/<res>/playlist.m3u8
     const url = `${origin}/video/${state.tag}/${state.videoId}/${res}/playlist.m3u8`;
+    // Thumbnail (poster) público daquela resolução: thumb_<res>.jpg. Usado como
+    // `poster` do <video> — com preload="none" o HLS só carrega frames após o
+    // play, então sem poster o player fica um quadrado preto até começar a tocar.
+    const poster = `${origin}/video/${state.tag}/${state.videoId}/thumb_${res}.jpg`;
     const card = document.createElement("div");
     card.className = "player-card";
     card.innerHTML = `
       <h5>${res}p</h5>
-      <video id="v${res}" playsinline preload="none"></video>
+      <video id="v${res}" playsinline preload="none" poster="${poster}"></video>
       <button class="ghost small" data-res="${res}">▶ Play</button>
       <div class="pstatus" id="ps${res}">pronto</div>`;
     container.appendChild(card);

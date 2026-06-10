@@ -337,6 +337,11 @@ func (w *Worker) Transcode(videoID string) error {
 		}
 	}
 
+	// 7.5 Gera os thumbnails (poster) por resolução a partir do vídeo ORIGINAL
+	// (issue #19). Best-effort: falhas são logadas internamente e não
+	// comprometem o vídeo. Precisa rodar ANTES da remoção do original (passo 10).
+	w.generateThumbnails(videoID, inputPath, outputDir, probe.width, probe.height, resolutions)
+
 	// 8. Escreve o master playlist.
 	master := generateMasterM3U8(resolutions)
 	masterPath := filepath.Join(outputDir, "master.m3u8")

@@ -359,9 +359,16 @@ func TestTranscodeWorker_UpdatesStatus(t *testing.T) {
 type mockFFmpeg struct {
 	err         error
 	createFiles func(args []string) // callback para criar arquivos simulados
+	// runFunc, se definido, assume o controle total da chamada (precedência
+	// sobre createFiles/err) — usado para simular comportamento por-chamada,
+	// como falhar no seek de 1s e suceder no fallback de 0s.
+	runFunc func(args []string) error
 }
 
 func (m *mockFFmpeg) Run(ctx context.Context, args []string) error {
+	if m.runFunc != nil {
+		return m.runFunc(args)
+	}
 	if m.createFiles != nil {
 		m.createFiles(args)
 	}
