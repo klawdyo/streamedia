@@ -39,6 +39,30 @@ GET {{host}}/docs/openapi.json
 Authorization: Bearer {{rootToken}}
 
 ### ============================================================
+### Console de teste do pipeline (issue #18) — rotas públicas
+### ============================================================
+
+### Página interativa (auth → upload → play → players por resolução)
+GET {{host}}/ui
+
+###
+
+### Receptor de webhooks de teste (aponte WEBHOOK_URL para esta rota)
+POST {{host}}/ui/webhook
+Content-Type: application/json
+
+{
+  "video_id": "{{videoID}}",
+  "event": "transcode_complete",
+  "status": "ready"
+}
+
+###
+
+### Webhooks recebidos (polling incremental via ?since=N)
+GET {{host}}/ui/webhook/events
+
+### ============================================================
 ### Métricas (Prometheus / OpenTelemetry)
 ### ============================================================
 
