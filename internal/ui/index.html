@@ -324,6 +324,7 @@ const state = {
   tag: "",
   uploadToken: "",
   uploadUrl: "",
+  resolutions: [], // preenchido pela resposta do play/init
 };
 
 const $ = (id) => document.getElementById(id);
@@ -773,6 +774,8 @@ $("btnPlayInit").onclick = async () => {
     });
     renderResponse("playResp", r);
     if (r.status === 200 && r.body && r.body.data) {
+      // Usa as resoluções devolvidas pelo play/init (variantes realmente geradas).
+      state.resolutions = Array.isArray(r.body.data.resolutions) ? r.body.data.resolutions : [];
       setMeta("statusMeta", "ok", "link de play emitido · " + r.ms.toFixed(0) + " ms");
       markDone("step4");
       unlock("step5");
@@ -786,13 +789,18 @@ $("btnPlayInit").onclick = async () => {
 };
 
 // =====================================================================
-// ETAPA 5 — Players por resolução (480, 720, 1080)
+// ETAPA 5 — Players por resolução (vindas do play/init)
 // =====================================================================
-const RESOLUTIONS = [480, 720, 1080];
 function buildPlayers() {
   const container = $("players");
   container.innerHTML = "";
-  RESOLUTIONS.forEach((res) => {
+  // Gera players SOMENTE para as resoluções que o play/init informou existirem.
+  const resolutions = state.resolutions || [];
+  if (!resolutions.length) {
+    container.innerHTML = '<div class="webhook-empty">Nenhuma resolução disponível para este vídeo.</div>';
+    return;
+  }
+  resolutions.forEach((res) => {
     // Playlist de resolução é pública: /video/<tag>/<id>/<res>/playlist.m3u8
     const url = `${origin}/video/${state.tag}/${state.videoId}/${res}/playlist.m3u8`;
     const card = document.createElement("div");

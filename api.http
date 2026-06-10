@@ -155,7 +155,7 @@ Authorization: Bearer {{rootToken}}
 ### Playback — HLS Streaming
 ### ============================================================
 
-### Emitir URL de play (Bearer ROOT_TOKEN) — retorna { video_id, tag, play_url, token, expires_at }
+### Emitir URL de play (Bearer ROOT_TOKEN) — retorna { video_id, tag, play_url, token, expires_at, resolutions }
 POST {{host}}/api/play/init
 Content-Type: application/json
 Authorization: Bearer {{rootToken}}

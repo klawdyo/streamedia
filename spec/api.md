@@ -24,7 +24,10 @@ enfileirado para transcodificação.
 ### `POST /api/play/init` — Bearer ROOT_TOKEN
 O backend (já tendo autorizado o usuário) troca o ROOT_TOKEN por uma URL
 assinada. Corpo: `{ "video_id": "<uuid>" }`. Exige vídeo `ready`.
-Resposta `200`: `{ video_id, tag, play_url, token, expires_at }`.
+Resposta `200`: `{ video_id, tag, play_url, token, expires_at, resolutions }`.
+`resolutions` é a lista de alturas das variantes HLS disponíveis, ordenada
+asc (ex.: `[480, 720, 1080]`) — útil para montar players por resolução; as
+playlists públicas ficam em `/video/{tag}/{video_id}/{resolution}/playlist.m3u8`.
 
 ### `GET /video/{tag}/{video_id}.m3u8?token=...`
 Master playlist **dinâmico**: valida o token de play (lookup), exige status

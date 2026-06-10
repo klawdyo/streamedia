@@ -113,7 +113,7 @@ func openAPISpec() map[string]any {
 				"post": map[string]any{
 					"tags":        []string{"play"},
 					"summary":     "Emite uma URL de reprodução assinada",
-					"description": "O backend principal (que já autorizou o usuário) troca o ROOT_TOKEN por uma URL assinada e de curta duração do master playlist. O Streamedia gera um token de play efêmero (lookup no banco, TTL PLAY_TOKEN_TTL) e devolve a play_url.",
+					"description": "O backend principal (que já autorizou o usuário) troca o ROOT_TOKEN por uma URL assinada e de curta duração do master playlist. O Streamedia gera um token de play efêmero (lookup no banco, TTL PLAY_TOKEN_TTL) e devolve a play_url junto com a lista de resoluções (variantes HLS) disponíveis para o vídeo.",
 					"security":    []map[string]any{{"rootToken": []string{}}},
 					"requestBody": map[string]any{
 						"required": true,
@@ -140,6 +140,11 @@ func openAPISpec() map[string]any {
 											"play_url":   map[string]any{"type": "string", "format": "uri"},
 											"token":      map[string]any{"type": "string"},
 											"expires_at": map[string]any{"type": "string", "format": "date-time"},
+											"resolutions": map[string]any{
+												"type":        "array",
+												"items":       map[string]any{"type": "integer"},
+												"description": "Resoluções (alturas) das variantes HLS disponíveis, ordenadas asc. Ex.: [480, 720, 1080].",
+											},
 										},
 									},
 								},
@@ -199,8 +204,8 @@ func openAPISpec() map[string]any {
 			},
 			"/video/{tag}/{video_id}/{resolution}/playlist.m3u8": map[string]any{
 				"get": map[string]any{
-					"tags":        []string{"play"},
-					"summary":     "Playlist HLS de uma resolução (estática, pública)",
+					"tags":    []string{"play"},
+					"summary": "Playlist HLS de uma resolução (estática, pública)",
 					"parameters": []map[string]any{
 						{"name": "tag", "in": "path", "required": true, "schema": map[string]any{"type": "string"}},
 						{"name": "video_id", "in": "path", "required": true, "schema": map[string]any{"type": "string"}},
