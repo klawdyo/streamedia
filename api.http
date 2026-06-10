@@ -6,13 +6,11 @@
 
 # @host = http://localhost:3000
 @host = https://streamedia.app.klawdyo.com
-@adminToken = {{$dotenv ADMIN_TOKEN}}
-@projectKey = 846D1C47553D182CED747BD69BDB299BD9C466515180B29B5DD1749903AD31DE
-@uploadToken = token-retornado-pelo-init
-@videoID = uuid-do-video
-@statusAuth = hmac-status-auth
-@playbackToken = hmac-playback-token
-@playbackExpires = 1749999999
+@rootToken = {{$dotenv ROOT_TOKEN}}
+@uploadToken = token-retornado-pelo-upload-init
+@playToken = token-retornado-pelo-play-init
+@videoID = 00000000-0000-4000-0000-000000000001
+@tag = teste-video
 
 ### ============================================================
 ### Health & Info
@@ -23,20 +21,22 @@ GET {{host}}/healthz
 
 ###
 
-### Versão da API
+### Versão da API (rate limit 10/min)
 GET {{host}}/api
 
 ### ============================================================
-### Documentação
+### Documentação (protegida por ROOT_TOKEN)
 ### ============================================================
 
 ### Documentação (Scalar UI)
 GET {{host}}/docs
+Authorization: Bearer {{rootToken}}
 
 ###
 
 ### OpenAPI spec (JSON)
 GET {{host}}/docs/openapi.json
+Authorization: Bearer {{rootToken}}
 
 ### ============================================================
 ### Métricas (Prometheus / OpenTelemetry)
@@ -44,50 +44,40 @@ GET {{host}}/docs/openapi.json
 
 ### Métricas
 GET {{host}}/metrics
-Authorization: Bearer {{adminToken}}
+Authorization: Bearer {{rootToken}}
 
 ### ============================================================
-### Upload — Inicialização
+### Upload — Inicialização (Bearer ROOT_TOKEN)
 ### ============================================================
 
-### Iniciar upload (sem project key — usa projeto default)
-POST {{host}}/upload/init
+### Iniciar upload (tag obrigatória; video_id opcional — UUID v7 gerado se omitido)
+POST {{host}}/api/upload/init
 Content-Type: application/json
-Authorization: Bearer {{adminToken}}
-
+Authorization: Bearer {{rootToken}}
 
 {
-  "declared_size_bytes": 10485760
-}
-
-###
-
-### Iniciar upload (com project key)
-POST {{host}}/upload/init
-Content-Type: application/json
-X-Project-Key: {{projectKey}}
-
-{
+  "tag": "{{tag}}",
   "declared_size_bytes": 10485760
 }
 
 ###
 
 ### Iniciar upload com video_id pré-definido
-POST {{host}}/upload/init
+POST {{host}}/api/upload/init
 Content-Type: application/json
-Authorization: Bearer {{adminToken}}
+Authorization: Bearer {{rootToken}}
 
 {
+  "tag": "{{tag}}",
   "video_id": "{{videoID}}",
   "declared_size_bytes": 10485760
 }
 
 ### ============================================================
-### Upload — Protocolo TUS
+### Upload — Protocolo TUS (autenticado via Upload-Token)
 ### ============================================================
 
-### TUS: Criar upload (sem video_id)
+### TUS: Criar upload (sem video_id — o servidor extrai do token)
 POST {{host}}/files/
 Upload-Token: {{uploadToken}}
 Upload-Length: 10485760
@@ -130,125 +120,95 @@ Upload-Token: {{uploadToken}}
 Tus-Resumable: 1.0.0
 
 ### ============================================================
-### Status do vídeo
+### Status do vídeo (Bearer ROOT_TOKEN)
 ### ============================================================
 
 ### Consultar status de um vídeo
 GET {{host}}/api/status/{{videoID}}
-X-Status-Auth: {{statusAuth}}
+Authorization: Bearer {{rootToken}}
 
 ### ============================================================
 ### Playback — HLS Streaming
 ### ============================================================
 
-### Master playlist (requer token HMAC + expires)
-GET {{host}}/videos/{{videoID}}/master.m3u8?token={{playbackToken}}&expires={{playbackExpires}}
+### Emitir URL de play (Bearer ROOT_TOKEN) — retorna { video_id, tag, play_url, token, expires_at }
+POST {{host}}/api/play/init
+Content-Type: application/json
+Authorization: Bearer {{rootToken}}
+
+{
+  "video_id": "{{videoID}}"
+}
 
 ###
 
-### Playlist de resolução (480p)
-GET {{host}}/videos/{{videoID}}/480/playlist.m3u8
+### Master playlist (autenticada via token de play na query; sem expires)
+GET {{host}}/video/{{tag}}/{{videoID}}.m3u8?token={{playToken}}
 
 ###
 
-### Playlist de resolução (720p)
-GET {{host}}/videos/{{videoID}}/720/playlist.m3u8
+### Playlist de resolução (480 — pública)
+GET {{host}}/video/{{tag}}/{{videoID}}/480/playlist.m3u8
 
 ###
 
-### Playlist de resolução (1080p)
-GET {{host}}/videos/{{videoID}}/1080/playlist.m3u8
+### Playlist de resolução (720 — pública)
+GET {{host}}/video/{{tag}}/{{videoID}}/720/playlist.m3u8
 
 ###
 
-### Segmento HLS (exemplo)
-GET {{host}}/videos/{{videoID}}/720/segment_0000.ts
+### Playlist de resolução (1080 — pública)
+GET {{host}}/video/{{tag}}/{{videoID}}/1080/playlist.m3u8
+
+###
+
+### Segmento HLS (exemplo — público)
+GET {{host}}/video/{{tag}}/{{videoID}}/720/0.ts
 
 ### ============================================================
-### Admin — Vídeos
+### Admin — Vídeos (Bearer ROOT_TOKEN)
 ### ============================================================
 
-### Listar vídeos (admin global)
+### Listar vídeos (paginação)
 GET {{host}}/admin/videos?limit=50&offset=0
-Authorization: Bearer {{adminToken}}
+Authorization: Bearer {{rootToken}}
 
 ###
 
 ### Listar vídeos por status
 GET {{host}}/admin/videos?status=ready&limit=20&offset=0
-Authorization: Bearer {{adminToken}}
+Authorization: Bearer {{rootToken}}
 
 ###
 
-### Listar vídeos (admin de projeto — usa master key do projeto)
-GET {{host}}/admin/videos?limit=50&offset=0
-Authorization: Bearer {{projectKey}}
+### Listar vídeos por tag
+GET {{host}}/admin/videos?tag={{tag}}&limit=20&offset=0
+Authorization: Bearer {{rootToken}}
+
+###
+
+### Deletar vídeo (banco + arquivos em disco)
+DELETE {{host}}/admin/videos/{{videoID}}
+Authorization: Bearer {{rootToken}}
 
 ### ============================================================
-### Admin — Fila de transcodificação
+### Admin — Fila de transcodificação (Bearer ROOT_TOKEN)
 ### ============================================================
 
 ### Status da fila
 GET {{host}}/admin/queue
-Authorization: Bearer {{adminToken}}
+Authorization: Bearer {{rootToken}}
 
 ### ============================================================
-### Admin — Estatísticas
+### Admin — Estatísticas (Bearer ROOT_TOKEN)
 ### ============================================================
 
 ### Estatísticas globais
 GET {{host}}/admin/stats
-Authorization: Bearer {{adminToken}}
+Authorization: Bearer {{rootToken}}
 
 ###
 
 ### Estatísticas de um vídeo específico
 GET {{host}}/admin/stats?video_id={{videoID}}
-Authorization: Bearer {{adminToken}}
-
-### ============================================================
-### Admin — Projetos
-### ============================================================
-
-### Criar projeto (super-admin)
-POST {{host}}/admin/projects
-Content-Type: application/json
-Authorization: Bearer {{adminToken}}
-
-{
-  "name": "meu-projeto"
-}
-
-###
-
-### Listar projetos (super-admin)
-GET {{host}}/admin/projects
-Authorization: Bearer {{adminToken}}
-
-###
-
-### Detalhes de um projeto por slug
-GET {{host}}/admin/projects/meu-projeto
-Authorization: Bearer {{adminToken}}
-
-### ============================================================
-### Admin — Upload tokens de projeto
-### ============================================================
-
-### Gerar upload token escopado para um projeto
-POST {{host}}/admin/projects/meu-projeto/upload-tokens
-Content-Type: application/json
-X-Project-Key: {{projectKey}}
-
-{
-  "declared_size_bytes": 10485760
-}
-
-###
-
-### Gerar upload token sem tamanho declarado
-POST {{host}}/admin/projects/meu-projeto/upload-tokens
-Content-Type: application/json
-X-Project-Key: {{projectKey}}
-
-{}
+Authorization: Bearer {{rootToken}}
