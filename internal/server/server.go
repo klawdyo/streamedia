@@ -73,6 +73,7 @@ func NewRouter(
 	masterHandler := serve.NewMasterHandler(cfg, database)
 	staticHandler := serve.NewStaticHandler(cfg, database)
 	statusHandler := serve.NewStatusHandler(cfg, database)
+	playInitHandler := serve.NewPlayInitHandler(cfg, database)
 	adminHandler := admin.NewAdminHandler(cfg, database, queue)
 	rateLimiter := middleware.NewRateLimiter(cfg.RateLimitPerMin)
 
@@ -111,14 +112,30 @@ func NewRouter(
 	}
 	r.Use(rateLimiter.Middleware) // limita a taxa de requisições por IP
 
-	// --- Upload ---
-	// A autenticação dessas rotas é feita dentro do próprio handler (HMAC),
-	// por isso não há middleware de auth aqui.
-	r.Post("/upload/init", initHandler.ServeHTTP)
+	// --- Gestão (protegida pelo ROOT_TOKEN via middleware RootAuth) ---
+	// O backend principal usa o ROOT_TOKEN para iniciar uploads, emitir URLs
+	// de play, consultar status, listar e apagar.
+	r.Group(func(r chi.Router) {
+		r.Use(admin.RootAuth(cfg.RootToken))
 
-	// O handler TUS implementa http.Handler e trata todos os métodos TUS
-	// internamente. O chi exige registro explícito de método, então mapeamos
-	// cada verbo para o mesmo ServeHTTP.
+		// Inicialização de upload e emissão de URL de play.
+		r.Post("/api/upload/init", initHandler.ServeHTTP)
+		r.Post("/api/play/init", playInitHandler.ServeHTTP)
+
+		// Status do vídeo (backend-to-backend).
+		r.Get("/api/status/{videoID}", statusHandler.ServeHTTP)
+
+		// Administração.
+		r.Get("/admin/videos", adminHandler.HandleVideos)
+		r.Get("/admin/queue", adminHandler.HandleQueue)
+		r.Get("/admin/stats", adminHandler.HandleStats)
+		r.Delete("/admin/videos/{videoID}", adminHandler.HandleDeleteVideo)
+	})
+
+	// --- Upload TUS ---
+	// O handler TUS valida o token de upload efêmero (Upload-Token) por conta
+	// própria; por isso não fica sob o RootAuth. O chi exige registro explícito
+	// de método, então mapeamos cada verbo para o mesmo ServeHTTP.
 	r.Post("/files/", tusHandler.ServeHTTP) // criação TUS sem video_id
 	r.Post("/files/{videoID}", tusHandler.ServeHTTP)
 	r.Patch("/files/{videoID}", tusHandler.ServeHTTP)
@@ -126,35 +143,11 @@ func NewRouter(
 	r.Delete("/files/{videoID}", tusHandler.ServeHTTP)
 
 	// --- Serving HLS ---
-	// Os handlers fazem o parsing do path internamente (prefixo /videos/).
-	r.Get("/videos/{videoID}/master.m3u8", masterHandler.ServeHTTP)
-	r.Get("/videos/{videoID}/{res}/playlist.m3u8", staticHandler.ServeHTTP)
-	r.Get("/videos/{videoID}/{res}/{segment}", staticHandler.ServeHTTP)
-
-	// --- Status (autenticação HMAC dentro do handler) ---
-	r.Get("/api/status/{videoID}", statusHandler.ServeHTTP)
-
-	// --- Admin (protegido por middleware de token) ---
-	r.Group(func(r chi.Router) {
-		r.Use(admin.AdminAuth(cfg.AdminToken, database))
-		r.Get("/admin/videos", adminHandler.HandleVideos)
-		r.Get("/admin/queue", adminHandler.HandleQueue)
-		r.Get("/admin/stats", adminHandler.HandleStats)
-
-		// Gerenciamento de projetos (T35, issue #6) — operação de
-		// super-admin (ver admin.requireSuperAdmin: rejeita autenticação
-		// por chave mestra de projeto, exige o ADMIN_TOKEN global).
-		r.Post("/admin/projects", adminHandler.HandleCreateProject)
-		r.Get("/admin/projects", adminHandler.HandleListProjects)
-		r.Get("/admin/projects/{slug}", adminHandler.HandleGetProject)
-	})
-
-	// Emissão de token de upload escopado a um projeto (T35, issue #6):
-	// autenticada pela própria chave mestra do projeto via X-Project-Key
-	// (mesmo princípio de POST /upload/init), e não pelo AdminAuth — por
-	// isso fica fora do grupo acima. Ver admin.HandleIssueUploadToken para
-	// a justificativa completa dessa decisão de modelo de autenticação.
-	r.Post("/admin/projects/{slug}/upload-tokens", adminHandler.HandleIssueUploadToken)
+	// /video/<tag>/<id>.m3u8 é o master dinâmico (autenticado por token de play
+	// na query). As playlists de resolução e segmentos são estáticos/públicos.
+	// Os handlers fazem o parsing do path internamente (prefixo /video/).
+	r.Get("/video/{tag}/{file}", masterHandler.ServeHTTP)
+	r.Get("/video/{tag}/{videoID}/{res}/{segment}", staticHandler.ServeHTTP)
 
 	// --- Health check ---
 	// Aceita GET e HEAD: o healthcheck do Docker e proxies/monitores podem
@@ -180,19 +173,17 @@ func NewRouter(
 		})
 	})
 
-	// --- Observabilidade e documentação (protegidas por token) ---
-	// /metrics (OpenTelemetry/Prometheus, T29, issue #1) e /docs (Scalar UI,
-	// T51, issue #12) eram públicas. Agora exigem o mesmo token de admin das
-	// rotas /admin/*: /metrics expõe detalhes operacionais internos (tamanho
-	// da fila, uploads em andamento, contadores de eventos) e /docs descreve
-	// toda a superfície da API — informação valiosa para reconhecimento por
-	// scanners/bots. Protegê-las com AdminAuth reduz a superfície exposta sem
-	// remover as rotas. Qualquer credencial de admin (ADMIN_TOKEN global ou
-	// chave mestra de projeto) autentica; o scraper Prometheus deve enviar
-	// `Authorization: Bearer <ADMIN_TOKEN>`. StripSlashMiddleware (global)
+	// --- Observabilidade e documentação (protegidas pelo ROOT_TOKEN) ---
+	// /metrics (OpenTelemetry/Prometheus) e /docs (Scalar UI) exigem o mesmo
+	// ROOT_TOKEN das rotas /admin/*: /metrics expõe detalhes operacionais
+	// internos (tamanho da fila, uploads em andamento, contadores de eventos) e
+	// /docs descreve toda a superfície da API — informação valiosa para
+	// reconhecimento por scanners/bots. Protegê-las reduz a superfície exposta
+	// sem remover as rotas; o scraper Prometheus deve enviar
+	// `Authorization: Bearer <ROOT_TOKEN>`. StripSlashMiddleware (global)
 	// normaliza /docs/ → /docs, sem redirect.
 	r.Group(func(r chi.Router) {
-		r.Use(admin.AdminAuth(cfg.AdminToken, database))
+		r.Use(admin.RootAuth(cfg.RootToken))
 
 		if telemetryProvider != nil {
 			r.Get("/metrics", telemetryProvider.Handler.ServeHTTP)

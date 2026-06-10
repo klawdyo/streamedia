@@ -53,7 +53,7 @@ func (rec *statusRecorder) WriteHeader(status int) {
 
 // Middleware instrumenta toda requisição HTTP com um contador de requisições
 // e um histograma de duração, ambos rotulados por método, rota (template do
-// chi, ex. "/videos/{videoID}/master.m3u8" — evita explosão de séries
+// chi, ex. "/video/{tag}/{videoID}.m3u8" — evita explosão de séries
 // temporais por valores de path) e status HTTP.
 //
 // Em caso de falha ao criar os instrumentos (extremamente improvável — só
@@ -86,7 +86,7 @@ func (p *Provider) Middleware(next http.Handler) http.Handler {
 }
 
 // routeTemplate devolve o template de rota registrado no chi (ex.
-// "/videos/{videoID}/master.m3u8") para rotular as métricas sem explodir a
+// "/video/{tag}/{videoID}.m3u8") para rotular as métricas sem explodir a
 // cardinalidade com valores reais de path (UUIDs, nomes de arquivo, etc.).
 // Se o contexto de roteamento não estiver disponível, recorre ao path bruto.
 func routeTemplate(r *http.Request) string {

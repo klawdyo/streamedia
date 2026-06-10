@@ -25,13 +25,13 @@ func TestReadmeSections(t *testing.T) {
 
 	// Termos obrigatórios que devem constar no README
 	requiredTerms := []string{
-		"Coolify",            // seção de deploy
-		"POST /upload/init",  // documentação da rota
-		"master.m3u8",        // rota de HLS
-		"webhook",            // formato de webhook
-		"go test",            // como rodar testes
-		"UPLOAD_TOKEN_SECRET", // variável de ambiente
-		"pending_upload",     // tabela de status dos vídeos
+		"Coolify",               // seção de deploy
+		"POST /api/upload/init", // documentação da rota
+		"master.m3u8",           // rota de HLS
+		"webhook",               // formato de webhook
+		"go test",               // como rodar testes
+		"ROOT_TOKEN",            // variável de ambiente
+		"pending_upload",        // tabela de status dos vídeos
 	}
 
 	for _, term := range requiredTerms {

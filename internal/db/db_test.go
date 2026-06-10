@@ -20,7 +20,7 @@ func TestOpen_RunsMigrations(t *testing.T) {
 	defer db.Close()
 
 	// Verifica tabelas principais
-	tables := []string{"videos", "upload_tokens", "webhook_log", "playback_events", "projects", "video_renditions"}
+	tables := []string{"videos", "access_tokens", "webhook_log", "playback_events", "video_renditions"}
 	for _, table := range tables {
 		if _, err := db.Exec("SELECT 1 FROM " + table + " LIMIT 1"); err != nil {
 			t.Errorf("tabela %q não existe: %v", table, err)
@@ -98,7 +98,7 @@ func TestOpen_ForeignKeys(t *testing.T) {
 
 	// Tenta inserir token para video_id que não existe
 	_, err = db.Exec(
-		`INSERT INTO upload_tokens (token, video_id, expires_at) VALUES (?, ?, ?)`,
+		`INSERT INTO access_tokens (token, video_id, purpose, expires_at) VALUES (?, ?, 'upload', ?)`,
 		"tok", "video-inexistente", time.Now().Add(time.Hour),
 	)
 	if err == nil {
@@ -218,7 +218,7 @@ func TestOpen_SchemaApplied(t *testing.T) {
 	}
 	defer db.Close()
 
-	tables := []string{"videos", "upload_tokens", "webhook_log", "playback_events", "projects", "video_renditions"}
+	tables := []string{"videos", "access_tokens", "webhook_log", "playback_events", "video_renditions"}
 	for _, table := range tables {
 		_, err := db.Exec("SELECT 1 FROM " + table + " LIMIT 1")
 		if err != nil {
@@ -287,7 +287,7 @@ func TestOpen_ActivatesForeignKeys_RejectsInvalidFK(t *testing.T) {
 	}
 
 	_, err = db.Exec(
-		"INSERT INTO upload_tokens (token, video_id, expires_at) VALUES (?, ?, ?)",
+		"INSERT INTO access_tokens (token, video_id, purpose, expires_at) VALUES (?, ?, 'upload', ?)",
 		"tok-ok", "vid-valid", "2025-12-31 23:59:59",
 	)
 	if err != nil {
@@ -295,7 +295,7 @@ func TestOpen_ActivatesForeignKeys_RejectsInvalidFK(t *testing.T) {
 	}
 
 	_, err = db.Exec(
-		"INSERT INTO upload_tokens (token, video_id, expires_at) VALUES (?, ?, ?)",
+		"INSERT INTO access_tokens (token, video_id, purpose, expires_at) VALUES (?, ?, 'upload', ?)",
 		"tok-bad", "vid-inexistente", "2025-12-31 23:59:59",
 	)
 	if err == nil {

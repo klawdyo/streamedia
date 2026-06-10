@@ -42,7 +42,7 @@ func insertExpiredToken(t *testing.T, database *sql.DB, token, videoID string) {
 
 	expiresAt := time.Now().Add(-1 * time.Hour).UTC().Format(time.RFC3339)
 	_, err := database.Exec(
-		"INSERT INTO upload_tokens (video_id, token, expires_at) VALUES (?, ?, ?)",
+		"INSERT INTO access_tokens (video_id, token, purpose, expires_at) VALUES (?, ?, 'upload', ?)",
 		videoID, token, expiresAt,
 	)
 	if err != nil {
@@ -56,7 +56,7 @@ func insertValidToken(t *testing.T, database *sql.DB, token, videoID string) {
 
 	expiresAt := time.Now().Add(2 * time.Hour).UTC().Format(time.RFC3339)
 	_, err := database.Exec(
-		"INSERT INTO upload_tokens (video_id, token, expires_at) VALUES (?, ?, ?)",
+		"INSERT INTO access_tokens (video_id, token, purpose, expires_at) VALUES (?, ?, 'upload', ?)",
 		videoID, token, expiresAt,
 	)
 	if err != nil {
@@ -69,7 +69,7 @@ func tokenExists(t *testing.T, database *sql.DB, token string) bool {
 	t.Helper()
 
 	var exists bool
-	err := database.QueryRow("SELECT COUNT(*) > 0 FROM upload_tokens WHERE token = ?", token).Scan(&exists)
+	err := database.QueryRow("SELECT COUNT(*) > 0 FROM access_tokens WHERE token = ?", token).Scan(&exists)
 	if err != nil && err != sql.ErrNoRows {
 		t.Fatalf("erro ao verificar existência do token: %v", err)
 	}
@@ -93,7 +93,7 @@ func countTokens(t *testing.T, database *sql.DB) int {
 	t.Helper()
 
 	var count int
-	err := database.QueryRow("SELECT COUNT(*) FROM upload_tokens").Scan(&count)
+	err := database.QueryRow("SELECT COUNT(*) FROM access_tokens").Scan(&count)
 	if err != nil {
 		t.Fatalf("erro ao contar tokens: %v", err)
 	}
@@ -288,7 +288,7 @@ func TestCleanupJob_ExactlyExpiredBoundary(t *testing.T) {
 	// SQLite arredonda, então um token com expires_at = now() deve ser considerado expirado.
 	expiresAtNow := time.Now().UTC().Format(time.RFC3339)
 	_, err := database.Exec(
-		"INSERT INTO upload_tokens (video_id, token, expires_at) VALUES (?, ?, ?)",
+		"INSERT INTO access_tokens (video_id, token, purpose, expires_at) VALUES (?, ?, 'upload', ?)",
 		videoID, "tok-boundary", expiresAtNow,
 	)
 	if err != nil {

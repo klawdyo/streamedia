@@ -32,6 +32,15 @@ func PublicUploadURL(r *http.Request, videoID string) string {
 	return fmt.Sprintf("%s://%s/files/%s", scheme, host, videoID)
 }
 
+// PublicPlayURL monta a URL pública e assinada do master playlist:
+// <scheme>://<host>/video/<tag>/<video_id>.m3u8?token=<token>
+// Resolve scheme e host com a mesma lógica de proxy de PublicUploadURL.
+func PublicPlayURL(r *http.Request, tag, videoID, token string) string {
+	scheme := resolveScheme(r)
+	host := resolveHost(r)
+	return fmt.Sprintf("%s://%s/video/%s/%s.m3u8?token=%s", scheme, host, tag, videoID, token)
+}
+
 // resolveScheme devolve o scheme (http ou https) a partir dos headers de
 // proxy e do estado TLS da requisição.
 func resolveScheme(r *http.Request) string {

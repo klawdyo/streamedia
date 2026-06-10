@@ -7,7 +7,6 @@ import (
 	"time"
 
 	"github.com/klawdyo/streamedia/internal/apiresponse"
-	"github.com/klawdyo/streamedia/internal/auth"
 	"github.com/klawdyo/streamedia/internal/config"
 	"github.com/klawdyo/streamedia/internal/models"
 )
@@ -24,7 +23,8 @@ type StatusResponse struct {
 	UpdatedAt         time.Time `json:"updated_at"`
 }
 
-// StatusHandler serve a rota GET /api/status/{video_id} autenticada por HMAC.
+// StatusHandler serve a rota GET /api/status/{video_id}. A autenticação
+// (ROOT_TOKEN) é feita pelo middleware RootAuth no roteador.
 type StatusHandler struct {
 	cfg *config.Config
 	db  *sql.DB
@@ -59,20 +59,7 @@ func (h *StatusHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// 3. Valida o HMAC da requisição usando X-Status-Auth header.
-	signature := r.Header.Get("X-Status-Auth")
-	if signature == "" {
-		apiresponse.Error(w, http.StatusUnauthorized, "Header X-Status-Auth ausente.")
-		return
-	}
-
-	// Valida a assinatura HMAC com o video_id como body
-	if !auth.ValidateBackendAuth(h.cfg.UploadTokenSecret, []byte(videoID), signature) {
-		apiresponse.Error(w, http.StatusUnauthorized, "Autenticação inválida.")
-		return
-	}
-
-	// 4. Busca o vídeo no banco.
+	// 3. Busca o vídeo no banco.
 	video, err := models.GetVideo(h.db, videoID)
 	if err == sql.ErrNoRows {
 		apiresponse.Error(w, http.StatusNotFound, "Vídeo não encontrado.")

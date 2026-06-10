@@ -468,47 +468,37 @@ func TestGetVideo_ResolutionsNull(t *testing.T) {
 	}
 }
 
-func TestVideoInsertWithProjectID(t *testing.T) {
-	// Verifica que InsertVideoForProject cria vídeo vinculado a um projeto.
+func TestVideoInsertWithTag(t *testing.T) {
+	// Verifica que InsertVideoWithTag cria vídeo no namespace (tag) informado.
 	database := abreDB(t)
 
-	// Cria um projeto válido antes de inserir o vídeo
-	project, _, err := CreateProject(database, "Test Project for Video")
-	if err != nil {
-		t.Fatalf("CreateProject falhou: %v", err)
-	}
-
-	if err := InsertVideoForProject(database, "v-proj", 100, &project.ID); err != nil {
-		t.Fatalf("InsertVideoForProject falhou: %v", err)
+	if err := InsertVideoWithTag(database, "v-proj", 100, "minha-tag"); err != nil {
+		t.Fatalf("InsertVideoWithTag falhou: %v", err)
 	}
 
 	v, err := GetVideo(database, "v-proj")
 	if err != nil {
 		t.Fatal(err)
 	}
-
-	if v.ProjectID == nil {
-		t.Error("ProjectID: esperado ser definido, obtido nil")
-	} else if *v.ProjectID != project.ID {
-		t.Errorf("ProjectID: esperado %d, obtido %d", project.ID, *v.ProjectID)
+	if v.Tag != "minha-tag" {
+		t.Errorf("Tag: esperado %q, obtido %q", "minha-tag", v.Tag)
 	}
 }
 
-func TestVideoInsertWithoutProjectID(t *testing.T) {
-	// Verifica que InsertVideoForProject com projectID=nil cria vídeo sem projeto.
+func TestVideoInsertDefaultTag(t *testing.T) {
+	// Verifica que InsertVideo usa a tag padrão "default".
 	database := abreDB(t)
 
-	if err := InsertVideoForProject(database, "v-no-proj", 100, nil); err != nil {
-		t.Fatalf("InsertVideoForProject falhou: %v", err)
+	if err := InsertVideo(database, "v-no-proj", 100); err != nil {
+		t.Fatalf("InsertVideo falhou: %v", err)
 	}
 
 	v, err := GetVideo(database, "v-no-proj")
 	if err != nil {
 		t.Fatal(err)
 	}
-
-	if v.ProjectID != nil {
-		t.Errorf("ProjectID: esperado nil, obtido %v", v.ProjectID)
+	if v.Tag != "default" {
+		t.Errorf("Tag: esperado %q, obtido %q", "default", v.Tag)
 	}
 }
 
@@ -739,24 +729,16 @@ func TestGetVideo_CoversAllNullableFields(t *testing.T) {
 	}
 }
 
-// TestListByStatus_IncludesProjectID verifica que ListByStatus retorna o
-// project_id corretamente populado, sem o bug de omitir a coluna na query.
-func TestListByStatus_IncludesProjectID(t *testing.T) {
+// TestListByStatus_IncludesTag verifica que ListByStatus retorna a coluna tag
+// corretamente populada.
+func TestListByStatus_IncludesTag(t *testing.T) {
 	database := abreDB(t)
 
-	// Cria um projeto para vincular ao vídeo.
-	proj, _, err := CreateProject(database, "Projeto Teste T53")
-	if err != nil {
-		t.Fatalf("CreateProject falhou: %v", err)
-	}
-
-	// Insere um vídeo vinculado ao projeto.
 	videoID := "550e8400-e29b-41d4-a716-446655440053"
-	if err := InsertVideoForProject(database, videoID, 1024, &proj.ID); err != nil {
-		t.Fatalf("InsertVideoForProject falhou: %v", err)
+	if err := InsertVideoWithTag(database, videoID, 1024, "tag-lista"); err != nil {
+		t.Fatalf("InsertVideoWithTag falhou: %v", err)
 	}
 
-	// Chama ListByStatus e verifica que ProjectID veio populado.
 	results, err := ListByStatus(database, StatusPendingUpload)
 	if err != nil {
 		t.Fatalf("ListByStatus falhou: %v", err)
@@ -764,39 +746,25 @@ func TestListByStatus_IncludesProjectID(t *testing.T) {
 	if len(results) != 1 {
 		t.Fatalf("esperava 1 vídeo, obteve %d", len(results))
 	}
-
-	v := results[0]
-	if v.ProjectID == nil {
-		t.Fatal("ProjectID é nil — ListByStatus não populou project_id (bug)")
-	}
-	if *v.ProjectID != proj.ID {
-		t.Errorf("ProjectID: esperado %d, obtido %d", proj.ID, *v.ProjectID)
+	if results[0].Tag != "tag-lista" {
+		t.Errorf("Tag: esperado %q, obtido %q", "tag-lista", results[0].Tag)
 	}
 }
 
-// TestGetVideo_IncludesProjectID confirma que GetVideo já retorna project_id
-// corretamente (baseline: este teste passava antes da correção de ListByStatus).
-func TestGetVideo_IncludesProjectID(t *testing.T) {
+// TestGetVideo_IncludesTag confirma que GetVideo retorna a tag.
+func TestGetVideo_IncludesTag(t *testing.T) {
 	database := abreDB(t)
 
-	proj, _, err := CreateProject(database, "Projeto Baseline")
-	if err != nil {
-		t.Fatalf("CreateProject falhou: %v", err)
-	}
-
 	videoID := "660e8400-e29b-41d4-a716-446655440054"
-	if err := InsertVideoForProject(database, videoID, 2048, &proj.ID); err != nil {
-		t.Fatalf("InsertVideoForProject falhou: %v", err)
+	if err := InsertVideoWithTag(database, videoID, 2048, "tag-get"); err != nil {
+		t.Fatalf("InsertVideoWithTag falhou: %v", err)
 	}
 
 	v, err := GetVideo(database, videoID)
 	if err != nil {
 		t.Fatalf("GetVideo falhou: %v", err)
 	}
-	if v.ProjectID == nil {
-		t.Fatal("GetVideo: ProjectID é nil (regressão)")
-	}
-	if *v.ProjectID != proj.ID {
-		t.Errorf("GetVideo: ProjectID esperado %d, obtido %d", proj.ID, *v.ProjectID)
+	if v.Tag != "tag-get" {
+		t.Errorf("GetVideo: Tag esperado %q, obtido %q", "tag-get", v.Tag)
 	}
 }
