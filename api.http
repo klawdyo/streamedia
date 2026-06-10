@@ -4,7 +4,8 @@
 ### Variáveis globais — ajuste conforme o seu ambiente
 ### ============================================================
 
-@host = http://localhost:3000
+# @host = http://localhost:3000
+@host = https://streamedia.app.klawdyo.com
 @adminToken = {{$dotenv ADMIN_TOKEN}}
 @projectKey = 846D1C47553D182CED747BD69BDB299BD9C466515180B29B5DD1749903AD31DE
 @uploadToken = token-retornado-pelo-init
@@ -43,6 +44,7 @@ GET {{host}}/docs/openapi.json
 
 ### Métricas
 GET {{host}}/metrics
+Authorization: Bearer {{adminToken}}
 
 ### ============================================================
 ### Upload — Inicialização
@@ -51,6 +53,8 @@ GET {{host}}/metrics
 ### Iniciar upload (sem project key — usa projeto default)
 POST {{host}}/upload/init
 Content-Type: application/json
+Authorization: Bearer {{adminToken}}
+
 
 {
   "declared_size_bytes": 10485760
@@ -72,7 +76,7 @@ X-Project-Key: {{projectKey}}
 ### Iniciar upload com video_id pré-definido
 POST {{host}}/upload/init
 Content-Type: application/json
-X-Project-Key: {{projectKey}}
+Authorization: Bearer {{adminToken}}
 
 {
   "video_id": "{{videoID}}",
