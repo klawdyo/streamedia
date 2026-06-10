@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"io"
+	"log"
 	"net/http"
 	"strings"
 	"time"
@@ -43,6 +44,7 @@ func (h *InitHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	// 1. Lê o corpo da requisição com limite de 1MB.
 	bodyBytes, err := io.ReadAll(io.LimitReader(r.Body, 1<<20))
 	if err != nil {
+		log.Printf("[upload] init: erro ao ler corpo da requisição: %v", err)
 		apiresponse.Error(w, http.StatusBadRequest, "Corpo da requisição inválido.")
 		return
 	}
@@ -67,6 +69,7 @@ func (h *InitHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if videoID == "" {
 		videoID, err = models.NewVideoID()
 		if err != nil {
+			log.Printf("[upload] init: erro ao gerar video_id: %v", err)
 			apiresponse.Error(w, http.StatusInternalServerError, "Falha ao gerar video_id.")
 			return
 		}
@@ -91,6 +94,7 @@ func (h *InitHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			apiresponse.Error(w, http.StatusConflict, "video_id já existe.")
 			return
 		}
+		log.Printf("[upload] init: erro ao registrar vídeo (video_id=%s, tag=%s, size=%d): %v", videoID, tag, req.DeclaredSizeBytes, err)
 		apiresponse.Error(w, http.StatusInternalServerError, "Falha ao registrar o vídeo.")
 		return
 	}
@@ -98,11 +102,13 @@ func (h *InitHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	// 7. Gera e persiste o token de upload (string aleatória, purpose=upload).
 	token, err := auth.GenerateToken()
 	if err != nil {
+		log.Printf("[upload] init: erro ao gerar token de upload (video_id=%s): %v", videoID, err)
 		apiresponse.Error(w, http.StatusInternalServerError, "Falha ao gerar o token de upload.")
 		return
 	}
 	expiresAt := time.Now().Add(h.cfg.UploadTokenTTL)
 	if err := models.InsertAccessToken(h.db, token, videoID, models.PurposeUpload, expiresAt); err != nil {
+		log.Printf("[upload] init: erro ao registrar token de upload (video_id=%s): %v", videoID, err)
 		apiresponse.Error(w, http.StatusInternalServerError, "Falha ao registrar o token de upload.")
 		return
 	}
