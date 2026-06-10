@@ -322,7 +322,7 @@ func openAPISpec() map[string]any {
 				"get": map[string]any{
 					"tags":        []string{"observability"},
 					"summary":     "Versão e status da API",
-					"description": "Retorna nome, versão semântica, ambiente e status da API. Rota pública sem autenticação, com rate limiting de 10 req/min.",
+					"description": "Retorna nome, versão semântica, ambiente de execução (ENV) e status da API. Rota pública sem autenticação, com rate limiting de 10 req/min.",
 					"responses": map[string]any{
 						"200": map[string]any{
 							"description": "Informações de versão no envelope padrão",
@@ -331,9 +331,10 @@ func openAPISpec() map[string]any {
 									"schema": map[string]any{
 										"type": "object",
 										"properties": map[string]any{
-											"name":    map[string]any{"type": "string", "example": "Streamedia"},
-											"version": map[string]any{"type": "string", "example": "0.42.0"},
-											"status":  map[string]any{"type": "string", "example": "ok"},
+											"name":        map[string]any{"type": "string", "example": "Streamedia"},
+											"version":     map[string]any{"type": "string", "example": "0.42.0"},
+											"environment": map[string]any{"type": "string", "example": "production"},
+											"status":      map[string]any{"type": "string", "example": "ok"},
 										},
 									},
 								},

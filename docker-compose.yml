@@ -9,6 +9,9 @@ services:
     restart: unless-stopped
     environment:
       - ROOT_TOKEN=${ROOT_TOKEN}
+      # Ambiente de execução exposto em GET /api. Em produção defina ENV=production
+      # (no .env / nas variáveis do Coolify); o default é "development".
+      - ENV=${ENV:-development}
       - WEBHOOK_URL=${WEBHOOK_URL}
       - WEBHOOK_SECRET=${WEBHOOK_SECRET}
       - MAX_UPLOAD_SIZE_MB=${MAX_UPLOAD_SIZE_MB:-10}
@@ -32,8 +35,16 @@ services:
       # (./data) seriam criados como root e quebrariam o SQLite (erro 14).
       - media:/media
       - data:/data
-    ports:
-      - "${PORT:-3000}:3000"
+    # SEM `ports:` em produção (segurança): não publicamos a porta da app no
+    # host. O proxy reverso do Coolify (Traefik) alcança o container pela rede
+    # interna do Docker — ele lê a porta exposta pela imagem (EXPOSE 3000 no
+    # Dockerfile) e roteia o tráfego de 80/443 (com TLS) para cá. Publicar
+    # "3000:3000" abriria 0.0.0.0:3000 no IP público do host, que é exatamente
+    # onde scanners/bots batem direto, contornando o proxy, o TLS e o domínio.
+    # Em desenvolvimento, o docker-compose.override.yml republica a porta em
+    # 127.0.0.1 para acesso local.
+    expose:
+      - "3000"
     healthcheck:
       # Usa GET (-O /dev/null), não HEAD (--spider): a app responde 200 em GET
       # /healthz. Um HEAD retornaria 405 e marcaria o container como unhealthy,

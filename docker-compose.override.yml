@@ -20,3 +20,9 @@ services:
       # Bind mounts: os dados ficam no diretório do projeto, à vista.
       - ./media:/media
       - ./data:/data
+    # Em produção a porta NÃO é publicada (o Coolify/Traefik fala com o
+    # container pela rede interna). Aqui no dev republicamos para conseguir
+    # acessar http://localhost:3000 direto. O bind em 127.0.0.1 limita o
+    # acesso à própria máquina — não expõe a porta na LAN/Wi-Fi.
+    ports:
+      - "127.0.0.1:${PORT:-3000}:3000"

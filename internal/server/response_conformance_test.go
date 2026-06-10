@@ -91,6 +91,18 @@ func TestAllJSONRoutes_ErrorResponses_FollowEnvelope(t *testing.T) {
 			method: http.MethodDelete,
 			path:   "/admin/videos/" + validUUID,
 		},
+		{
+			// Endurecimento de segurança: /docs deixou de ser público e agora
+			// exige token de admin — sem auth deve responder 401 no envelope.
+			name:   "GET /docs sem auth",
+			method: http.MethodGet,
+			path:   "/docs",
+		},
+		{
+			name:   "GET /docs/openapi.json sem auth",
+			method: http.MethodGet,
+			path:   "/docs/openapi.json",
+		},
 	}
 
 	for _, tc := range tests {
@@ -367,8 +379,12 @@ func TestNonAPIRoutes_NotForcedIntoEnvelope(t *testing.T) {
 	router, _ := newTestRouter(t, cfg)
 
 	// --- /docs/ (Scalar UI — HTML) ---
+	// /docs agora exige token de admin (endurecimento de segurança): manda o
+	// Authorization Bearer para validar que, autenticado, o conteúdo é HTML
+	// cru (não forçado ao envelope JSON da API).
 	t.Run("GET /docs/ retorna HTML", func(t *testing.T) {
 		req := httptest.NewRequest(http.MethodGet, "/docs/", nil)
+		req.Header.Set("Authorization", "Bearer "+cfg.RootToken)
 		rec := httptest.NewRecorder()
 		router.ServeHTTP(rec, req)
 
@@ -385,6 +401,7 @@ func TestNonAPIRoutes_NotForcedIntoEnvelope(t *testing.T) {
 	// --- /docs/openapi.json (spec OpenAPI) ---
 	t.Run("GET /docs/openapi.json retorna spec", func(t *testing.T) {
 		req := httptest.NewRequest(http.MethodGet, "/docs/openapi.json", nil)
+		req.Header.Set("Authorization", "Bearer "+cfg.RootToken)
 		rec := httptest.NewRecorder()
 		router.ServeHTTP(rec, req)
 

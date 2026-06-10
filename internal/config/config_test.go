@@ -47,6 +47,7 @@ func TestLoad_Defaults(t *testing.T) {
 	t.Setenv("TRANSCODE_WORKERS", "")
 	t.Setenv("PORT", "")
 	t.Setenv("KEEP_ORIGINAL", "")
+	t.Setenv("ENV", "")
 
 	cfg, err := Load()
 	if err != nil {
@@ -54,6 +55,9 @@ func TestLoad_Defaults(t *testing.T) {
 	}
 
 	// Verifica os padrões documentados na spec
+	if cfg.Environment != "development" {
+		t.Errorf("Environment: esperado 'development' (default), obtido %q", cfg.Environment)
+	}
 	if cfg.MaxUploadSizeBytes != 10*1024*1024 {
 		t.Errorf("MaxUploadSizeBytes: esperado %d (10MB), obtido %d", 10*1024*1024, cfg.MaxUploadSizeBytes)
 	}
@@ -78,6 +82,7 @@ func TestLoad_OverrideDefaults(t *testing.T) {
 	t.Setenv("WEBHOOK_SECRET", "s2")
 	t.Setenv("MAX_UPLOAD_SIZE_MB", "500")
 	t.Setenv("TRANSCODE_WORKERS", "4")
+	t.Setenv("ENV", "production")
 
 	cfg, err := Load()
 	if err != nil {
@@ -89,6 +94,9 @@ func TestLoad_OverrideDefaults(t *testing.T) {
 	}
 	if cfg.TranscodeWorkers != 4 {
 		t.Errorf("TranscodeWorkers: esperado 4, obtido %d", cfg.TranscodeWorkers)
+	}
+	if cfg.Environment != "production" {
+		t.Errorf("Environment: esperado 'production', obtido %q", cfg.Environment)
 	}
 }
 

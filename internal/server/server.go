@@ -162,31 +162,37 @@ func NewRouter(
 
 	// --- Versão da API (T55) ---
 	// Rota pública sem autenticação, com rate limiting baixo (10 req/min)
-	// para mitigar abuso. Expõe nome, versão semântica, commit e status.
-	// A versão é injetada via -ldflags no build (internal/version).
+	// para mitigar abuso. Expõe nome, versão semântica, ambiente e status.
+	// A versão é injetada via -ldflags no build (internal/version); o ambiente
+	// vem da config (variável ENV). O commit deixou de ser exposto aqui.
 	versionLimiter := middleware.NewRateLimiter(10)
 	r.Group(func(r chi.Router) {
 		r.Use(versionLimiter.Middleware)
 		r.Get("/api", func(w http.ResponseWriter, _ *http.Request) {
-			apiresponse.Success(w, http.StatusOK, version.Get())
+			apiresponse.Success(w, http.StatusOK, version.Get(cfg.Environment))
 		})
 	})
 
-	// --- Métricas (OpenTelemetry/Prometheus, T29, issue #1) ---
-	// Sem autenticação: é o padrão do ecossistema Prometheus — a proteção,
-	// quando necessária, é feita na camada de infraestrutura/rede (ex.
-	// regra de firewall restringindo a origem do scraper), não na aplicação.
-	// O rate limiter (T19), já aplicado globalmente acima, mitiga abuso.
-	if telemetryProvider != nil {
-		r.Get("/metrics", telemetryProvider.Handler.ServeHTTP)
-	}
+	// --- Observabilidade e documentação (protegidas pelo ROOT_TOKEN) ---
+	// /metrics (OpenTelemetry/Prometheus) e /docs (Scalar UI) exigem o mesmo
+	// ROOT_TOKEN das rotas /admin/*: /metrics expõe detalhes operacionais
+	// internos (tamanho da fila, uploads em andamento, contadores de eventos) e
+	// /docs descreve toda a superfície da API — informação valiosa para
+	// reconhecimento por scanners/bots. Protegê-las reduz a superfície exposta
+	// sem remover as rotas; o scraper Prometheus deve enviar
+	// `Authorization: Bearer <ROOT_TOKEN>`. StripSlashMiddleware (global)
+	// normaliza /docs/ → /docs, sem redirect.
+	r.Group(func(r chi.Router) {
+		r.Use(admin.RootAuth(cfg.RootToken))
 
-	// --- Documentação da API (Scalar UI, T51, issue #12) ---
-	// Sem autenticação — ver decisão registrada em internal/docs/docs.go.
-	// StripSlashMiddleware (global) normaliza /docs/ → /docs, sem redirect.
-	docsHandler := docs.NewHandler()
-	r.Get("/docs", docsHandler.ServeUI)
-	r.Get("/docs/openapi.json", docsHandler.ServeOpenAPISpec)
+		if telemetryProvider != nil {
+			r.Get("/metrics", telemetryProvider.Handler.ServeHTTP)
+		}
+
+		docsHandler := docs.NewHandler()
+		r.Get("/docs", docsHandler.ServeUI)
+		r.Get("/docs/openapi.json", docsHandler.ServeOpenAPISpec)
+	})
 
 	// Handler 404 customizado — responde no envelope padrão da API em vez
 	// do texto puro "404 page not found" padrão do chi. Inclui o método e o

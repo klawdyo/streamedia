@@ -33,6 +33,7 @@ type Config struct {
 	KeepOriginal         bool
 	Port                 int
 	RateLimitPerMin      int
+	Environment          string // ambiente de execução (ENV): "production", "development", etc. Exposto em GET /api.
 }
 
 // Load lê a configuração das variáveis de ambiente, aplicando valores
@@ -118,6 +119,11 @@ func Load() (*Config, error) {
 		KeepOriginal:         getEnvBool("KEEP_ORIGINAL", false),
 		Port:                 port,
 		RateLimitPerMin:      rateLimitPerMin,
+		// ENV identifica o ambiente de execução, exposto em GET /api. Default
+		// "development": se a variável não estiver setada, assumimos o ambiente
+		// mais conservador (não declarar "production" por engano). Em produção
+		// o operador deve definir ENV=production explicitamente.
+		Environment: getEnvStr("ENV", "development"),
 	}
 
 	return cfg, nil
