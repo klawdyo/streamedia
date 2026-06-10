@@ -59,6 +59,23 @@ opacos no master funcionam como a "chave"). Validação rígida de path
 | `GET /api` | Nome, versão e status (rate limit 10/min). |
 | `GET /metrics` | Métricas Prometheus. |
 | `GET /docs`, `GET /docs/openapi.json` | Documentação (Scalar UI + OpenAPI). |
+| `GET /test` | Console de teste interativo do pipeline (auth → upload → play). |
+| `POST /test/webhook` | Receptor de webhooks de teste (buffer em memória). |
+| `GET /test/webhook/events` | Webhooks recebidos pelo receptor (polling). |
+
+### Console de teste (`GET /test`) — issue #18
+
+Página HTML autocontida (sem build step) que exercita o ciclo de vida completo
+de um vídeo na mesma página: cola-se o `ROOT_TOKEN`, solicita-se o link de
+upload, envia-se o arquivo em chunks via TUS (com barra de progresso por chunk
+e unificada), sonda-se o status até `ready`, emite-se o link de play e geram-se
+players HLS por resolução (480/720/1080) com ▶ Play individual.
+
+O receptor de webhooks (`POST /test/webhook`) guarda em memória os últimos
+webhooks recebidos; a página os exibe via polling de `GET /test/webhook/events`.
+Para que os webhooks cheguem ao receptor, aponte `WEBHOOK_URL` do servidor para
+`<origin>/test/webhook` — a própria página mostra a URL pronta para copiar.
+Rotas públicas (a página só age com o `ROOT_TOKEN` colado pelo usuário).
 
 ## Envelope de resposta
 
