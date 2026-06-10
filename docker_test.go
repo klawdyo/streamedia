@@ -39,10 +39,9 @@ func TestEnvExampleHasAllVars(t *testing.T) {
 
 	text := string(content)
 	requiredVars := []string{
-		"UPLOAD_TOKEN_SECRET",
+		"ROOT_TOKEN",
 		"WEBHOOK_URL",
 		"WEBHOOK_SECRET",
-		"ADMIN_TOKEN",
 		"MAX_UPLOAD_SIZE_MB",
 		"MEDIA_DIR",
 		"UPLOAD_TMP_DIR",

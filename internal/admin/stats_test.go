@@ -47,7 +47,7 @@ func TestStatsRoute_RequiresAdminAuth(t *testing.T) {
 	database, cfg := setupAdminTest(t)
 	handler := NewAdminHandler(cfg, database, &mockQueue{})
 
-	wrapped := AdminAuth(cfg.AdminToken, database)(http.HandlerFunc(handler.HandleStats))
+	wrapped := RootAuth(cfg.RootToken)(http.HandlerFunc(handler.HandleStats))
 
 	req := httptest.NewRequest(http.MethodGet, "/admin/stats", nil)
 	rec := httptest.NewRecorder()
@@ -71,7 +71,7 @@ func TestStatsRoute_GlobalAggregation(t *testing.T) {
 	recordEvent(t, database, "vid-2", "upload_complete", nil, "Mozilla/5.0 (Windows NT 10.0; Win64; x64)")
 
 	req := httptest.NewRequest(http.MethodGet, "/admin/stats", nil)
-	req.Header.Set("Authorization", "Bearer "+cfg.AdminToken)
+	req.Header.Set("Authorization", "Bearer "+cfg.RootToken)
 	rec := httptest.NewRecorder()
 	handler.HandleStats(rec, req)
 
@@ -116,7 +116,7 @@ func TestStatsRoute_FilteredByVideoID(t *testing.T) {
 	recordEvent(t, database, "vid-2", "download_segment", intPtr(480), "Mozilla/5.0 (Windows NT 10.0; Win64; x64)")
 
 	req := httptest.NewRequest(http.MethodGet, "/admin/stats?video_id=vid-1", nil)
-	req.Header.Set("Authorization", "Bearer "+cfg.AdminToken)
+	req.Header.Set("Authorization", "Bearer "+cfg.RootToken)
 	rec := httptest.NewRecorder()
 	handler.HandleStats(rec, req)
 
@@ -151,7 +151,7 @@ func TestStatsRoute_UnknownVideoID(t *testing.T) {
 	handler := NewAdminHandler(cfg, database, &mockQueue{})
 
 	req := httptest.NewRequest(http.MethodGet, "/admin/stats?video_id=video-inexistente", nil)
-	req.Header.Set("Authorization", "Bearer "+cfg.AdminToken)
+	req.Header.Set("Authorization", "Bearer "+cfg.RootToken)
 	rec := httptest.NewRecorder()
 	handler.HandleStats(rec, req)
 
@@ -165,7 +165,7 @@ func TestStatsRoute_EmptyDataset(t *testing.T) {
 	handler := NewAdminHandler(cfg, database, &mockQueue{})
 
 	req := httptest.NewRequest(http.MethodGet, "/admin/stats", nil)
-	req.Header.Set("Authorization", "Bearer "+cfg.AdminToken)
+	req.Header.Set("Authorization", "Bearer "+cfg.RootToken)
 	rec := httptest.NewRecorder()
 	handler.HandleStats(rec, req)
 
@@ -213,7 +213,7 @@ func TestHandleStats_IncludesStorageSection(t *testing.T) {
 	}
 
 	req := httptest.NewRequest(http.MethodGet, "/admin/stats", nil)
-	req.Header.Set("Authorization", "Bearer "+cfg.AdminToken)
+	req.Header.Set("Authorization", "Bearer "+cfg.RootToken)
 	rec := httptest.NewRecorder()
 	handler.HandleStats(rec, req)
 
@@ -256,7 +256,7 @@ func TestHandleStats_StorageSectionConsistentWithQueueRoute(t *testing.T) {
 	handler := NewAdminHandler(cfg, database, mockQ)
 
 	statsReq := httptest.NewRequest(http.MethodGet, "/admin/stats", nil)
-	statsReq.Header.Set("Authorization", "Bearer "+cfg.AdminToken)
+	statsReq.Header.Set("Authorization", "Bearer "+cfg.RootToken)
 	statsRec := httptest.NewRecorder()
 	handler.HandleStats(statsRec, statsReq)
 
@@ -272,7 +272,7 @@ func TestHandleStats_StorageSectionConsistentWithQueueRoute(t *testing.T) {
 	}
 
 	queueReq := httptest.NewRequest(http.MethodGet, "/admin/queue", nil)
-	queueReq.Header.Set("Authorization", "Bearer "+cfg.AdminToken)
+	queueReq.Header.Set("Authorization", "Bearer "+cfg.RootToken)
 	queueRec := httptest.NewRecorder()
 	handler.HandleQueue(queueRec, queueReq)
 

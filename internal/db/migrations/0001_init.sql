@@ -1,9 +1,14 @@
 -- +goose Up
 -- Migration inicial: schema completo do Streamedia.
--- Recria o conteúdo do antigo internal/db/schema.go como um passo
--- versionado e rastreável pelo goose (tabela goose_db_version).
--- project_id já nasce nas tabelas videos e upload_tokens (não mais
--- adicionado via ALTER TABLE/ensureColumn — T48 tornou-o obrigatório).
+--
+-- Modelo de namespace por TAG (substitui o antigo modelo de "projects" com
+-- chave mestra): cada vídeo carrega uma `tag` (slug) que serve apenas como
+-- namespace organizacional e de armazenamento (<MEDIA_DIR>/<tag>/<video_id>).
+-- Não há credencial por tag — toda a gestão é feita com o ROOT_TOKEN único.
+--
+-- Os tokens efêmeros de upload e de play vivem juntos em `access_tokens`,
+-- distinguidos pela coluna `purpose` ('upload' | 'play'): são strings
+-- aleatórias validadas por lookup (sem HMAC, sem secret de assinatura).
 
 CREATE TABLE videos (
     video_id            TEXT PRIMARY KEY,
@@ -15,16 +20,24 @@ CREATE TABLE videos (
     transcode_attempts  INTEGER NOT NULL DEFAULT 0,
     last_chunk_at       DATETIME,
     error_message       TEXT,
-    project_id          INTEGER REFERENCES projects(id),
+    -- tag: namespace do vídeo. NOT NULL com DEFAULT 'default' — a API
+    -- (/api/upload/init) sempre exige uma tag explícita não-vazia; o default
+    -- só serve para inserts internos/diretos que não a informam.
+    tag                 TEXT NOT NULL DEFAULT 'default',
     created_at          DATETIME DEFAULT CURRENT_TIMESTAMP,
     updated_at          DATETIME DEFAULT CURRENT_TIMESTAMP
 );
 
-CREATE TABLE upload_tokens (
+-- Tokens efêmeros de acesso (upload e play). `purpose` separa os dois
+-- propósitos: um token de play nunca autoriza upload e vice-versa. A
+-- unicidade é por (video_id, purpose) — no máximo um token ativo de cada
+-- propósito por vídeo.
+CREATE TABLE access_tokens (
     token       TEXT PRIMARY KEY,
-    video_id    TEXT NOT NULL UNIQUE,
-    project_id  INTEGER REFERENCES projects(id),
+    video_id    TEXT NOT NULL,
+    purpose     TEXT NOT NULL,
     expires_at  DATETIME NOT NULL,
+    UNIQUE (video_id, purpose),
     FOREIGN KEY (video_id) REFERENCES videos(video_id)
 );
 
@@ -47,15 +60,6 @@ CREATE TABLE playback_events (
     occurred_at  DATETIME DEFAULT CURRENT_TIMESTAMP
 );
 
-CREATE TABLE projects (
-    id              INTEGER PRIMARY KEY AUTOINCREMENT,
-    name            TEXT NOT NULL,
-    slug            TEXT NOT NULL UNIQUE,
-    root_dir        TEXT NOT NULL,
-    master_key_hash TEXT NOT NULL,
-    created_at      DATETIME DEFAULT CURRENT_TIMESTAMP
-);
-
 CREATE TABLE video_renditions (
     video_id      TEXT    NOT NULL REFERENCES videos(video_id),
     resolution    INTEGER NOT NULL,
@@ -67,12 +71,10 @@ CREATE TABLE video_renditions (
 
 CREATE INDEX idx_videos_status ON videos(status);
 CREATE INDEX idx_videos_last_chunk ON videos(last_chunk_at);
-CREATE INDEX idx_videos_project ON videos(project_id);
-CREATE INDEX idx_tokens_expires ON upload_tokens(expires_at);
-CREATE INDEX idx_upload_tokens_project ON upload_tokens(project_id);
+CREATE INDEX idx_videos_tag ON videos(tag);
+CREATE INDEX idx_access_tokens_expires ON access_tokens(expires_at);
 CREATE INDEX idx_playback_events_video ON playback_events(video_id);
 CREATE INDEX idx_playback_events_occurred ON playback_events(occurred_at);
-CREATE INDEX idx_projects_slug ON projects(slug);
 CREATE INDEX idx_video_renditions_video ON video_renditions(video_id);
 
 -- +goose StatementBegin
@@ -90,17 +92,14 @@ END;
 
 DROP TRIGGER IF EXISTS videos_updated_at;
 DROP INDEX IF EXISTS idx_video_renditions_video;
-DROP INDEX IF EXISTS idx_projects_slug;
 DROP INDEX IF EXISTS idx_playback_events_occurred;
 DROP INDEX IF EXISTS idx_playback_events_video;
-DROP INDEX IF EXISTS idx_upload_tokens_project;
-DROP INDEX IF EXISTS idx_tokens_expires;
-DROP INDEX IF EXISTS idx_videos_project;
+DROP INDEX IF EXISTS idx_access_tokens_expires;
+DROP INDEX IF EXISTS idx_videos_tag;
 DROP INDEX IF EXISTS idx_videos_last_chunk;
 DROP INDEX IF EXISTS idx_videos_status;
 DROP TABLE IF EXISTS video_renditions;
 DROP TABLE IF EXISTS playback_events;
-DROP TABLE IF EXISTS upload_tokens;
+DROP TABLE IF EXISTS access_tokens;
 DROP TABLE IF EXISTS videos;
-DROP TABLE IF EXISTS projects;
 DROP TABLE IF EXISTS webhook_log;

@@ -162,9 +162,10 @@ func (h *TUSHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	// Extrai o video_id do path da requisição.
 	videoID := extractVideoIDFromPath(r.URL.Path)
 
-	// Busca e valida o token no banco.
-	uploadToken, err := models.GetUploadToken(h.db, token)
-	if err != nil || uploadToken.IsExpired() {
+	// Busca e valida o token no banco — deve existir, ser de propósito
+	// 'upload' (um token de play nunca autoriza upload) e não estar expirado.
+	uploadToken, err := models.GetAccessToken(h.db, token)
+	if err != nil || uploadToken.Purpose != models.PurposeUpload || uploadToken.IsExpired() {
 		apiresponse.Error(w, http.StatusUnauthorized, "Token de upload inválido ou expirado.")
 		return
 	}
@@ -237,9 +238,9 @@ func (h *TUSHandler) preCreate(hook tusd.HookEvent) (tusd.HTTPResponse, tusd.Fil
 		}, tusd.FileInfoChanges{}, nil
 	}
 
-	// Busca o token no banco e valida.
-	uploadToken, err := models.GetUploadToken(h.db, token)
-	if err != nil {
+	// Busca o token no banco e valida — deve ser de propósito 'upload'.
+	uploadToken, err := models.GetAccessToken(h.db, token)
+	if err != nil || uploadToken.Purpose != models.PurposeUpload {
 		return tusd.HTTPResponse{
 			StatusCode: http.StatusUnauthorized,
 			Body:       tusErrorBody(http.StatusUnauthorized, "Token de upload inválido ou não encontrado."),

@@ -185,18 +185,12 @@ func TestAllJSONRoutes_SuccessResponses_FollowEnvelope(t *testing.T) {
 		}
 	})
 
-	// --- Upload init com X-Project-Key válido ---
-	t.Run("POST /upload/init com auth", func(t *testing.T) {
-		project, key, err := models.CreateProject(db, "Conformance Test")
-		if err != nil {
-			t.Fatalf("CreateProject: %v", err)
-		}
-		_ = project
+	// --- Upload init com ROOT_TOKEN válido ---
+	t.Run("POST /api/upload/init com auth", func(t *testing.T) {
+		body := `{"tag":"conformance","video_id":"` + uuidUploadInit + `","declared_size_bytes":1024}`
 
-		body := `{"video_id":"` + uuidUploadInit + `","declared_size_bytes":1024}`
-
-		req := httptest.NewRequest(http.MethodPost, "/upload/init", strings.NewReader(body))
-		req.Header.Set("X-Project-Key", key)
+		req := httptest.NewRequest(http.MethodPost, "/api/upload/init", strings.NewReader(body))
+		req.Header.Set("Authorization", "Bearer "+cfg.RootToken)
 		rec := httptest.NewRecorder()
 		router.ServeHTTP(rec, req)
 
@@ -235,7 +229,7 @@ func TestAllJSONRoutes_SuccessResponses_FollowEnvelope(t *testing.T) {
 		insertTestVideo(t, db, uuidAdminVideo, models.StatusReady)
 
 		req := httptest.NewRequest(http.MethodGet, "/admin/videos", nil)
-		req.Header.Set("Authorization", "Bearer "+cfg.AdminToken)
+		req.Header.Set("Authorization", "Bearer "+cfg.RootToken)
 		rec := httptest.NewRecorder()
 		router.ServeHTTP(rec, req)
 
@@ -261,7 +255,7 @@ func TestAllJSONRoutes_SuccessResponses_FollowEnvelope(t *testing.T) {
 
 	t.Run("GET /admin/queue com auth", func(t *testing.T) {
 		req := httptest.NewRequest(http.MethodGet, "/admin/queue", nil)
-		req.Header.Set("Authorization", "Bearer "+cfg.AdminToken)
+		req.Header.Set("Authorization", "Bearer "+cfg.RootToken)
 		rec := httptest.NewRecorder()
 		router.ServeHTTP(rec, req)
 
@@ -284,7 +278,7 @@ func TestAllJSONRoutes_SuccessResponses_FollowEnvelope(t *testing.T) {
 
 	t.Run("GET /admin/stats com auth", func(t *testing.T) {
 		req := httptest.NewRequest(http.MethodGet, "/admin/stats", nil)
-		req.Header.Set("Authorization", "Bearer "+cfg.AdminToken)
+		req.Header.Set("Authorization", "Bearer "+cfg.RootToken)
 		rec := httptest.NewRecorder()
 		router.ServeHTTP(rec, req)
 

@@ -68,7 +68,7 @@ func (c *Client) Send(videoID, event string, video *models.Video) error {
 	}
 
 	// Assina a requisição
-	signature := auth.SignBackendRequest(c.cfg.WebhookSecret, payloadBytes)
+	signature := auth.SignWebhook(c.cfg.WebhookSecret, payloadBytes)
 
 	// Realiza até 3 tentativas com backoff exponencial
 	backoffs := []time.Duration{1 * time.Second, 2 * time.Second, 4 * time.Second}

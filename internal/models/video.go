@@ -33,10 +33,10 @@ type Video struct {
 	TranscodeAttempts int
 	LastChunkAt       *time.Time
 	ErrorMessage      string
-	// ProjectID vincula o vídeo a um projeto interno (issue #6, T33). É nil
-	// para vídeos do fluxo legado (sem projeto), criados antes da issue #6
-	// ou via a chave global UPLOAD_TOKEN_SECRET.
-	ProjectID *int64
+	// Tag é o namespace (slug) do vídeo: define o diretório de armazenamento
+	// (<MEDIA_DIR>/<tag>/<video_id>/...) e agrupa vídeos para consultas. Não
+	// é credencial — toda autenticação é feita com o ROOT_TOKEN único.
+	Tag       string
 	CreatedAt time.Time
 	UpdatedAt time.Time
 }
@@ -70,7 +70,7 @@ func isValidTransition(from, to VideoStatus) bool {
 // todas as queries retornam as mesmas colunas na mesma ordem.
 const SelectVideoColumns = `video_id, status, declared_size_bytes, actual_size_bytes,
 	duration_s, resolutions, transcode_attempts, last_chunk_at,
-	error_message, project_id, created_at, updated_at`
+	error_message, tag, created_at, updated_at`
 
 // ScanVideoRow lê uma linha de Video do banco, tratando campos nullable.
 // Aceita qualquer função que implemente a assinatura de Scan (sql.Row e
@@ -84,7 +84,6 @@ func ScanVideoRow(scan func(dest ...any) error) (*Video, error) {
 		resolutions  sql.NullString
 		lastChunkAt  sql.NullTime
 		errorMessage sql.NullString
-		projectID    sql.NullInt64
 	)
 
 	err := scan(
@@ -97,7 +96,7 @@ func ScanVideoRow(scan func(dest ...any) error) (*Video, error) {
 		&v.TranscodeAttempts,
 		&lastChunkAt,
 		&errorMessage,
-		&projectID,
+		&v.Tag,
 		&v.CreatedAt,
 		&v.UpdatedAt,
 	)
@@ -109,9 +108,6 @@ func ScanVideoRow(scan func(dest ...any) error) (*Video, error) {
 	v.ActualSizeBytes = actualSize.Int64
 	v.DurationS = int(durationS.Int64)
 	v.ErrorMessage = errorMessage.String
-	if projectID.Valid {
-		v.ProjectID = &projectID.Int64
-	}
 
 	if lastChunkAt.Valid {
 		t := lastChunkAt.Time
@@ -129,21 +125,34 @@ func ScanVideoRow(scan func(dest ...any) error) (*Video, error) {
 	return &v, nil
 }
 
-// InsertVideo cria um novo registro de vídeo com o status inicial pending_upload.
+// InsertVideo cria um novo registro de vídeo com o status inicial
+// pending_upload, no namespace (tag) padrão "default". Conveniência para
+// chamadas que não se importam com a tag (ex.: testes). Para definir a tag,
+// use InsertVideoWithTag.
 func InsertVideo(db *sql.DB, videoID string, declaredSize int64) error {
-	return InsertVideoForProject(db, videoID, declaredSize, nil)
+	return InsertVideoWithTag(db, videoID, declaredSize, "default")
 }
 
-// InsertVideoForProject cria um novo registro de vídeo associado a um
-// projeto (issue #6, T33). projectID nil cria um vídeo "sem projeto"
-// (fluxo legado, compatível com instalações que não usam projetos).
-func InsertVideoForProject(db *sql.DB, videoID string, declaredSize int64, projectID *int64) error {
+// InsertVideoWithTag cria um novo registro de vídeo no namespace (tag)
+// informado. A tag deve vir já normalizada pelo chamador (models.Slugify).
+func InsertVideoWithTag(db *sql.DB, videoID string, declaredSize int64, tag string) error {
 	_, err := db.Exec(
-		"INSERT INTO videos (video_id, declared_size_bytes, project_id) VALUES (?, ?, ?)",
-		videoID, declaredSize, projectID,
+		"INSERT INTO videos (video_id, declared_size_bytes, tag) VALUES (?, ?, ?)",
+		videoID, declaredSize, tag,
 	)
 	if err != nil {
 		return fmt.Errorf("erro ao inserir vídeo: %w", err)
+	}
+	return nil
+}
+
+// DeleteVideo remove o registro do vídeo do banco. Os tokens de acesso e
+// variantes têm FK para videos; o chamador deve removê-los antes (ou o banco
+// rejeitará). Ver admin.HandleDeleteVideo para a remoção completa (linhas + disco).
+func DeleteVideo(db *sql.DB, videoID string) error {
+	_, err := db.Exec("DELETE FROM videos WHERE video_id = ?", videoID)
+	if err != nil {
+		return fmt.Errorf("erro ao apagar vídeo: %w", err)
 	}
 	return nil
 }

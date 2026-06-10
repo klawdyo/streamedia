@@ -15,15 +15,18 @@ import (
 	"github.com/klawdyo/streamedia/internal/models"
 )
 
-// initRequest representa o corpo JSON esperado em POST /upload/init.
-// video_id é opcional: se informado, deve ser um UUID bem-formado; se omitido,
-// o servidor gera um UUID v7.
+// initRequest representa o corpo JSON esperado em POST /api/upload/init.
+//   - tag: namespace organizacional do vídeo (obrigatório); normalizado por Slugify.
+//   - video_id: opcional; se informado deve ser um UUID bem-formado; se omitido,
+//     o servidor gera um UUID v7.
 type initRequest struct {
+	Tag               string `json:"tag"`
 	VideoID           string `json:"video_id"`
 	DeclaredSizeBytes int64  `json:"declared_size_bytes"`
 }
 
-// InitHandler trata a rota de inicialização de upload (POST /upload/init).
+// InitHandler trata a rota de inicialização de upload (POST /api/upload/init).
+// A autenticação (ROOT_TOKEN) é feita pelo middleware RootAuth no roteador.
 type InitHandler struct {
 	cfg *config.Config
 	db  *sql.DB
@@ -34,14 +37,8 @@ func NewInitHandler(cfg *config.Config, db *sql.DB) *InitHandler {
 	return &InitHandler{cfg: cfg, db: db}
 }
 
-// ServeHTTP processa a inicialização de um upload: resolve o projeto (explícito
-// via X-Project-Key ou o projeto padrão "Default"), registra o vídeo, gera o
-// token de upload e devolve a URL de upload.
-//
-// X-Project-Key é OPCIONAL — se ausente, o upload é associado ao projeto
-// padrão "Default" (criado automaticamente na inicialização) e o token é
-// assinado com UPLOAD_TOKEN_SECRET. Se presente, o token é assinado com a
-// própria chave mestra do projeto.
+// ServeHTTP registra o vídeo no namespace (tag) informado, gera um token de
+// upload efêmero e devolve a URL de upload TUS.
 func (h *InitHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	// 1. Lê o corpo da requisição com limite de 1MB.
 	bodyBytes, err := io.ReadAll(io.LimitReader(r.Body, 1<<20))
@@ -50,44 +47,24 @@ func (h *InitHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// 2. Resolve o projeto: X-Project-Key explícito OU projeto padrão.
-	// signingKey é o segredo usado para assinar o token de upload — a chave
-	// mestra do projeto (quando X-Project-Key é informado) ou o secret global
-	// (quando o upload cai no projeto padrão sem chave explícita).
-	var project *models.Project
-	var signingKey string
-	if projectKey := r.Header.Get("X-Project-Key"); projectKey != "" {
-		project, err = models.GetProjectByMasterKeyHash(h.db, models.HashMasterKey(projectKey))
-		if err != nil {
-			if err == sql.ErrNoRows {
-				apiresponse.Error(w, http.StatusUnauthorized, "Chave de projeto inválida.")
-				return
-			}
-			apiresponse.Error(w, http.StatusInternalServerError, "Falha ao validar a chave de projeto.")
-			return
-		}
-		signingKey = projectKey
-	} else {
-		// Sem X-Project-Key: usa o projeto padrão (issue #10, T48).
-		project, err = models.EnsureDefaultProject(h.db)
-		if err != nil {
-			apiresponse.Error(w, http.StatusInternalServerError, "Falha ao resolver o projeto padrão.")
-			return
-		}
-		signingKey = h.cfg.UploadTokenSecret
-	}
-
-	// 3. Faz o parse do JSON do corpo.
+	// 2. Faz o parse do JSON do corpo.
 	var req initRequest
 	if err := json.Unmarshal(bodyBytes, &req); err != nil {
 		apiresponse.Error(w, http.StatusBadRequest, "JSON inválido.")
 		return
 	}
 
+	// 3. Normaliza e valida a tag (namespace). Slugify também neutraliza
+	// qualquer tentativa de path traversal (a tag vira diretório no disco).
+	tag := models.Slugify(req.Tag)
+	if tag == "" {
+		apiresponse.Error(w, http.StatusBadRequest, "O campo 'tag' é obrigatório.")
+		return
+	}
+
 	// 4. Resolve video_id: se informado, valida formato; se ausente, gera UUID v7.
 	videoID := req.VideoID
 	if videoID == "" {
-		var err error
 		videoID, err = models.NewVideoID()
 		if err != nil {
 			apiresponse.Error(w, http.StatusInternalServerError, "Falha ao gerar video_id.")
@@ -108,9 +85,8 @@ func (h *InitHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// 6. Insere o vídeo vinculado ao projeto resolvido.
-	projectID := &project.ID
-	if err := models.InsertVideoForProject(h.db, videoID, req.DeclaredSizeBytes, projectID); err != nil {
+	// 6. Insere o vídeo no namespace (tag).
+	if err := models.InsertVideoWithTag(h.db, videoID, req.DeclaredSizeBytes, tag); err != nil {
 		if strings.Contains(err.Error(), "UNIQUE") {
 			apiresponse.Error(w, http.StatusConflict, "video_id já existe.")
 			return
@@ -119,11 +95,14 @@ func (h *InitHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// 7. Gera e persiste o token de upload assinado com signingKey.
-	token := auth.GenerateUploadToken(signingKey, videoID)
-	ttl := h.cfg.UploadTokenTTL
-	expiresAt := time.Now().Add(ttl)
-	if err := models.InsertUploadTokenForProject(h.db, token, videoID, expiresAt, projectID); err != nil {
+	// 7. Gera e persiste o token de upload (string aleatória, purpose=upload).
+	token, err := auth.GenerateToken()
+	if err != nil {
+		apiresponse.Error(w, http.StatusInternalServerError, "Falha ao gerar o token de upload.")
+		return
+	}
+	expiresAt := time.Now().Add(h.cfg.UploadTokenTTL)
+	if err := models.InsertAccessToken(h.db, token, videoID, models.PurposeUpload, expiresAt); err != nil {
 		apiresponse.Error(w, http.StatusInternalServerError, "Falha ao registrar o token de upload.")
 		return
 	}
@@ -134,6 +113,7 @@ func (h *InitHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	// 9. Responde 200 com video_id, URL de upload e o token.
 	apiresponse.Success(w, http.StatusOK, map[string]string{
 		"video_id":   videoID,
+		"tag":        tag,
 		"upload_url": uploadURL,
 		"token":      token,
 	})

@@ -1,34 +1,24 @@
-// Pacote admin implementa as rotas de administração.
+// Pacote admin implementa as rotas de administração, todas protegidas pelo
+// ROOT_TOKEN único (Authorization: Bearer). Não há mais escopo por projeto/
+// tenant: o único cliente privilegiado é o backend principal, que detém o
+// ROOT_TOKEN e enxerga/opera sobre tudo.
 package admin
 
 import (
-	"context"
-	"crypto/subtle"
 	"database/sql"
-	"log"
 	"net/http"
+	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 
+	"github.com/go-chi/chi/v5"
+
 	"github.com/klawdyo/streamedia/internal/apiresponse"
+	"github.com/klawdyo/streamedia/internal/auth"
 	"github.com/klawdyo/streamedia/internal/config"
 	"github.com/klawdyo/streamedia/internal/models"
 )
-
-// adminScopeContextKey é a chave usada para guardar, no contexto da
-// requisição, o escopo de projeto resolvido pelo middleware AdminAuth
-// (T33, issue #6): nil para super-admin (ADMIN_TOKEN global, sem
-// restrição), ou o ID do projeto cuja chave mestra autenticou a requisição.
-type adminScopeContextKey struct{}
-
-// ProjectScopeFromContext devolve o ID do projeto ao qual a requisição
-// admin está restrita, ou nil se a requisição for de um super-admin (sem
-// escopo — enxerga todos os projetos). Use para filtrar consultas por
-// project_id nos handlers de /admin/*.
-func ProjectScopeFromContext(ctx context.Context) *int64 {
-	scope, _ := ctx.Value(adminScopeContextKey{}).(*int64)
-	return scope
-}
 
 // AdminHandler agrega as dependências necessárias para as rotas de administração.
 type AdminHandler struct {
@@ -47,66 +37,27 @@ func NewAdminHandler(cfg *config.Config, db *sql.DB, queue interface{ Len() int 
 	}
 }
 
-// AdminAuth é um middleware que valida o token de administração no header
-// Authorization: Bearer {token}. Usa ConstantTimeCompare para evitar timing attacks.
-// Retorna 401 se o token estiver ausente ou incorreto.
+// RootAuth é o middleware que valida o ROOT_TOKEN no header
+// Authorization: Bearer {token}. Usa comparação em tempo constante para
+// prevenir timing attacks. Retorna 401 se o token estiver ausente ou incorreto.
 //
-// Decisão de modelo admin (T33, issue #6 — opção (a) do spec da tarefa):
-// o ADMIN_TOKEN global continua funcionando como "super admin", sem
-// restrição — preserva 100% o comportamento e a configuração existentes.
-// Adicionalmente, a chave mestra de um projeto também autentica em
-// /admin/*, mas com o escopo restrito aos vídeos daquele projeto (resolvido
-// via models.GetProjectByMasterKeyHash e exposto aos handlers através de
-// ProjectScopeFromContext). Optou-se por (a) em vez de (b) — substituir
-// totalmente por chaves por projeto — por ser a migração mais simples e não
-// quebrar instalações que já dependem só do ADMIN_TOKEN.
-func AdminAuth(adminToken string, db *sql.DB) func(http.Handler) http.Handler {
+// É a ÚNICA porta de autenticação de gestão do sistema: protege /api/upload/init,
+// /api/play/init, /api/status e todas as rotas /admin/*.
+func RootAuth(rootToken string) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			// Extrai o header Authorization
-			authHeader := r.Header.Get("Authorization")
-			if authHeader == "" {
-				apiresponse.Error(w, http.StatusUnauthorized, "Não autorizado.")
-				return
-			}
-
-			// Espera o formato "Bearer {token}"
 			const bearerPrefix = "Bearer "
+			authHeader := r.Header.Get("Authorization")
 			if !strings.HasPrefix(authHeader, bearerPrefix) {
 				apiresponse.Error(w, http.StatusUnauthorized, "Não autorizado.")
 				return
 			}
-
 			token := authHeader[len(bearerPrefix):]
-
-			// 1. Super-admin: compara com o ADMIN_TOKEN global em tempo
-			// constante. Sem escopo — vê e opera sobre todos os projetos.
-			if adminToken != "" && subtle.ConstantTimeCompare([]byte(token), []byte(adminToken)) == 1 {
-				next.ServeHTTP(w, r)
+			if rootToken == "" || !auth.SecureCompare(token, rootToken) {
+				apiresponse.Error(w, http.StatusUnauthorized, "Não autorizado.")
 				return
 			}
-
-			// 2. Admin de projeto: a própria chave mestra autentica — o
-			// servidor calcula o hash e resolve o projeto, sem nunca reter a
-			// chave em texto puro (mesmo princípio do X-Project-Key em
-			// /upload/init). O escopo (project_id) é propagado no contexto
-			// para os handlers filtrarem suas consultas.
-			project, err := models.GetProjectByMasterKeyHash(db, models.HashMasterKey(token))
-			if err == nil {
-				projectID := project.ID
-				ctx := context.WithValue(r.Context(), adminScopeContextKey{}, &projectID)
-				next.ServeHTTP(w, r.WithContext(ctx))
-				return
-			}
-			if err != sql.ErrNoRows {
-				// Erro de infraestrutura — não é "não encontrado"
-				log.Printf("[admin] erro ao buscar projeto por chave mestra: %v", err)
-				apiresponse.Error(w, http.StatusInternalServerError, "Erro interno ao validar credenciais.")
-				return
-			}
-
-			// sql.ErrNoRows: token não corresponde a nenhum projeto → 401
-			apiresponse.Error(w, http.StatusUnauthorized, "Não autorizado.")
+			next.ServeHTTP(w, r)
 		})
 	}
 }
@@ -117,15 +68,14 @@ type videosResponse struct {
 	Total  int             `json:"total"`
 }
 
-// HandleVideos retorna uma lista paginada de vídeos, opcionalmente filtrada por status.
+// HandleVideos retorna uma lista paginada de vídeos, opcionalmente filtrada por
+// status e/ou tag.
 // Query params:
 //   - status (opcional): filtro por status do vídeo
+//   - tag (opcional): filtro por namespace (tag)
 //   - limit (opcional, padrão 50, máximo 200): número de registros por página
 //   - offset (opcional, padrão 0): número de registros a pular
-//
-// Retorna JSON com array de vídeos e contagem total.
 func (h *AdminHandler) HandleVideos(w http.ResponseWriter, r *http.Request) {
-	// Parse dos query parameters
 	limit := 50
 	if l := r.URL.Query().Get("limit"); l != "" {
 		if parsed, err := strconv.Atoi(l); err == nil {
@@ -144,22 +94,16 @@ func (h *AdminHandler) HandleVideos(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	status := r.URL.Query().Get("status")
-
-	// Monta a cláusula WHERE dinamicamente: filtro opcional por status e,
-	// quando a requisição vem autenticada com a chave mestra de um projeto
-	// (T33, issue #6), filtro obrigatório por project_id — restringe a
-	// listagem aos vídeos daquele projeto ("não enxerga vídeos de outro").
-	// Super-admin (ADMIN_TOKEN global) não tem escopo: vê todos os vídeos.
+	// Monta a cláusula WHERE dinamicamente: filtros opcionais por status e tag.
 	var conditions []string
 	var args []interface{}
-	if status != "" {
+	if status := r.URL.Query().Get("status"); status != "" {
 		conditions = append(conditions, "status = ?")
 		args = append(args, status)
 	}
-	if scope := ProjectScopeFromContext(r.Context()); scope != nil {
-		conditions = append(conditions, "project_id = ?")
-		args = append(args, *scope)
+	if tag := r.URL.Query().Get("tag"); tag != "" {
+		conditions = append(conditions, "tag = ?")
+		args = append(args, models.Slugify(tag))
 	}
 
 	whereClause := ""
@@ -171,14 +115,12 @@ func (h *AdminHandler) HandleVideos(w http.ResponseWriter, r *http.Request) {
 	listQuery := "SELECT " + models.SelectVideoColumns + " FROM videos" +
 		whereClause + " ORDER BY created_at DESC LIMIT ? OFFSET ?"
 
-	// Conta o total de registros (mesmos filtros, sem LIMIT/OFFSET)
 	var total int
 	if err := h.db.QueryRow(countQuery, args...).Scan(&total); err != nil {
 		apiresponse.Error(w, http.StatusInternalServerError, "Erro ao contar vídeos.")
 		return
 	}
 
-	// Executa a query de listagem
 	listArgs := append(append([]interface{}{}, args...), limit, offset)
 	rows, err := h.db.Query(listQuery, listArgs...)
 	if err != nil {
@@ -196,23 +138,15 @@ func (h *AdminHandler) HandleVideos(w http.ResponseWriter, r *http.Request) {
 		}
 		videos = append(videos, v)
 	}
-
 	if err := rows.Err(); err != nil {
 		apiresponse.Error(w, http.StatusInternalServerError, "Erro ao iterar vídeos.")
 		return
 	}
-
-	// Se nenhum vídeo foi encontrado, retorna array vazio
 	if videos == nil {
 		videos = []*models.Video{}
 	}
 
-	// Monta a resposta JSON no envelope padrão.
-	resp := videosResponse{
-		Videos: videos,
-		Total:  total,
-	}
-	apiresponse.Success(w, http.StatusOK, resp)
+	apiresponse.Success(w, http.StatusOK, videosResponse{Videos: videos, Total: total})
 }
 
 // queueResponse é a estrutura de resposta para a rota de fila.
@@ -222,16 +156,57 @@ type queueResponse struct {
 }
 
 // HandleQueue retorna o estado atual da fila de transcodificação.
-// Response:
-//   {
-//     "queue_length": 3,
-//     "workers": 1
-//   }
 func (h *AdminHandler) HandleQueue(w http.ResponseWriter, r *http.Request) {
-	resp := queueResponse{
+	apiresponse.Success(w, http.StatusOK, queueResponse{
 		QueueLength: h.queue.Len(),
 		Workers:     h.cfg.TranscodeWorkers,
+	})
+}
+
+// HandleDeleteVideo apaga um vídeo: remove suas linhas no banco (tokens de
+// acesso, variantes, eventos e o próprio vídeo) e o diretório de arquivos no
+// disco (<MEDIA_DIR>/<tag>/<video_id>). Operação de gestão — protegida pelo
+// ROOT_TOKEN (middleware RootAuth).
+func (h *AdminHandler) HandleDeleteVideo(w http.ResponseWriter, r *http.Request) {
+	videoID := chi.URLParam(r, "videoID")
+
+	video, err := models.GetVideo(h.db, videoID)
+	if err == sql.ErrNoRows {
+		apiresponse.Error(w, http.StatusNotFound, "Vídeo não encontrado.")
+		return
+	}
+	if err != nil {
+		apiresponse.Error(w, http.StatusInternalServerError, "Erro ao consultar o vídeo.")
+		return
 	}
 
-	apiresponse.Success(w, http.StatusOK, resp)
+	// Remove dependentes (FK) e o vídeo. Eventos de playback não têm FK, mas
+	// também são removidos para não deixar estatísticas órfãs.
+	if err := models.DeleteAccessTokensForVideo(h.db, videoID); err != nil {
+		apiresponse.Error(w, http.StatusInternalServerError, "Erro ao remover tokens do vídeo.")
+		return
+	}
+	if _, err := h.db.Exec("DELETE FROM video_renditions WHERE video_id = ?", videoID); err != nil {
+		apiresponse.Error(w, http.StatusInternalServerError, "Erro ao remover variantes do vídeo.")
+		return
+	}
+	if _, err := h.db.Exec("DELETE FROM playback_events WHERE video_id = ?", videoID); err != nil {
+		apiresponse.Error(w, http.StatusInternalServerError, "Erro ao remover eventos do vídeo.")
+		return
+	}
+	if err := models.DeleteVideo(h.db, videoID); err != nil {
+		apiresponse.Error(w, http.StatusInternalServerError, "Erro ao remover o vídeo.")
+		return
+	}
+
+	// Remove os arquivos do disco. A tag já está normalizada (Slugify no
+	// upload-init), mas reaplicamos por garantia contra qualquer valor herdado.
+	videoDir := filepath.Join(h.cfg.MediaDir, models.Slugify(video.Tag), videoID)
+	if err := os.RemoveAll(videoDir); err != nil {
+		// Linhas já removidas — apenas reporta o resíduo no disco.
+		apiresponse.Error(w, http.StatusInternalServerError, "Vídeo removido do banco, mas houve erro ao apagar os arquivos.")
+		return
+	}
+
+	apiresponse.Success(w, http.StatusOK, map[string]string{"video_id": videoID, "deleted": "true"})
 }
