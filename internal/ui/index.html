@@ -238,11 +238,18 @@
         <label class="field">arquivo de vídeo
           <input type="file" id="videoFile" accept="video/*">
         </label>
-        <label class="field">tamanho do chunk (MB)
+        <label class="field">chunk (MB)
           <input type="number" id="chunkMB" value="5" min="1">
         </label>
+        <label class="field">timeout/chunk (s)
+          <input type="number" id="chunkTimeout" value="30" min="1">
+        </label>
         <button id="btnUpload" disabled>Enviar</button>
+        <button class="ghost" id="btnCancelUpload" type="button" style="display:none">Cancelar</button>
+        <button class="ghost" id="btnRetryUpload" type="button" style="display:none">↻ Retry / Continuar</button>
       </div>
+      <div class="note">Cada chunk tem um timeout próprio; se a conexão travar, o chunk é abortado
+        e você pode <b>Retry / Continuar</b> — o upload retoma do offset real no servidor (TUS é resumível).</div>
       <div id="chunkPlan"></div>
       <div class="progress unified" id="unifiedProgress" style="display:none">
         <div class="bar"></div><div class="label">0%</div>
@@ -447,123 +454,266 @@ $("btnInit").onclick = async () => {
 };
 
 // =====================================================================
-// ETAPA 3 — Upload em chunks via TUS
+// ETAPA 3 — Upload em chunks via TUS (resumível, com timeout/cancelar/retry)
 // =====================================================================
 let selectedFile = null;
+
+// Estado do upload em andamento. Como o TUS é resumível, mantemos o offset
+// confirmado pelo servidor e a referência ao XHR ativo para poder abortá-lo.
+const up = {
+  file: null,
+  chunkSize: 0,   // tamanho do chunk em bytes (fixo após iniciar)
+  total: 0,
+  nChunks: 0,
+  url: "",
+  created: false, // upload TUS já criado no servidor?
+  offset: 0,      // offset confirmado pelo servidor
+  xhr: null,      // XHR do chunk em voo (para abort)
+  cancelled: false,
+  running: false,
+  startedAt: 0,
+  chunkBars: [],
+};
+
+// uploadError cria um Error com um "kind" (timeout/abort/network/http) para o
+// catch decidir a mensagem e o próximo estado (retry vs. erro).
+function uploadError(kind, msg) { const e = new Error(msg); e.kind = kind; return e; }
+
+const fmtMB = (bytes) => (bytes / 1048576).toFixed(2) + " MB";
+
+// setUploadButtons alterna a visibilidade de Enviar / Cancelar / Retry.
+function setUploadButtons(mode) {
+  const u = $("btnUpload"), c = $("btnCancelUpload"), r = $("btnRetryUpload");
+  u.style.display = mode === "idle" ? "" : "none";
+  u.disabled = !(mode === "idle" && selectedFile);
+  c.style.display = mode === "running" ? "" : "none";
+  r.style.display = mode === "retry" ? "" : "none";
+}
+
+function resetUpload() {
+  up.file = selectedFile;
+  up.created = false; up.offset = 0; up.xhr = null;
+  up.cancelled = false; up.running = false; up.startedAt = 0; up.chunkBars = [];
+  $("chunkList").innerHTML = "";
+  $("unifiedProgress").style.display = "none";
+  $("unifiedProgress").querySelector(".bar").style.width = "0%";
+  $("unifiedProgress").querySelector(".label").textContent = "0%";
+}
+
 $("videoFile").onchange = (e) => {
   selectedFile = e.target.files[0] || null;
-  $("btnUpload").disabled = !selectedFile;
+  resetUpload();
   if (selectedFile) {
     const mb = (selectedFile.size / 1048576).toFixed(2);
     $("chunkPlan").innerHTML = `<div class="meta"><span class="pill">${selectedFile.name}</span><span class="pill">${mb} MB</span></div>`;
   }
+  setUploadButtons("idle");
 };
 
-// PATCH de um único chunk via XHR (para expor progresso de upload por chunk).
-function patchChunk(url, offset, blob, onProgress) {
-  return new Promise((resolve, reject) => {
-    const xhr = new XMLHttpRequest();
-    xhr.open("PATCH", url);
-    xhr.setRequestHeader("Upload-Token", state.uploadToken);
-    xhr.setRequestHeader("Tus-Resumable", "1.0.0");
-    xhr.setRequestHeader("Upload-Offset", String(offset));
-    xhr.setRequestHeader("Content-Type", "application/offset+octet-stream");
-    xhr.upload.onprogress = (ev) => {
-      if (ev.lengthComputable) onProgress(ev.loaded / ev.total);
-    };
-    xhr.onload = () => {
-      if (xhr.status >= 200 && xhr.status < 300) {
-        const newOffset = parseInt(xhr.getResponseHeader("Upload-Offset") || "0", 10);
-        resolve(newOffset);
-      } else {
-        reject(new Error("HTTP " + xhr.status + ": " + xhr.responseText));
-      }
-    };
-    xhr.onerror = () => reject(new Error("erro de rede no PATCH"));
-    xhr.send(blob);
-  });
+function updateUnified(sentBytes) {
+  const p = up.total ? Math.min(100, (sentBytes / up.total) * 100) : 0;
+  $("unifiedProgress").querySelector(".bar").style.width = p + "%";
+  $("unifiedProgress").querySelector(".label").textContent = p.toFixed(1) + "%";
 }
 
-$("btnUpload").onclick = async () => {
-  if (!selectedFile) return;
-  $("btnUpload").disabled = true;
-  const chunkSize = Math.max(1, parseInt($("chunkMB").value, 10)) * 1048576;
-  const total = selectedFile.size;
-  const nChunks = Math.ceil(total / chunkSize);
-  const uploadUrl = origin + "/files/" + state.videoId;
-
-  // 1. Cria o upload TUS (POST /files/{id} com Upload-Length = tamanho real).
-  setMeta("uploadMeta", "load", "criando upload TUS…");
-  try {
-    const create = await timedFetch(uploadUrl, {
-      method: "POST",
-      headers: {
-        "Upload-Token": state.uploadToken,
-        "Upload-Length": String(total),
-        "Tus-Resumable": "1.0.0",
-      },
-    });
-    if (create.status !== 201 && create.status !== 200) {
-      setMeta("uploadMeta", "err", "Falha ao criar upload (HTTP " + create.status + "): " + JSON.stringify(create.body));
-      $("btnUpload").disabled = false;
-      return;
-    }
-  } catch (e) {
-    setMeta("uploadMeta", "err", "Falha ao criar upload: " + e.message);
-    $("btnUpload").disabled = false;
-    return;
-  }
-
-  // 2. Monta a UI de progresso: uma barra por chunk + a barra unificada.
+// buildChunkUI (re)constrói as barras por chunk refletindo o offset atual —
+// chunks já confirmados aparecem cheios (importante após um retry/resume).
+function buildChunkUI() {
   $("unifiedProgress").style.display = "block";
   const list = $("chunkList");
   list.innerHTML = "";
-  const chunkBars = [];
-  for (let i = 0; i < nChunks; i++) {
+  up.chunkBars = [];
+  for (let i = 0; i < up.nChunks; i++) {
+    const start = i * up.chunkSize;
+    const len = Math.min(up.chunkSize, up.total - start);
+    const filled = Math.max(0, Math.min(1, (up.offset - start) / len));
     const row = document.createElement("div");
     row.className = "chunk-row";
     row.innerHTML = `<span class="idx">#${i + 1}</span>
       <div class="progress"><div class="bar"></div></div>
       <span class="pct">0%</span>`;
     list.appendChild(row);
-    chunkBars.push({ bar: row.querySelector(".bar"), pct: row.querySelector(".pct") });
+    const bar = row.querySelector(".bar"), pct = row.querySelector(".pct");
+    const pf = Math.round(filled * 100);
+    bar.style.width = pf + "%"; pct.textContent = pf + "%";
+    up.chunkBars.push({ bar, pct });
   }
-  const updateUnified = (sentBytes) => {
-    const p = Math.min(100, (sentBytes / total) * 100);
-    $("unifiedProgress").querySelector(".bar").style.width = p + "%";
-    $("unifiedProgress").querySelector(".label").textContent = p.toFixed(1) + "%";
-  };
+  updateUnified(up.offset);
+}
 
-  // 3. Envia os chunks sequencialmente (sem uploads simultâneos — fora de escopo).
-  const t0 = performance.now();
-  let offset = 0;
+// fetchWithTimeout: fetch com AbortController para impor timeout (usado no
+// POST de criação e no HEAD de consulta de offset).
+async function fetchWithTimeout(url, opts, timeoutMs) {
+  const ctrl = new AbortController();
+  const t = setTimeout(() => ctrl.abort(), timeoutMs);
   try {
-    for (let i = 0; i < nChunks; i++) {
-      const start = i * chunkSize;
-      const end = Math.min(start + chunkSize, total);
-      const blob = selectedFile.slice(start, end);
-      const baseBytes = start;
-      setMeta("uploadMeta", "load", `enviando chunk ${i + 1}/${nChunks}…`);
-      offset = await patchChunk(uploadUrl, offset, blob, (frac) => {
-        chunkBars[i].bar.style.width = (frac * 100).toFixed(0) + "%";
-        chunkBars[i].pct.textContent = (frac * 100).toFixed(0) + "%";
-        updateUnified(baseBytes + frac * (end - start));
-      });
-      chunkBars[i].bar.style.width = "100%";
-      chunkBars[i].pct.textContent = "100%";
+    const resp = await fetch(url, { ...opts, signal: ctrl.signal });
+    const text = await resp.text();
+    let body; try { body = JSON.parse(text); } catch { body = text; }
+    return { resp, status: resp.status, body };
+  } finally { clearTimeout(t); }
+}
+
+// fetchServerOffset consulta o offset real via HEAD TUS — a fonte de verdade
+// para retomar o upload depois de um cancelamento/timeout.
+async function fetchServerOffset(timeoutMs) {
+  const ctrl = new AbortController();
+  const t = setTimeout(() => ctrl.abort(), timeoutMs);
+  try {
+    const r = await fetch(up.url, {
+      method: "HEAD",
+      headers: { "Upload-Token": state.uploadToken, "Tus-Resumable": "1.0.0" },
+      signal: ctrl.signal,
+    });
+    return parseInt(r.headers.get("Upload-Offset") || "0", 10);
+  } finally { clearTimeout(t); }
+}
+
+// patchChunk envia UM chunk via XHR. Define xhr.timeout (o que faltava: sem
+// isso o default é 0 = infinito e a conexão travada pendurava para sempre) e
+// trata onload/onerror/ontimeout/onabort com erros tipados.
+function patchChunk(blob, offset, timeoutMs, onProgress) {
+  return new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    up.xhr = xhr;
+    xhr.open("PATCH", up.url);
+    xhr.timeout = timeoutMs;
+    xhr.setRequestHeader("Upload-Token", state.uploadToken);
+    xhr.setRequestHeader("Tus-Resumable", "1.0.0");
+    xhr.setRequestHeader("Upload-Offset", String(offset));
+    xhr.setRequestHeader("Content-Type", "application/offset+octet-stream");
+    xhr.upload.onprogress = (ev) => { if (ev.lengthComputable) onProgress(ev.loaded / ev.total); };
+    xhr.onload = () => {
+      up.xhr = null;
+      if (xhr.status >= 200 && xhr.status < 300) {
+        resolve(parseInt(xhr.getResponseHeader("Upload-Offset") || "0", 10));
+      } else {
+        reject(uploadError("http", "HTTP " + xhr.status + ": " + (xhr.responseText || "")));
+      }
+    };
+    xhr.onerror = () => { up.xhr = null; reject(uploadError("network", "erro de rede no PATCH")); };
+    xhr.ontimeout = () => { up.xhr = null; reject(uploadError("timeout", "timeout de " + (timeoutMs / 1000) + "s no chunk")); };
+    xhr.onabort = () => { up.xhr = null; reject(uploadError("abort", "cancelado")); };
+    xhr.send(blob);
+  });
+}
+
+// runUpload roda o laço de envio a partir de up.offset até o fim, ou para
+// num erro/cancelamento deixando o estado pronto para retomar.
+async function runUpload() {
+  up.cancelled = false;
+  up.running = true;
+  setUploadButtons("running");
+  const timeoutMs = Math.max(1, parseInt($("chunkTimeout").value, 10)) * 1000;
+
+  // 1. Cria o upload TUS se ainda não existir (POST com Upload-Length real).
+  if (!up.created) {
+    setMeta("uploadMeta", "load", "criando upload TUS…");
+    try {
+      const create = await fetchWithTimeout(up.url, {
+        method: "POST",
+        headers: {
+          "Upload-Token": state.uploadToken,
+          "Upload-Length": String(up.total),
+          "Tus-Resumable": "1.0.0",
+        },
+      }, timeoutMs);
+      if (create.status !== 201 && create.status !== 200) {
+        up.running = false;
+        setMeta("uploadMeta", "err", "Falha ao criar upload (HTTP " + create.status + ") — Retry para tentar de novo");
+        setUploadButtons("retry");
+        return;
+      }
+      up.created = true;
+      up.offset = 0;
+    } catch (e) {
+      up.running = false;
+      const kind = e.name === "AbortError" ? "timeout" : "network";
+      setMeta("uploadMeta", "err", "Falha ao criar upload (" + kind + ") — Retry para tentar de novo");
+      setUploadButtons("retry");
+      return;
     }
-    updateUnified(total);
-    const ms = performance.now() - t0;
-    setMeta("uploadMeta", "ok", `upload completo · ${nChunks} chunks · ${ms.toFixed(0)} ms`);
+  }
+
+  buildChunkUI();
+  if (!up.startedAt) up.startedAt = performance.now();
+
+  // 2. Envia os chunks sequencialmente a partir do offset confirmado.
+  try {
+    while (up.offset < up.total) {
+      if (up.cancelled) throw uploadError("abort", "cancelado");
+      const i = Math.floor(up.offset / up.chunkSize);
+      const start = up.offset;
+      const end = Math.min(start + up.chunkSize, up.total);
+      const blob = up.file.slice(start, end);
+      setMeta("uploadMeta", "load", `enviando chunk ${i + 1}/${up.nChunks} (offset ${fmtMB(start)})…`);
+      const newOffset = await patchChunk(blob, up.offset, timeoutMs, (frac) => {
+        if (up.chunkBars[i]) {
+          up.chunkBars[i].bar.style.width = (frac * 100).toFixed(0) + "%";
+          up.chunkBars[i].pct.textContent = (frac * 100).toFixed(0) + "%";
+        }
+        updateUnified(start + frac * (end - start));
+      });
+      up.offset = newOffset;
+      if (up.chunkBars[i]) { up.chunkBars[i].bar.style.width = "100%"; up.chunkBars[i].pct.textContent = "100%"; }
+    }
+    // 3. Concluído.
+    updateUnified(up.total);
+    const ms = performance.now() - up.startedAt;
+    up.running = false;
+    setMeta("uploadMeta", "ok", `upload completo · ${up.nChunks} chunks · ${ms.toFixed(0)} ms`);
+    setUploadButtons("done");
+    $("btnUpload").disabled = true;
     markDone("step3");
     unlock("step4");
-    // O servidor inicia a transcodificação automaticamente ao finalizar o
-    // último chunk — começamos a sondar o status.
+    // O servidor inicia a transcodificação ao finalizar o último chunk.
     startStatusPolling();
   } catch (e) {
-    setMeta("uploadMeta", "err", "Falha no upload: " + e.message);
-    $("btnUpload").disabled = false;
+    up.running = false;
+    const kind = e.kind || "error";
+    if (kind === "abort") {
+      setMeta("uploadMeta", "err", `upload cancelado em ${fmtMB(up.offset)}/${fmtMB(up.total)} — Retry para continuar`);
+    } else {
+      setMeta("uploadMeta", "err", `falha (${kind}): ${e.message} — em ${fmtMB(up.offset)}; Retry para continuar`);
+    }
+    setUploadButtons("retry");
   }
+}
+
+// btnUpload inicia um upload novo (do zero).
+$("btnUpload").onclick = () => {
+  if (!selectedFile) return;
+  up.file = selectedFile;
+  up.chunkSize = Math.max(1, parseInt($("chunkMB").value, 10)) * 1048576;
+  up.total = selectedFile.size;
+  up.nChunks = Math.ceil(up.total / up.chunkSize);
+  up.url = origin + "/files/" + state.videoId;
+  up.created = false; up.offset = 0; up.startedAt = 0;
+  runUpload();
+};
+
+// btnCancelUpload aborta o chunk em voo (e marca cancelamento para o laço).
+$("btnCancelUpload").onclick = () => {
+  up.cancelled = true;
+  if (up.xhr) up.xhr.abort(); // dispara onabort → rejeita → catch entra em modo retry
+  setMeta("uploadMeta", "load", "cancelando chunk atual…");
+};
+
+// btnRetryUpload retoma do offset REAL no servidor (HEAD) e continua o laço.
+$("btnRetryUpload").onclick = async () => {
+  if (!up.created) { runUpload(); return; } // criação falhou: só tentar de novo
+  setUploadButtons("running");
+  setMeta("uploadMeta", "load", "consultando offset no servidor…");
+  const timeoutMs = Math.max(1, parseInt($("chunkTimeout").value, 10)) * 1000;
+  try {
+    up.offset = await fetchServerOffset(timeoutMs);
+    buildChunkUI();
+  } catch (e) {
+    setMeta("uploadMeta", "err", "não consegui consultar o offset (" + (e.name === "AbortError" ? "timeout" : e.message) + ") — Retry de novo");
+    setUploadButtons("retry");
+    return;
+  }
+  runUpload();
 };
 
 // =====================================================================

@@ -64,6 +64,23 @@ Rotas registradas em `internal/server/server.go` **fora** do `RootAuth`: a
 página só age com o token colado pelo usuário, e o receptor precisa aceitar
 POSTs do próprio Streamedia (assinados por HMAC, não por Bearer).
 
+### Endurecimento do upload (timeout / cancelar / retry-resume)
+
+Refinamento posterior do cliente TUS no `index.html` (reportado em uso real:
+upload travado por minutos sem como recuperar):
+
+- **Timeout por chunk** — o `XMLHttpRequest` do `PATCH` agora define
+  `xhr.timeout` (campo "timeout/chunk (s)", default 30s). Antes o default era
+  `0` = infinito, então uma conexão travada pendurava para sempre. O `POST` de
+  criação e o `HEAD` de offset usam `AbortController` com o mesmo timeout.
+- **Cancelar** — botão que aborta o chunk em voo (`xhr.abort()`) e marca
+  cancelamento, sem congelar o fluxo.
+- **Retry / Continuar** — o upload virou uma máquina resumível: ao falhar
+  (timeout/erro/cancelamento), o botão consulta o offset REAL no servidor via
+  `HEAD` (TUS) e retoma o laço a partir dele, reconstruindo as barras de
+  progresso. Erros são tipados (`timeout`/`abort`/`network`/`http`) para
+  decidir a mensagem e o próximo estado.
+
 ### Decisão de escopo — webhook não é "injetado" em `/upload/init`
 
 A issue menciona "A URL é automaticamente injetada no upload/init". O fluxo
