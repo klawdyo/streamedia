@@ -42,12 +42,12 @@ GET {{host}}/docs/openapi.json
 ### ============================================================
 
 ### Página interativa (auth → upload → play → players por resolução)
-GET {{host}}/test
+GET {{host}}/ui
 
 ###
 
 ### Receptor de webhooks de teste (aponte WEBHOOK_URL para esta rota)
-POST {{host}}/test/webhook
+POST {{host}}/ui/webhook
 Content-Type: application/json
 
 {
@@ -59,7 +59,7 @@ Content-Type: application/json
 ###
 
 ### Webhooks recebidos (polling incremental via ?since=N)
-GET {{host}}/test/webhook/events
+GET {{host}}/ui/webhook/events
 
 ### ============================================================
 ### Métricas (Prometheus / OpenTelemetry)

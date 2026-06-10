@@ -288,12 +288,12 @@
     <div class="step-head">
       <span class="step-num">6</span>
       <span class="step-title">Webhook de teste</span>
-      <span class="step-sub">POST /test/webhook (local)</span>
+      <span class="step-sub">POST /ui/webhook (local)</span>
     </div>
     <div class="step-body">
       <div class="note">Para ver os webhooks aqui, configure
         <code class="inline">WEBHOOK_URL</code> do servidor apontando para:
-        <code class="inline" id="webhookURL">.../test/webhook</code>
+        <code class="inline" id="webhookURL">.../ui/webhook</code>
         (<a href="#" id="copyWebhook">copiar</a>). Esta página faz polling a cada 2s.</div>
       <div class="meta" id="webhookMeta"><span class="pill load">aguardando webhooks…</span></div>
       <div class="webhook-list" id="webhookList">
@@ -683,17 +683,17 @@ function playResolution(res, url) {
 // =====================================================================
 // ETAPA 6 — Webhook de teste (polling do receptor local)
 // =====================================================================
-$("webhookURL").textContent = origin + "/test/webhook";
+$("webhookURL").textContent = origin + "/ui/webhook";
 $("copyWebhook").onclick = (e) => {
   e.preventDefault();
-  navigator.clipboard.writeText(origin + "/test/webhook");
+  navigator.clipboard.writeText(origin + "/ui/webhook");
 };
 
 let lastWebhookSeq = 0;
 const receivedWebhooks = [];
 async function pollWebhooks() {
   try {
-    const r = await fetch(origin + "/test/webhook/events?since=" + lastWebhookSeq);
+    const r = await fetch(origin + "/ui/webhook/events?since=" + lastWebhookSeq);
     const events = await r.json();
     if (Array.isArray(events) && events.length) {
       events.forEach((ev) => { receivedWebhooks.unshift(ev); lastWebhookSeq = Math.max(lastWebhookSeq, ev.seq); });

@@ -1,20 +1,23 @@
-// Pacote testui expõe uma interface web interativa (single-file, sem build
-// step) que exercita o pipeline completo do Streamedia de ponta a ponta:
-// autenticação (ROOT_TOKEN) → upload/init → upload TUS em chunks →
-// play/init → reprodução HLS por resolução. (issue #18)
+// Pacote ui expõe uma interface web interativa (single-file, sem build
+// step) — o "console" do Streamedia — que exercita o pipeline completo de
+// ponta a ponta: autenticação (ROOT_TOKEN) → upload/init → upload TUS em
+// chunks → play/init → reprodução HLS por resolução. (issue #18)
 //
-// Além da página em GET /test, o pacote oferece um receptor de webhooks de
-// teste: POST /test/webhook recebe os webhooks enviados pelo próprio
+// O nome da rota é /ui (e não /test) para evitar ambiguidade com testes
+// unitários.
+//
+// Além da página em GET /ui, o pacote oferece um receptor de webhooks de
+// teste: POST /ui/webhook recebe os webhooks enviados pelo próprio
 // Streamedia e os mantém num buffer em memória, que a página consulta via
-// GET /test/webhook/events para exibi-los ao vivo. Para que os webhooks
+// GET /ui/webhook/events para exibi-los ao vivo. Para que os webhooks
 // cheguem aqui, basta apontar a variável de ambiente WEBHOOK_URL para
-// <origin>/test/webhook — a página mostra essa URL pronta para copiar.
+// <origin>/ui/webhook — a página mostra essa URL pronta para copiar.
 //
 // Decisão de escopo: o receptor é puramente local e em memória (não há
 // override de webhook por requisição em /api/upload/init, nem persistência).
 // Isso mantém a ferramenta autocontida e sem tocar no fluxo de produção —
 // coerente com o "Fora de escopo" da issue (sem persistência de estado).
-package testui
+package ui
 
 import (
 	"embed"
@@ -66,7 +69,7 @@ func NewHandler() *Handler {
 	return &Handler{}
 }
 
-// ServeUI devolve a página HTML de teste (GET /test).
+// ServeUI devolve a página HTML do console (GET /ui).
 func (h *Handler) ServeUI(w http.ResponseWriter, _ *http.Request) {
 	page, err := indexFS.ReadFile("index.html")
 	if err != nil {
@@ -80,7 +83,7 @@ func (h *Handler) ServeUI(w http.ResponseWriter, _ *http.Request) {
 	_, _ = w.Write(page)
 }
 
-// ReceiveWebhook recebe um webhook enviado pelo Streamedia (POST /test/webhook),
+// ReceiveWebhook recebe um webhook enviado pelo Streamedia (POST /ui/webhook),
 // captura seus cabeçalhos e corpo e os guarda no buffer em memória. Responde
 // 200 com um corpo JSON simples — o cliente de webhook do Streamedia considera
 // qualquer 2xx como sucesso, então não há retry desnecessário.
@@ -118,7 +121,7 @@ func (h *Handler) ReceiveWebhook(w http.ResponseWriter, r *http.Request) {
 }
 
 // ListEvents devolve, em JSON, os webhooks recebidos desde um determinado
-// número de sequência (GET /test/webhook/events?since=N). A página faz polling
+// número de sequência (GET /ui/webhook/events?since=N). A página faz polling
 // neste endpoint e passa o maior Seq já visto para receber apenas os novos.
 func (h *Handler) ListEvents(w http.ResponseWriter, r *http.Request) {
 	since := 0
