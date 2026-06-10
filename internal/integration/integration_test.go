@@ -23,7 +23,9 @@ import (
 	"github.com/klawdyo/streamedia/internal/db"
 	"github.com/klawdyo/streamedia/internal/jobs"
 	"github.com/klawdyo/streamedia/internal/models"
+	"github.com/klawdyo/streamedia/internal/notify"
 	"github.com/klawdyo/streamedia/internal/server"
+	"github.com/klawdyo/streamedia/internal/sse"
 	"github.com/klawdyo/streamedia/internal/transcode"
 	"github.com/klawdyo/streamedia/internal/webhook"
 )
@@ -70,12 +72,14 @@ func setupTestServer(t *testing.T) (*httptest.Server, *sql.DB, *config.Config) {
 	}
 
 	webhookClient := webhook.NewClient(cfg, database)
-	worker := transcode.NewWorker(cfg, database, func(videoID, event, errMsg string) {})
+	hub := sse.NewHub()
+	notifier := notify.New(database, webhookClient, hub)
+	worker := transcode.NewWorker(cfg, database, notifier.Notify)
 	queue := transcode.NewQueue(cfg, database, worker.Transcode)
 	queue.Start()
 	t.Cleanup(func() { queue.Stop() })
 
-	router, routerCloser, err := server.NewRouter(cfg, database, queue, webhookClient)
+	router, routerCloser, err := server.NewRouter(cfg, database, queue, notifier, hub)
 	if err != nil {
 		t.Fatalf("NewRouter: %v", err)
 	}

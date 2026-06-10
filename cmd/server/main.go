@@ -17,8 +17,9 @@ import (
 	"github.com/klawdyo/streamedia/internal/config"
 	"github.com/klawdyo/streamedia/internal/db"
 	"github.com/klawdyo/streamedia/internal/jobs"
-	"github.com/klawdyo/streamedia/internal/models"
+	"github.com/klawdyo/streamedia/internal/notify"
 	"github.com/klawdyo/streamedia/internal/server"
+	"github.com/klawdyo/streamedia/internal/sse"
 	"github.com/klawdyo/streamedia/internal/transcode"
 	"github.com/klawdyo/streamedia/internal/webhook"
 )
@@ -48,18 +49,14 @@ func main() {
 	}
 	defer database.Close()
 
-	// Client de webhook e adaptador para os callbacks (videoID, event, errMsg).
+	// Camada de notificações: cada evento do pipeline é distribuído para os
+	// destinos (sinks) registrados — o cliente de webhook (se houver URL) e o
+	// hub de SSE (se houver ouvinte em /api/events). O notifier.Notify substitui
+	// o antigo sendWebhook e tem a mesma assinatura (videoID, event, errMsg).
 	webhookClient := webhook.NewClient(cfg, database)
-	sendWebhook := func(videoID, event, errMsg string) {
-		video, err := models.GetVideo(database, videoID)
-		if err != nil {
-			log.Printf("[webhook] erro ao buscar vídeo %s para webhook %s: %v", videoID, event, err)
-			return
-		}
-		if err := webhookClient.Send(videoID, event, video); err != nil {
-			log.Printf("[webhook] erro ao enviar webhook %s para vídeo %s: %v", event, videoID, err)
-		}
-	}
+	sseHub := sse.NewHub()
+	notifier := notify.New(database, webhookClient, sseHub)
+	sendWebhook := notifier.Notify
 
 	// Worker e fila de transcodificação. A fila é criada com a função do
 	// worker e iniciada aqui; o roteador a recebe pronta.
@@ -92,7 +89,7 @@ func main() {
 	// Monta o roteador HTTP com todas as rotas e handlers.
 	// O closer encerra recursos internos (goroutines do TUS handler, etc.)
 	// e deve ser chamado no shutdown (T59).
-	router, routerCloser, err := server.NewRouter(cfg, database, queue, webhookClient)
+	router, routerCloser, err := server.NewRouter(cfg, database, queue, notifier, sseHub)
 	if err != nil {
 		log.Fatalf("router: %v", err)
 	}

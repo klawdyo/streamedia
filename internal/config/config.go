@@ -19,7 +19,7 @@ type Config struct {
 	RootToken            string
 	WebhookURL           string
 	WebhookSecret        string
-	MaxUploadSizeBytes   int64         // convertido de MB para bytes
+	MaxUploadSizeBytes   int64 // convertido de MB para bytes
 	MediaDir             string
 	UploadTmpDir         string
 	SQLitePath           string
@@ -44,13 +44,13 @@ func Load() (*Config, error) {
 	if rootToken == "" {
 		return nil, fmt.Errorf("variável de ambiente ROOT_TOKEN é obrigatória")
 	}
+	// WEBHOOK_URL é opcional: sem ela, nenhum webhook é enviado (mas o stream
+	// de eventos via SSE em /api/events continua funcionando normalmente).
+	// Quando definida, o segredo de assinatura HMAC passa a ser obrigatório.
 	webhookURL := os.Getenv("WEBHOOK_URL")
-	if webhookURL == "" {
-		return nil, fmt.Errorf("variável de ambiente WEBHOOK_URL é obrigatória")
-	}
 	webhookSecret := os.Getenv("WEBHOOK_SECRET")
-	if webhookSecret == "" {
-		return nil, fmt.Errorf("variável de ambiente WEBHOOK_SECRET é obrigatória")
+	if webhookURL != "" && webhookSecret == "" {
+		return nil, fmt.Errorf("WEBHOOK_SECRET é obrigatório quando WEBHOOK_URL está definida")
 	}
 
 	// Variáveis inteiras opcionais.

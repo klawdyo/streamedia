@@ -13,6 +13,8 @@ import (
 	"github.com/klawdyo/streamedia/internal/config"
 	"github.com/klawdyo/streamedia/internal/db"
 	"github.com/klawdyo/streamedia/internal/middleware"
+	"github.com/klawdyo/streamedia/internal/notify"
+	"github.com/klawdyo/streamedia/internal/sse"
 	"github.com/klawdyo/streamedia/internal/transcode"
 	"github.com/klawdyo/streamedia/internal/webhook"
 )
@@ -49,10 +51,12 @@ func newTestRouter(t *testing.T, cfg *config.Config) (http.Handler, *sql.DB) {
 	t.Cleanup(func() { _ = database.Close() })
 
 	wc := webhook.NewClient(cfg, database)
+	hub := sse.NewHub()
+	notifier := notify.New(database, wc, hub)
 	// Worker no-op: os testes não precisam transcodificar de verdade.
 	queue := transcode.NewQueue(cfg, database, func(string) error { return nil })
 
-	router, closer, err := NewRouter(cfg, database, queue, wc)
+	router, closer, err := NewRouter(cfg, database, queue, notifier, hub)
 	if err != nil {
 		t.Fatalf("NewRouter: %v", err)
 	}

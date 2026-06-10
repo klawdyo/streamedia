@@ -44,6 +44,30 @@ opacos no master funcionam como a "chave"). Validação rígida de path
 > (com `Cache-Control: no-store`) para a `play_url`. Assim só há contato com o
 > Streamedia na reprodução, nunca ao listar a timeline.
 
+## Eventos do pipeline (notificações)
+
+Cada evento do pipeline (`processing`, `ready`, `failed`) vira uma
+**notificação** com o mesmo payload, distribuída em paralelo para os destinos
+ativos: o **webhook** (se houver URL) e o **SSE** (se houver ouvinte). Payload:
+`{ video_id, event, status, duration_s, resolutions, error_message, timestamp }`.
+
+### `GET /api/events?video_id=<uuid>&token=<upload-token>` — SSE
+Stream **Server-Sent Events** ao vivo dos eventos de um vídeo. Escopado por
+`video_id` e autenticado pelo **token de upload** do vídeo (o `token` do
+`upload/init`), passado na query porque o `EventSource` do navegador não envia
+cabeçalhos. Permite a um app de usuário acompanhar o próprio upload/transcode
+sem rotear pelo backend nem expor o `ROOT_TOKEN`. Cada evento chega como
+`event: <nome>\ndata: <json>`. Sem buffer/replay: entrega apenas o que ocorre
+enquanto o cliente está conectado. Erros: `400` (faltam `video_id`/`token`),
+`401` (token inválido/expirado ou de outro vídeo).
+
+### Webhook — opcional (`WEBHOOK_URL`)
+Se `WEBHOOK_URL` estiver definida, cada notificação é enviada via `POST`
+assinado (HMAC `X-Signature: sha256=...`, segredo `WEBHOOK_SECRET`), com até 3
+tentativas (backoff 1s/2s/4s) e registro em `webhook_log`. **Sem `WEBHOOK_URL`,
+nenhum webhook é enviado** (o SSE continua funcionando). Quando `WEBHOOK_URL`
+está definida, `WEBHOOK_SECRET` passa a ser obrigatório.
+
 ## Status e administração — Bearer ROOT_TOKEN
 
 | Rota | Descrição |
@@ -63,22 +87,16 @@ opacos no master funcionam como a "chave"). Validação rígida de path
 | `GET /metrics` | Métricas Prometheus. |
 | `GET /docs`, `GET /docs/openapi.json` | Documentação (Scalar UI + OpenAPI). |
 | `GET /playground` | Playground interativo do pipeline (auth → upload → play). |
-| `POST /playground/webhook` | Receptor de webhooks de teste (buffer em memória). |
-| `GET /playground/webhook/events` | Webhooks recebidos pelo receptor (polling). |
 
 ### Playground da API (`GET /playground`) — issue #18
 
 Página HTML autocontida (sem build step) que exercita o ciclo de vida completo
-de um vídeo na mesma página: cola-se o `ROOT_TOKEN`, solicita-se o link de
-upload, envia-se o arquivo em chunks via TUS (com barra de progresso por chunk
-e unificada), sonda-se o status até `ready`, emite-se o link de play e geram-se
-players HLS por resolução (480/720/1080) com ▶ Play individual.
-
-O receptor de webhooks (`POST /playground/webhook`) guarda em memória os últimos
-webhooks recebidos; a página os exibe via polling de `GET /playground/webhook/events`.
-Para que os webhooks cheguem ao receptor, aponte `WEBHOOK_URL` do servidor para
-`<origin>/playground/webhook` — a própria página mostra a URL pronta para copiar.
-Rotas públicas (a página só age com o `ROOT_TOKEN` colado pelo usuário).
+de um vídeo na mesma página: cola-se o `ROOT_TOKEN`, escolhe-se o arquivo e
+solicita-se o link de upload, envia-se em chunks via TUS (com barra de progresso
+por chunk e unificada, timeout/cancelar/retry), acompanha-se o status e os
+**eventos ao vivo via SSE** (`/api/events`), emite-se o link de play e geram-se
+players HLS para as resoluções disponíveis, cada um com ▶ Play individual.
+Rota pública (a página só age com o `ROOT_TOKEN` colado pelo usuário).
 
 ## Envelope de resposta
 

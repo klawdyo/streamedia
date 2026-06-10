@@ -291,21 +291,23 @@
     </div>
   </section>
 
-  <!-- ETAPA 6 — Webhook de teste (sempre visível) -->
-  <section class="step" id="step6">
+  <!-- ETAPA 6 — Eventos ao vivo (SSE) -->
+  <section class="step locked" id="step6">
     <div class="step-head">
       <span class="step-num">6</span>
-      <span class="step-title">Webhook de teste</span>
-      <span class="step-sub">POST /playground/webhook (local)</span>
+      <span class="step-title">Eventos ao vivo (SSE)</span>
+      <span class="step-sub">GET /api/events?video_id=&token=</span>
     </div>
     <div class="step-body">
-      <div class="note">Para ver os webhooks aqui, configure
-        <code class="inline">WEBHOOK_URL</code> do servidor apontando para:
-        <code class="inline" id="webhookURL">.../playground/webhook</code>
-        (<a href="#" id="copyWebhook">copiar</a>). Esta página faz polling a cada 2s.</div>
-      <div class="meta" id="webhookMeta"><span class="pill load">aguardando webhooks…</span></div>
-      <div class="webhook-list" id="webhookList">
-        <div class="webhook-empty">Nenhum webhook recebido ainda.</div>
+      <div class="note">Conecta um <code class="inline">EventSource</code> em
+        <code class="inline">/api/events</code>, escopado no <code class="inline">video_id</code> e
+        autenticado pelo <b>token de upload</b> (sem polling, sem ROOT_TOKEN). Os mesmos eventos
+        do webhook chegam aqui ao vivo: <code class="inline">processing</code>,
+        <code class="inline">ready</code>, <code class="inline">failed</code>. A conexão abre
+        automaticamente após a etapa 2.</div>
+      <div class="meta" id="sseMeta"><span class="pill">desconectado</span></div>
+      <div class="webhook-list" id="eventList">
+        <div class="webhook-empty">Nenhum evento recebido ainda.</div>
       </div>
     </div>
   </section>
@@ -450,6 +452,8 @@ $("btnInit").onclick = async () => {
       setMeta("initMeta", "ok", "video_id=" + state.videoId + " · " + r.ms.toFixed(0) + " ms");
       markDone("step2");
       unlock("step3");
+      // Abre o stream de eventos (SSE) já com video_id + token de upload.
+      connectEventStream();
     } else {
       setMeta("initMeta", "err", "Falha (HTTP " + r.status + ").");
     }
@@ -849,47 +853,60 @@ function playResolution(res, url) {
 }
 
 // =====================================================================
-// ETAPA 6 — Webhook de teste (polling do receptor local)
+// ETAPA 6 — Eventos ao vivo via SSE (GET /api/events)
 // =====================================================================
-$("webhookURL").textContent = origin + "/playground/webhook";
-$("copyWebhook").onclick = (e) => {
-  e.preventDefault();
-  navigator.clipboard.writeText(origin + "/playground/webhook");
-};
+// Sem polling: um EventSource fica aberto recebendo os eventos do pipeline,
+// escopado no video_id e autenticado pelo token de upload (na query, pois o
+// EventSource não permite cabeçalhos). Os mesmos eventos do webhook.
+const SSE_EVENTS = ["processing", "ready", "failed"]; // eventos nomeados emitidos pelo pipeline
+let eventSource = null;
+const receivedEvents = [];
 
-let lastWebhookSeq = 0;
-const receivedWebhooks = [];
-async function pollWebhooks() {
-  try {
-    const r = await fetch(origin + "/playground/webhook/events?since=" + lastWebhookSeq);
-    const events = await r.json();
-    if (Array.isArray(events) && events.length) {
-      events.forEach((ev) => { receivedWebhooks.unshift(ev); lastWebhookSeq = Math.max(lastWebhookSeq, ev.seq); });
-      renderWebhooks();
-    }
-  } catch { /* silencioso: o polling tenta de novo */ }
+// connectEventStream (re)abre o stream para o vídeo atual. Chamado após a
+// etapa 2, quando já temos video_id + token de upload.
+function connectEventStream() {
+  if (!state.videoId || !state.uploadToken) return;
+  if (eventSource) eventSource.close();
+  receivedEvents.length = 0;
+  renderEvents();
+  unlock("step6");
+
+  const url = `${origin}/api/events?video_id=${encodeURIComponent(state.videoId)}&token=${encodeURIComponent(state.uploadToken)}`;
+  setMeta("sseMeta", "load", "conectando…");
+  eventSource = new EventSource(url);
+
+  eventSource.onopen = () => setMeta("sseMeta", "ok", "conectado · ouvindo " + state.videoId);
+  eventSource.onerror = () => setMeta("sseMeta", "err", "desconectado (o navegador tenta reconectar)");
+
+  // Handler único reaproveitado por todos os tipos de evento nomeados.
+  const onEvent = (ev) => {
+    let payload = ev.data;
+    try { payload = JSON.parse(ev.data); } catch { /* texto cru */ }
+    receivedEvents.unshift({ type: ev.type, at: new Date().toISOString(), payload });
+    renderEvents();
+  };
+  SSE_EVENTS.forEach((name) => eventSource.addEventListener(name, onEvent));
+  // Fallback: eventos sem 'event:' (caso o servidor envie genéricos no futuro).
+  eventSource.onmessage = onEvent;
 }
-function renderWebhooks() {
-  const list = $("webhookList");
-  if (!receivedWebhooks.length) {
-    list.innerHTML = '<div class="webhook-empty">Nenhum webhook recebido ainda.</div>';
+
+function renderEvents() {
+  const list = $("eventList");
+  if (!receivedEvents.length) {
+    list.innerHTML = '<div class="webhook-empty">Nenhum evento recebido ainda.</div>';
     return;
   }
-  setMeta("webhookMeta", "ok", receivedWebhooks.length + " webhook(s) recebido(s)");
-  list.innerHTML = receivedWebhooks.map((ev) => {
-    let bodyView = ev.raw_body;
-    try { bodyView = JSON.stringify(JSON.parse(ev.raw_body), null, 2); } catch { /* texto cru */ }
-    const sig = ev.headers["X-Signature"] || ev.headers["x-signature"] || "(sem assinatura)";
+  list.innerHTML = receivedEvents.map((ev) => {
+    const body = typeof ev.payload === "string" ? ev.payload : JSON.stringify(ev.payload, null, 2);
     return `<div class="response">
-      <h4>#${ev.seq} · ${ev.received_at} · ${ev.method}</h4>
-      <pre class="headers-table"><b>X-Signature:</b> ${sig}
-<b>Content-Type:</b> ${ev.headers["Content-Type"] || ev.headers["content-type"] || ""}</pre>
-      <pre>${highlightJSON(bodyView)}</pre>
+      <h4>${ev.type} · ${ev.at}</h4>
+      <pre>${highlightJSON(body)}</pre>
     </div>`;
   }).join("");
 }
-setInterval(pollWebhooks, 2000);
-pollWebhooks();
+
+// Fecha o stream ao sair da página (boa cidadania com o servidor).
+window.addEventListener("beforeunload", () => { if (eventSource) eventSource.close(); });
 </script>
 </body>
 </html>

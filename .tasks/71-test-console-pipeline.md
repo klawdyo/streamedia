@@ -93,6 +93,29 @@ arquivo apagado. Correção: o seletor de arquivo passou para a etapa 2; o
 `declared_size_bytes = file.size` (o campo virou read-only, preenchido
 automaticamente). A etapa 3 ficou só com o envio em chunks.
 
+### Migração para SSE + camada de notificações
+
+A etapa 6 (que antes era um receptor de webhooks em memória com polling) virou
+**eventos ao vivo via SSE**, junto com uma generalização da estratégia de
+webhooks para "notificações":
+
+- **`internal/notify`** — `Notification` (payload canônico), `Sink` (destino) e
+  `Notifier` que busca o vídeo e faz fan-out (goroutine por sink) dos eventos.
+  `Notify(videoID, event, errMsg)` é substituto direto do antigo `sendWebhook`.
+- **`internal/webhook`** — `Client` virou um `Sink`; a URL é resolvida por
+  notificação (`resolveURL`, hoje a global; pronta para URL por vídeo). Sem
+  URL, não envia. `WebhookPayload` é alias de `notify.Notification`.
+- **`internal/sse`** — `Hub` (indexado por video_id, também um `Sink`) +
+  handler de `GET /api/events?video_id=&token=`, autenticado pelo **token de
+  upload** (EventSource não envia header → token na query). Sem buffer/replay.
+- **config** — `WEBHOOK_URL` virou opcional; `WEBHOOK_SECRET` obrigatório só
+  quando a URL está definida.
+- **playground** — `index.html` troca o polling por um `EventSource` aberto
+  após a etapa 2; `playground.go` perde o receptor (só `ServeUI`); rotas
+  `/playground/webhook*` removidas.
+- Forward-compat: `resolveURL` deixa a issue de URL-por-vídeo a um passo; o
+  `Notification` é extensível para ganhar `thumbnails` depois.
+
 ### Decisão de escopo — webhook não é "injetado" em `/upload/init`
 
 A issue menciona "A URL é automaticamente injetada no upload/init". O fluxo

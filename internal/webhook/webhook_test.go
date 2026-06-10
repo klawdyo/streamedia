@@ -84,6 +84,36 @@ func TestSend_SuccessOnFirstAttempt(t *testing.T) {
 	}
 }
 
+// TestSend_NoURLSkips garante que, sem WEBHOOK_URL configurada, Send é um no-op
+// (não envia, não registra log, não retorna erro) — o webhook fica desabilitado.
+func TestSend_NoURLSkips(t *testing.T) {
+	database := openTestDB(t)
+	defer database.Close()
+
+	videoID := "test-video-nourl"
+	if err := models.InsertVideo(database, videoID, 1000); err != nil {
+		t.Fatalf("erro ao inserir vídeo: %v", err)
+	}
+	video, err := models.GetVideo(database, videoID)
+	if err != nil {
+		t.Fatalf("erro ao obter vídeo: %v", err)
+	}
+
+	// Cliente sem WEBHOOK_URL → resolveURL devolve ok=false.
+	client := NewClient(&config.Config{WebhookURL: "", WebhookSecret: ""}, database)
+	if err := client.Send(videoID, "processing", video); err != nil {
+		t.Fatalf("Send sem URL deveria devolver nil, obteve: %v", err)
+	}
+
+	logs, err := GetWebhookLog(database, videoID)
+	if err != nil {
+		t.Fatalf("erro ao obter webhook_log: %v", err)
+	}
+	if len(logs) != 0 {
+		t.Errorf("esperava 0 entradas em webhook_log (envio pulado), obteve %d", len(logs))
+	}
+}
+
 // TestSend_SignatureVerification verifica se o header X-Signature é enviado corretamente.
 func TestSend_SignatureVerification(t *testing.T) {
 	database := openTestDB(t)

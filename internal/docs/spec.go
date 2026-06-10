@@ -156,6 +156,25 @@ func openAPISpec() map[string]any {
 					},
 				},
 			},
+			"/api/events": map[string]any{
+				"get": map[string]any{
+					"tags":        []string{"play"},
+					"summary":     "Stream de eventos do vídeo (Server-Sent Events)",
+					"description": "Stream SSE (text/event-stream) com as notificações do pipeline de um vídeo (processing, ready, failed) ao vivo — os mesmos dados do webhook. Escopado por video_id e autenticado pelo token de upload do vídeo (na query, pois EventSource não envia cabeçalhos). Cada evento chega como 'event: <nome>' + 'data: <json>'. Sem buffer/replay.",
+					"parameters": []map[string]any{
+						{"name": "video_id", "in": "query", "required": true, "schema": map[string]any{"type": "string", "format": "uuid"}},
+						{"name": "token", "in": "query", "required": true, "schema": map[string]any{"type": "string"}, "description": "Token de upload do vídeo (o 'token' devolvido por /api/upload/init)"},
+					},
+					"responses": map[string]any{
+						"200": map[string]any{
+							"description": "Stream SSE aberto (text/event-stream)",
+							"content":     map[string]any{"text/event-stream": map[string]any{}},
+						},
+						"400": map[string]any{"description": "Faltam video_id ou token"},
+						"401": map[string]any{"description": "Token inválido, expirado ou de outro vídeo"},
+					},
+				},
+			},
 			"/api/status/{video_id}": map[string]any{
 				"get": map[string]any{
 					"tags":        []string{"status"},

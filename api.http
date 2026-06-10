@@ -39,28 +39,20 @@ GET {{host}}/docs/openapi.json
 Authorization: Bearer {{rootToken}}
 
 ### ============================================================
-### Playground da API (issue #18) — rotas públicas
+### Playground da API (issue #18) — rota pública
 ### ============================================================
 
-### Página interativa (auth → upload → play → players por resolução)
+### Página interativa (auth → upload → eventos SSE → play → players)
 GET {{host}}/playground
 
-###
+### ============================================================
+### Eventos do pipeline via SSE (autenticado pelo token de upload)
+### ============================================================
 
-### Receptor de webhooks de teste (aponte WEBHOOK_URL para esta rota)
-POST {{host}}/playground/webhook
-Content-Type: application/json
-
-{
-  "video_id": "{{videoID}}",
-  "event": "transcode_complete",
-  "status": "ready"
-}
-
-###
-
-### Webhooks recebidos (polling incremental via ?since=N)
-GET {{host}}/playground/webhook/events
+### Stream de eventos de um vídeo (processing/ready/failed) ao vivo.
+### Abra no navegador/curl: a conexão fica aberta recebendo event: + data:.
+GET {{host}}/api/events?video_id={{videoID}}&token={{uploadToken}}
+Accept: text/event-stream
 
 ### ============================================================
 ### Métricas (Prometheus / OpenTelemetry)
