@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Streamedia — Console de Teste do Pipeline</title>
+<title>Streamedia — Playground da API</title>
 <!-- hls.js via CDN: navegadores (exceto Safari) não tocam HLS nativamente.
      Coerente com a página /docs, que também carrega componentes via CDN. -->
 <script src="https://cdn.jsdelivr.net/npm/hls.js@1"></script>
@@ -177,7 +177,7 @@
 <body>
 <header class="top">
   <h1>▶ Streamedia</h1>
-  <span class="tagline">Console de teste do pipeline — upload → transcodificação → reprodução</span>
+  <span class="tagline">Playground da API — upload → transcodificação → reprodução</span>
 </header>
 
 <div class="wrap">
@@ -296,12 +296,12 @@
     <div class="step-head">
       <span class="step-num">6</span>
       <span class="step-title">Webhook de teste</span>
-      <span class="step-sub">POST /ui/webhook (local)</span>
+      <span class="step-sub">POST /playground/webhook (local)</span>
     </div>
     <div class="step-body">
       <div class="note">Para ver os webhooks aqui, configure
         <code class="inline">WEBHOOK_URL</code> do servidor apontando para:
-        <code class="inline" id="webhookURL">.../ui/webhook</code>
+        <code class="inline" id="webhookURL">.../playground/webhook</code>
         (<a href="#" id="copyWebhook">copiar</a>). Esta página faz polling a cada 2s.</div>
       <div class="meta" id="webhookMeta"><span class="pill load">aguardando webhooks…</span></div>
       <div class="webhook-list" id="webhookList">
@@ -851,17 +851,17 @@ function playResolution(res, url) {
 // =====================================================================
 // ETAPA 6 — Webhook de teste (polling do receptor local)
 // =====================================================================
-$("webhookURL").textContent = origin + "/ui/webhook";
+$("webhookURL").textContent = origin + "/playground/webhook";
 $("copyWebhook").onclick = (e) => {
   e.preventDefault();
-  navigator.clipboard.writeText(origin + "/ui/webhook");
+  navigator.clipboard.writeText(origin + "/playground/webhook");
 };
 
 let lastWebhookSeq = 0;
 const receivedWebhooks = [];
 async function pollWebhooks() {
   try {
-    const r = await fetch(origin + "/ui/webhook/events?since=" + lastWebhookSeq);
+    const r = await fetch(origin + "/playground/webhook/events?since=" + lastWebhookSeq);
     const events = await r.json();
     if (Array.isArray(events) && events.length) {
       events.forEach((ev) => { receivedWebhooks.unshift(ev); lastWebhookSeq = Math.max(lastWebhookSeq, ev.seq); });

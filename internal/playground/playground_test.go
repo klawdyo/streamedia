@@ -1,4 +1,4 @@
-package ui
+package playground
 
 import (
 	"encoding/json"
@@ -13,7 +13,7 @@ import (
 func TestServeUI(t *testing.T) {
 	h := NewHandler()
 	rec := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodGet, "/ui", nil)
+	req := httptest.NewRequest(http.MethodGet, "/playground", nil)
 
 	h.ServeUI(rec, req)
 
@@ -25,7 +25,7 @@ func TestServeUI(t *testing.T) {
 	}
 	body := rec.Body.String()
 	// Conteúdos-âncora que garantem que a página certa foi servida.
-	for _, want := range []string{"Streamedia", "/api/upload/init", "/ui/webhook", "Players por resolução"} {
+	for _, want := range []string{"Streamedia", "/api/upload/init", "/playground/webhook", "Players por resolução"} {
 		if !strings.Contains(body, want) {
 			t.Errorf("página não contém %q", want)
 		}
@@ -33,13 +33,13 @@ func TestServeUI(t *testing.T) {
 }
 
 // TestReceiveAndListWebhooks cobre o ciclo completo do receptor: receber um
-// webhook via POST e recuperá-lo via GET /ui/webhook/events.
+// webhook via POST e recuperá-lo via GET /playground/webhook/events.
 func TestReceiveAndListWebhooks(t *testing.T) {
 	h := NewHandler()
 
 	// Recebe um webhook.
 	payload := `{"video_id":"abc","event":"transcode_complete","status":"ready"}`
-	postReq := httptest.NewRequest(http.MethodPost, "/ui/webhook", strings.NewReader(payload))
+	postReq := httptest.NewRequest(http.MethodPost, "/playground/webhook", strings.NewReader(payload))
 	postReq.Header.Set("Content-Type", "application/json")
 	postReq.Header.Set("X-Signature", "sha256=deadbeef")
 	postRec := httptest.NewRecorder()
@@ -51,7 +51,7 @@ func TestReceiveAndListWebhooks(t *testing.T) {
 
 	// Lista os eventos.
 	listRec := httptest.NewRecorder()
-	listReq := httptest.NewRequest(http.MethodGet, "/ui/webhook/events", nil)
+	listReq := httptest.NewRequest(http.MethodGet, "/playground/webhook/events", nil)
 	h.ListEvents(listRec, listReq)
 
 	var events []webhookEvent
@@ -79,12 +79,12 @@ func TestListEventsSince(t *testing.T) {
 	h := NewHandler()
 	for i := 0; i < 3; i++ {
 		rec := httptest.NewRecorder()
-		req := httptest.NewRequest(http.MethodPost, "/ui/webhook", strings.NewReader(`{}`))
+		req := httptest.NewRequest(http.MethodPost, "/playground/webhook", strings.NewReader(`{}`))
 		h.ReceiveWebhook(rec, req)
 	}
 
 	rec := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodGet, "/ui/webhook/events?since=2", nil)
+	req := httptest.NewRequest(http.MethodGet, "/playground/webhook/events?since=2", nil)
 	h.ListEvents(rec, req)
 
 	var events []webhookEvent
@@ -103,12 +103,12 @@ func TestWebhookBufferEviction(t *testing.T) {
 	const extra = 5
 	for i := 0; i < maxWebhookEvents+extra; i++ {
 		rec := httptest.NewRecorder()
-		req := httptest.NewRequest(http.MethodPost, "/ui/webhook", strings.NewReader(`{}`))
+		req := httptest.NewRequest(http.MethodPost, "/playground/webhook", strings.NewReader(`{}`))
 		h.ReceiveWebhook(rec, req)
 	}
 
 	rec := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodGet, "/ui/webhook/events", nil)
+	req := httptest.NewRequest(http.MethodGet, "/playground/webhook/events", nil)
 	h.ListEvents(rec, req)
 
 	var events []webhookEvent

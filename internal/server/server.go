@@ -19,10 +19,10 @@ import (
 	"github.com/klawdyo/streamedia/internal/docs"
 	"github.com/klawdyo/streamedia/internal/middleware"
 	"github.com/klawdyo/streamedia/internal/models"
+	"github.com/klawdyo/streamedia/internal/playground"
 	"github.com/klawdyo/streamedia/internal/serve"
 	"github.com/klawdyo/streamedia/internal/telemetry"
 	"github.com/klawdyo/streamedia/internal/transcode"
-	"github.com/klawdyo/streamedia/internal/ui"
 	"github.com/klawdyo/streamedia/internal/upload"
 	"github.com/klawdyo/streamedia/internal/version"
 	"github.com/klawdyo/streamedia/internal/webhook"
@@ -174,18 +174,17 @@ func NewRouter(
 		})
 	})
 
-	// --- Console de teste do pipeline em /ui (issue #18) ---
+	// --- Playground da API em /playground (issue #18) ---
 	// Página interativa que exercita o fluxo completo (auth → upload → play)
-	// e um receptor de webhooks de teste. A rota é /ui (e não /test) para não
-	// se confundir com testes unitários. Rotas PÚBLICAS (sem RootAuth): a
-	// página só faz algo de útil com o ROOT_TOKEN colado manualmente pelo
-	// usuário, e o receptor de webhooks precisa aceitar POSTs do próprio
-	// Streamedia (autenticados por HMAC, não por Bearer). O rate limiter
-	// global continua valendo.
-	uiHandler := ui.NewHandler()
-	r.Get("/ui", uiHandler.ServeUI)
-	r.Post("/ui/webhook", uiHandler.ReceiveWebhook)
-	r.Get("/ui/webhook/events", uiHandler.ListEvents)
+	// e um receptor de webhooks de teste. "playground" é o termo usual para um
+	// testador interativo de API. Rotas PÚBLICAS (sem RootAuth): a página só
+	// faz algo de útil com o ROOT_TOKEN colado manualmente pelo usuário, e o
+	// receptor de webhooks precisa aceitar POSTs do próprio Streamedia
+	// (autenticados por HMAC, não por Bearer). O rate limiter global continua valendo.
+	playgroundHandler := playground.NewHandler()
+	r.Get("/playground", playgroundHandler.ServeUI)
+	r.Post("/playground/webhook", playgroundHandler.ReceiveWebhook)
+	r.Get("/playground/webhook/events", playgroundHandler.ListEvents)
 
 	// --- Observabilidade e documentação (protegidas pelo ROOT_TOKEN) ---
 	// /metrics (OpenTelemetry/Prometheus) e /docs (Scalar UI) exigem o mesmo
