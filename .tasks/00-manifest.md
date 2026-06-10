@@ -6,8 +6,8 @@ Status possíveis: `pending` | `in-progress` | `done` | `blocked`
 ## Progresso geral
 
 ```
-Total: 71 tarefas
-Done:  71
+Total: 72 tarefas
+Done:  72
 Pending: 0
 ```
 
@@ -112,6 +112,7 @@ Spec dividida em `spec/` (índice + arquivos temáticos) — ver T70.
 | T69 | `.tasks/69-cleanup-legacy-flow.md` | Limpeza total do fluxo legado (projects/HMAC/scoped) — código, vars, comentários, OpenAPI | done | substitui o fluxo de projetos pelo de tag + ROOT_TOKEN; **supersede T06, T32–T35, T44, T48–T50** |
 | T70 | `.tasks/70-spec-reorg.md` | Reorganizar a especificação em arquivos menores + índice | done | `spec/` temática; depende T69 |
 | T71 | `.tasks/71-test-console-pipeline.md` | Console de teste interativo do pipeline completo (`GET /playground`) | done | issue #18 — pacote internal/playground, receptor de webhooks local, players HLS por resolução — fecha issue #18 |
+| T72 | `.tasks/72-thumbnails-por-resolucao.md` | Gerar thumbnails (poster) por resolução ao final da transcodificação | done | issue #19 — geração JPEG por resolução (frame a 1s, proporção preservada), rota pública `/video/<tag>/<id>/thumb_<res>.jpg`, `has_thumbnails`+`thumbnails` no status — fecha issue #19 |
 
 ## Próxima onda — correções da análise de código (T56-T68)
 
@@ -191,6 +192,7 @@ Resumo por issue:
 [2026-06-10] T70: in-progress → done (spec dividida em spec/ temática + índice; CLAUDE.md aponta para o novo índice)
 [2026-06-10] T71: pending → done (console de teste interativo em GET /playground — pacote internal/playground: página autocontida via go:embed, cliente TUS em JS com progresso por chunk + unificado, polling de status, play/init, players HLS por resolução com medição de tempo até iniciar, e receptor de webhooks local /playground/webhook + /playground/webhook/events; rotas públicas; testes do pacote; spec/api.md e api.http atualizados — fecha issue #18)
 [2026-06-08] T55: pending → done (já estava implementada — pacote internal/version e rota GET /api existentes)
+[2026-06-10] T72: pending → done (thumbnails por resolução, issue #19: geração JPEG best-effort no worker (internal/transcode/thumbnail.go) a partir do frame a 1s do original com fallback ao primeiro frame, proporção preservada (menor dimensão = "p"), ~80% via mjpeg -q:v 5; rota pública GET /video/<tag>/<id>/thumb_<res>.jpg (serve/thumbnail.go) com blindagem de traversal; has_thumbnails+thumbnails derivados do disco no status; httputil.PublicThumbnailURL; ThumbnailNameRe/ThumbnailFileName em models/hls.go; testes em transcode/serve; spec/api.md e api.http atualizados — fecha issue #19. Worktree baseado em origin/main por dev estar 24 commits atrás (faltava a feature de SSE/notify/playground já lançada em main))
 
 [2026-06-07] Análise completa de código: geradas T56-T68 (13 tasks) a partir de
   revisão profunda de todos os arquivos .go de produção (~20k linhas).

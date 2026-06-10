@@ -181,6 +181,11 @@ GET {{host}}/video/{{tag}}/{{videoID}}/1080/playlist.m3u8
 ### Segmento HLS (exemplo — público)
 GET {{host}}/video/{{tag}}/{{videoID}}/720/0.ts
 
+###
+
+### Thumbnail (poster) por resolução — público, sem token (issue #19)
+GET {{host}}/video/{{tag}}/{{videoID}}/thumb_480.jpg
+
 ### ============================================================
 ### Admin — Vídeos (Bearer ROOT_TOKEN)
 ### ============================================================
