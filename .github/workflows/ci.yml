@@ -1,8 +1,13 @@
 name: CI
 
+# CI TEMPORARIAMENTE DESATIVADO durante o desenvolvimento: rodar vet+test+build
+# a cada push estava deixando o ciclo de deploy lento. Por enquanto o workflow
+# só roda manualmente (aba Actions > CI > "Run workflow"). Para REATIVAR o CI
+# automático, basta descomentar os gatilhos `push` e `pull_request` abaixo.
 on:
-  push:
-  pull_request:
+  workflow_dispatch:
+  # push:
+  # pull_request:
 
 jobs:
   test:
