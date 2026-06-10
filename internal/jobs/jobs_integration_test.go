@@ -270,11 +270,11 @@ func TestTokenCleanupJob_RunOnceReturnsCount(t *testing.T) {
 
 	// Insere tokens expirados
 	_, _ = database.Exec(
-		"INSERT INTO upload_tokens (video_id, token, expires_at) VALUES (?, ?, ?)",
+		"INSERT INTO access_tokens (video_id, token, purpose, expires_at) VALUES (?, ?, 'upload', ?)",
 		"vid-1", "tok-1", now.Add(-1*time.Hour).Format(time.RFC3339),
 	)
 	_, _ = database.Exec(
-		"INSERT INTO upload_tokens (video_id, token, expires_at) VALUES (?, ?, ?)",
+		"INSERT INTO access_tokens (video_id, token, purpose, expires_at) VALUES (?, ?, 'upload', ?)",
 		"vid-2", "tok-2", now.Add(-2*time.Hour).Format(time.RFC3339),
 	)
 

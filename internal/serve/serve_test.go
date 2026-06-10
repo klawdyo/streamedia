@@ -6,7 +6,6 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
-	"strconv"
 	"testing"
 	"time"
 
@@ -19,16 +18,15 @@ import (
 // UUID v4 válido fixo usado nos testes (version=4, variant=b).
 const testVideoID = "a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11"
 
-// testSecret é o secret HMAC compartilhado usado para assinar tokens nos testes.
-const testSecret = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+// testTag é o namespace usado nos testes.
+const testTag = "default"
 
 // newTestConfig cria um Config apontando para um MediaDir temporário.
 func newTestConfig(t *testing.T) *config.Config {
 	t.Helper()
 	return &config.Config{
-		MediaDir:        t.TempDir(),
-		UploadTokenSecret: testSecret,
-		PlayTokenMaxTTL: 6 * time.Hour,
+		MediaDir:     t.TempDir(),
+		PlayTokenTTL: time.Hour,
 	}
 }
 
@@ -43,20 +41,25 @@ func newTestDB(t *testing.T) *sql.DB {
 	return database
 }
 
-// insertVideo insere um vídeo com o status informado e, opcionalmente, o
-// project_id (nil insere sem projeto — para testes que não chegam a resolver
-// o diretório raiz do projeto, como token inválido/expirado).
-func insertVideo(t *testing.T, database *sql.DB, id, status string, projectID *int64) {
+// insertVideo insere um vídeo com o status e a tag informados.
+func insertVideo(t *testing.T, database *sql.DB, id, status, tag string) {
 	t.Helper()
-	if projectID != nil {
-		if _, err := database.Exec("INSERT INTO videos (video_id, status, project_id) VALUES (?, ?, ?)", id, status, *projectID); err != nil {
-			t.Fatalf("erro ao inserir vídeo: %v", err)
-		}
-	} else {
-		if _, err := database.Exec("INSERT INTO videos (video_id, status) VALUES (?, ?)", id, status); err != nil {
-			t.Fatalf("erro ao inserir vídeo: %v", err)
-		}
+	if _, err := database.Exec("INSERT INTO videos (video_id, status, tag) VALUES (?, ?, ?)", id, status, tag); err != nil {
+		t.Fatalf("erro ao inserir vídeo: %v", err)
 	}
+}
+
+// insertPlayToken cria um token de play para o vídeo e devolve seu valor.
+func insertPlayToken(t *testing.T, database *sql.DB, videoID string, expiresAt time.Time) string {
+	t.Helper()
+	token, err := auth.GenerateToken()
+	if err != nil {
+		t.Fatalf("GenerateToken: %v", err)
+	}
+	if err := models.InsertAccessToken(database, token, videoID, models.PurposePlay, expiresAt); err != nil {
+		t.Fatalf("InsertAccessToken: %v", err)
+	}
+	return token
 }
 
 // writeFile cria um arquivo (e seus diretórios) com o conteúdo informado.
@@ -70,29 +73,25 @@ func writeFile(t *testing.T, path, content string) {
 	}
 }
 
+func masterURL(token string) string {
+	return "/video/" + testTag + "/" + testVideoID + ".m3u8?token=" + token
+}
+
 // --- Testes do MasterHandler ---
 
 func TestMasterM3U8_ValidToken(t *testing.T) {
 	cfg := newTestConfig(t)
 	database := newTestDB(t)
-
-	project, err := models.EnsureDefaultProject(database)
-	if err != nil {
-		t.Fatalf("EnsureDefaultProject: %v", err)
-	}
-	insertVideo(t, database, testVideoID, "ready", &project.ID)
+	insertVideo(t, database, testVideoID, "ready", testTag)
 
 	const m3u8Content = "#EXTM3U\n#EXT-X-VERSION:3\n"
-	writeFile(t, filepath.Join(cfg.MediaDir, project.RootDir, testVideoID, "master.m3u8"), m3u8Content)
+	writeFile(t, filepath.Join(cfg.MediaDir, testTag, testVideoID, "master.m3u8"), m3u8Content)
 
-	expires := time.Now().Add(time.Hour).Unix()
-	token := auth.GeneratePlayToken(testSecret, testVideoID, expires)
+	token := insertPlayToken(t, database, testVideoID, time.Now().Add(time.Hour))
 
 	h := NewMasterHandler(cfg, database)
-	req := httptest.NewRequest(http.MethodGet,
-		"/videos/"+testVideoID+"/master.m3u8?expires="+itoa(expires)+"&token="+token, nil)
 	rec := httptest.NewRecorder()
-	h.ServeHTTP(rec, req)
+	h.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, masterURL(token), nil))
 
 	if rec.Code != http.StatusOK {
 		t.Fatalf("esperado 200, obtido %d (body: %s)", rec.Code, rec.Body.String())
@@ -102,21 +101,38 @@ func TestMasterM3U8_ValidToken(t *testing.T) {
 	}
 }
 
+func TestMasterM3U8_RewritesVariantPaths(t *testing.T) {
+	cfg := newTestConfig(t)
+	database := newTestDB(t)
+	insertVideo(t, database, testVideoID, "ready", testTag)
+
+	const m3u8Content = "#EXTM3U\n#EXT-X-STREAM-INF:BANDWIDTH=800000\n480/playlist.m3u8\n"
+	writeFile(t, filepath.Join(cfg.MediaDir, testTag, testVideoID, "master.m3u8"), m3u8Content)
+
+	token := insertPlayToken(t, database, testVideoID, time.Now().Add(time.Hour))
+
+	h := NewMasterHandler(cfg, database)
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, masterURL(token), nil))
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("esperado 200, obtido %d", rec.Code)
+	}
+	want := testVideoID + "/480/playlist.m3u8"
+	if !contains(rec.Body.String(), want) {
+		t.Fatalf("master reescrito deveria conter %q, obtido: %q", want, rec.Body.String())
+	}
+}
+
 func TestMasterM3U8_InvalidToken(t *testing.T) {
 	cfg := newTestConfig(t)
 	database := newTestDB(t)
-	insertVideo(t, database, testVideoID, "ready", nil)
-	writeFile(t, filepath.Join(cfg.MediaDir, testVideoID, "master.m3u8"), "#EXTM3U\n")
-
-	expires := time.Now().Add(time.Hour).Unix()
-	// Token adulterado.
-	token := "deadbeef" + auth.GeneratePlayToken(testSecret, testVideoID, expires)[8:]
+	insertVideo(t, database, testVideoID, "ready", testTag)
+	writeFile(t, filepath.Join(cfg.MediaDir, testTag, testVideoID, "master.m3u8"), "#EXTM3U\n")
 
 	h := NewMasterHandler(cfg, database)
-	req := httptest.NewRequest(http.MethodGet,
-		"/videos/"+testVideoID+"/master.m3u8?expires="+itoa(expires)+"&token="+token, nil)
 	rec := httptest.NewRecorder()
-	h.ServeHTTP(rec, req)
+	h.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, masterURL("token-inexistente"), nil))
 
 	if rec.Code != http.StatusUnauthorized {
 		t.Fatalf("esperado 401, obtido %d", rec.Code)
@@ -126,78 +142,70 @@ func TestMasterM3U8_InvalidToken(t *testing.T) {
 func TestMasterM3U8_ExpiredToken(t *testing.T) {
 	cfg := newTestConfig(t)
 	database := newTestDB(t)
-	insertVideo(t, database, testVideoID, "ready", nil)
-	writeFile(t, filepath.Join(cfg.MediaDir, testVideoID, "master.m3u8"), "#EXTM3U\n")
+	insertVideo(t, database, testVideoID, "ready", testTag)
+	writeFile(t, filepath.Join(cfg.MediaDir, testTag, testVideoID, "master.m3u8"), "#EXTM3U\n")
 
-	expires := time.Now().Add(-time.Hour).Unix() // já expirou
-	token := auth.GeneratePlayToken(testSecret, testVideoID, expires)
+	token := insertPlayToken(t, database, testVideoID, time.Now().Add(-time.Hour))
 
 	h := NewMasterHandler(cfg, database)
-	req := httptest.NewRequest(http.MethodGet,
-		"/videos/"+testVideoID+"/master.m3u8?expires="+itoa(expires)+"&token="+token, nil)
 	rec := httptest.NewRecorder()
-	h.ServeHTTP(rec, req)
+	h.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, masterURL(token), nil))
 
 	if rec.Code != http.StatusUnauthorized {
 		t.Fatalf("esperado 401, obtido %d", rec.Code)
 	}
 }
 
+func TestMasterM3U8_UploadTokenRejected(t *testing.T) {
+	// Um token de upload não autoriza play (carimbo de propósito).
+	cfg := newTestConfig(t)
+	database := newTestDB(t)
+	insertVideo(t, database, testVideoID, "ready", testTag)
+	writeFile(t, filepath.Join(cfg.MediaDir, testTag, testVideoID, "master.m3u8"), "#EXTM3U\n")
+
+	token, _ := auth.GenerateToken()
+	if err := models.InsertAccessToken(database, token, testVideoID, models.PurposeUpload, time.Now().Add(time.Hour)); err != nil {
+		t.Fatal(err)
+	}
+
+	h := NewMasterHandler(cfg, database)
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, masterURL(token), nil))
+
+	if rec.Code != http.StatusUnauthorized {
+		t.Fatalf("token de upload não deveria autorizar play; esperado 401, obtido %d", rec.Code)
+	}
+}
+
 func TestMasterM3U8_VideoNotReady(t *testing.T) {
 	cfg := newTestConfig(t)
 	database := newTestDB(t)
-	insertVideo(t, database, testVideoID, "transcoding", nil)
-	writeFile(t, filepath.Join(cfg.MediaDir, testVideoID, "master.m3u8"), "#EXTM3U\n")
+	insertVideo(t, database, testVideoID, "transcoding", testTag)
+	writeFile(t, filepath.Join(cfg.MediaDir, testTag, testVideoID, "master.m3u8"), "#EXTM3U\n")
 
-	expires := time.Now().Add(time.Hour).Unix()
-	token := auth.GeneratePlayToken(testSecret, testVideoID, expires)
+	token := insertPlayToken(t, database, testVideoID, time.Now().Add(time.Hour))
 
 	h := NewMasterHandler(cfg, database)
-	req := httptest.NewRequest(http.MethodGet,
-		"/videos/"+testVideoID+"/master.m3u8?expires="+itoa(expires)+"&token="+token, nil)
 	rec := httptest.NewRecorder()
-	h.ServeHTTP(rec, req)
+	h.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, masterURL(token), nil))
 
 	if rec.Code != http.StatusNotFound {
 		t.Fatalf("esperado 404, obtido %d", rec.Code)
 	}
 }
 
-func TestMasterM3U8_VideoIDPathTraversal(t *testing.T) {
+func TestMasterM3U8_InvalidVideoID(t *testing.T) {
 	cfg := newTestConfig(t)
 	database := newTestDB(t)
 
-	expires := time.Now().Add(time.Hour).Unix()
-	token := auth.GeneratePlayToken(testSecret, "../etc/passwd", expires)
-
 	h := NewMasterHandler(cfg, database)
-	req := httptest.NewRequest(http.MethodGet,
-		"/videos/../etc/passwd/master.m3u8?expires="+itoa(expires)+"&token="+token, nil)
-	// Sobrescreve o path cru para impedir normalização do http.NewRequest.
-	req.URL.Path = "/videos/../etc/passwd/master.m3u8"
+	req := httptest.NewRequest(http.MethodGet, "/video/default/nao-uuid.m3u8?token=x", nil)
+	req.URL.Path = "/video/default/nao-uuid.m3u8"
 	rec := httptest.NewRecorder()
 	h.ServeHTTP(rec, req)
 
 	if rec.Code != http.StatusBadRequest {
 		t.Fatalf("esperado 400, obtido %d", rec.Code)
-	}
-}
-
-func TestMasterM3U8_VideoNotFound(t *testing.T) {
-	cfg := newTestConfig(t)
-	database := newTestDB(t) // sem inserir o vídeo
-
-	expires := time.Now().Add(time.Hour).Unix()
-	token := auth.GeneratePlayToken(testSecret, testVideoID, expires)
-
-	h := NewMasterHandler(cfg, database)
-	req := httptest.NewRequest(http.MethodGet,
-		"/videos/"+testVideoID+"/master.m3u8?expires="+itoa(expires)+"&token="+token, nil)
-	rec := httptest.NewRecorder()
-	h.ServeHTTP(rec, req)
-
-	if rec.Code != http.StatusNotFound {
-		t.Fatalf("esperado 404, obtido %d", rec.Code)
 	}
 }
 
@@ -207,17 +215,11 @@ func TestStaticSegment_ValidPath(t *testing.T) {
 	cfg := newTestConfig(t)
 	database := newTestDB(t)
 
-	project, err := models.EnsureDefaultProject(database)
-	if err != nil {
-		t.Fatalf("EnsureDefaultProject: %v", err)
-	}
-	insertVideo(t, database, testVideoID, "ready", &project.ID)
-
 	const segContent = "TS_SEGMENT_DATA"
-	writeFile(t, filepath.Join(cfg.MediaDir, project.RootDir, testVideoID, "480", "0.ts"), segContent)
+	writeFile(t, filepath.Join(cfg.MediaDir, testTag, testVideoID, "480", "0.ts"), segContent)
 
 	h := NewStaticHandler(cfg, database)
-	req := httptest.NewRequest(http.MethodGet, "/videos/"+testVideoID+"/480/0.ts", nil)
+	req := httptest.NewRequest(http.MethodGet, "/video/"+testTag+"/"+testVideoID+"/480/0.ts", nil)
 	rec := httptest.NewRecorder()
 	h.ServeHTTP(rec, req)
 
@@ -234,7 +236,7 @@ func TestStaticSegment_InvalidResolution(t *testing.T) {
 	database := newTestDB(t)
 
 	h := NewStaticHandler(cfg, database)
-	req := httptest.NewRequest(http.MethodGet, "/videos/"+testVideoID+"/9999/0.ts", nil)
+	req := httptest.NewRequest(http.MethodGet, "/video/"+testTag+"/"+testVideoID+"/9999/0.ts", nil)
 	rec := httptest.NewRecorder()
 	h.ServeHTTP(rec, req)
 
@@ -248,9 +250,8 @@ func TestStaticSegment_PathTraversal(t *testing.T) {
 	database := newTestDB(t)
 
 	h := NewStaticHandler(cfg, database)
-	req := httptest.NewRequest(http.MethodGet, "/videos/"+testVideoID+"/480/x.ts", nil)
-	// Define o path cru com traversal, sem deixar o http.NewRequest normalizar.
-	req.URL.Path = "/videos/" + testVideoID + "/480/../../../etc/passwd"
+	req := httptest.NewRequest(http.MethodGet, "/video/"+testTag+"/"+testVideoID+"/480/x.ts", nil)
+	req.URL.Path = "/video/" + testTag + "/" + testVideoID + "/480/../../../etc/passwd"
 	rec := httptest.NewRecorder()
 	h.ServeHTTP(rec, req)
 
@@ -263,11 +264,10 @@ func TestStaticServing_NoDirectoryListing(t *testing.T) {
 	cfg := newTestConfig(t)
 	database := newTestDB(t)
 
-	// Cria o diretório de resolução com um arquivo dentro.
-	writeFile(t, filepath.Join(cfg.MediaDir, testVideoID, "480", "0.ts"), "DATA")
+	writeFile(t, filepath.Join(cfg.MediaDir, testTag, testVideoID, "480", "0.ts"), "DATA")
 
 	h := NewStaticHandler(cfg, database)
-	req := httptest.NewRequest(http.MethodGet, "/videos/"+testVideoID+"/480/", nil)
+	req := httptest.NewRequest(http.MethodGet, "/video/"+testTag+"/"+testVideoID+"/480/", nil)
 	rec := httptest.NewRecorder()
 	h.ServeHTTP(rec, req)
 
@@ -280,14 +280,8 @@ func TestStaticSegment_SegmentNotFound(t *testing.T) {
 	cfg := newTestConfig(t)
 	database := newTestDB(t)
 
-	project, err := models.EnsureDefaultProject(database)
-	if err != nil {
-		t.Fatalf("EnsureDefaultProject: %v", err)
-	}
-	insertVideo(t, database, testVideoID, "ready", &project.ID)
-
 	h := NewStaticHandler(cfg, database)
-	req := httptest.NewRequest(http.MethodGet, "/videos/"+testVideoID+"/480/999.ts", nil)
+	req := httptest.NewRequest(http.MethodGet, "/video/"+testTag+"/"+testVideoID+"/480/999.ts", nil)
 	rec := httptest.NewRecorder()
 	h.ServeHTTP(rec, req)
 
@@ -296,7 +290,16 @@ func TestStaticSegment_SegmentNotFound(t *testing.T) {
 	}
 }
 
-// itoa converte int64 para string base 10 (helper local para montar URLs).
-func itoa(n int64) string {
-	return strconv.FormatInt(n, 10)
+// contains é um helper simples (evita import de strings só para isso).
+func contains(s, sub string) bool {
+	return len(s) >= len(sub) && indexOf(s, sub) >= 0
+}
+
+func indexOf(s, sub string) int {
+	for i := 0; i+len(sub) <= len(s); i++ {
+		if s[i:i+len(sub)] == sub {
+			return i
+		}
+	}
+	return -1
 }

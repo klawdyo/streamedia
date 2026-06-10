@@ -1,14 +1,11 @@
-// Pacote serve expõe as rotas de serving HLS.
+// Pacote serve expõe as rotas de serving HLS, sob o prefixo /video/<tag>/...:
 //
-// Existem dois tipos de serving:
-//
-//  1. master.m3u8 — autenticado por token HMAC de reprodução e pelo status
-//     do vídeo no banco.
-//  2. Playlists de resolução e segmentos .ts — estáticos e públicos (os nomes
-//     opacos contidos no master.m3u8 funcionam como a "chave" de acesso).
-//
-// Toda extração de path é feita manualmente via strings.Split porque o chi
-// ainda não está conectado nesta etapa (T12); ele entra em T20.
+//  1. /video/<tag>/<video_id>.m3u8 — master playlist DINÂMICO: autenticado por
+//     token de play (lookup em access_tokens) e pelo status do vídeo. O caminho
+//     real no disco (<MEDIA_DIR>/<tag>/<video_id>/master.m3u8) fica escondido;
+//     o handler reescreve as referências de variante para incluir o <video_id>.
+//  2. /video/<tag>/<video_id>/<res>/playlist.m3u8 e .../<seg>.ts — ESTÁTICOS e
+//     públicos (os nomes opacos no master funcionam como a "chave" de acesso).
 package serve
 
 import (
@@ -22,14 +19,11 @@ import (
 	"strings"
 
 	"github.com/klawdyo/streamedia/internal/apiresponse"
-	"github.com/klawdyo/streamedia/internal/auth"
 	"github.com/klawdyo/streamedia/internal/config"
 	"github.com/klawdyo/streamedia/internal/models"
 )
 
-// uuidV4Re valida UUID de qualquer versão (1-8) — substituído pela função
-// centralizada models.IsValidVideoIDFormat. Mantido como alias para evitar
-// reescrever todos os call sites; a definição real está em internal/models.
+// uuidV4Re valida UUID de qualquer versão (1-8) — o video_id sempre é um UUID.
 var uuidV4Re = regexp.MustCompile(`^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$`)
 
 // allowedResolutions são as únicas resoluções aceitas no serving estático.
@@ -39,18 +33,9 @@ var allowedResolutions = map[string]bool{
 	"1080": true,
 }
 
-// models.SegmentNameRe foi removido — usar models.SegmentNameRe (definição única,
-// centralizada em internal/models/hls.go, reaproveitada pelo worker de
-// transcodificação e pelo serving estático).
-
 // recordPlaybackAsync grava um evento de estatística de uso (T26/T27) sem
-// bloquear a resposta ao cliente: a gravação ocorre em uma goroutine separada
-// e qualquer erro é apenas logado — estatísticas nunca devem afetar a entrega
-// do conteúdo ao usuário.
-//
-// onDone, se não-nil, é chamado ao final da gravação (com o erro, se houver).
-// Existe apenas para permitir que os testes aguardem deterministicamente a
-// conclusão da goroutine antes de inspecionar o banco — em produção é nil.
+// bloquear a resposta ao cliente. Erros são apenas logados — estatísticas
+// nunca devem afetar a entrega do conteúdo.
 func recordPlaybackAsync(db *sql.DB, videoID, eventType string, resolution *int, userAgent string, onDone func(error)) {
 	go func() {
 		err := models.RecordEvent(db, videoID, eventType, resolution, userAgent)
@@ -63,25 +48,21 @@ func recordPlaybackAsync(db *sql.DB, videoID, eventType string, resolution *int,
 	}()
 }
 
-// pathParts remove o prefixo "/videos/" do path e o divide por "/".
-// Retorna os componentes não vazios já com o prefixo retirado.
-//
-// Importante: NÃO normalizamos o path aqui — qualquer ".." presente é
-// preservado para que a validação subsequente possa rejeitá-lo.
-func pathParts(urlPath string) []string {
-	trimmed := strings.TrimPrefix(urlPath, "/videos/")
+// videoPathParts remove o prefixo "/video/" do path e o divide por "/".
+// NÃO normaliza o path — qualquer ".." é preservado para ser rejeitado depois.
+func videoPathParts(urlPath string) []string {
+	trimmed := strings.TrimPrefix(urlPath, "/video/")
 	return strings.Split(trimmed, "/")
 }
 
-// MasterHandler serve o arquivo master.m3u8 autenticado por token de
-// reprodução e protegido pela verificação de status do vídeo.
+// MasterHandler serve o master.m3u8 autenticado por token de play e pelo
+// status do vídeo.
 type MasterHandler struct {
 	cfg *config.Config
 	db  *sql.DB
 
 	// onStatsRecorded, se não-nil, é chamado ao final de cada gravação
-	// assíncrona de evento de estatística. Usado apenas em testes para
-	// aguardar deterministicamente a goroutine antes de inspecionar o banco.
+	// assíncrona de evento — usado apenas em testes.
 	onStatsRecorded func(error)
 }
 
@@ -90,43 +71,36 @@ func NewMasterHandler(cfg *config.Config, db *sql.DB) *MasterHandler {
 	return &MasterHandler{cfg: cfg, db: db}
 }
 
-// ServeHTTP implementa o fluxo de serving do master.m3u8.
+// ServeHTTP implementa o fluxo de serving do master.m3u8 dinâmico:
+// /video/{tag}/{video_id}.m3u8?token=...
 func (h *MasterHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	// 1. Extrai o video_id do path: /videos/{videoID}/master.m3u8
-	parts := pathParts(r.URL.Path)
-	if len(parts) < 2 {
+	// 1. Extrai tag e <video_id>.m3u8 do path.
+	parts := videoPathParts(r.URL.Path)
+	if len(parts) != 2 || !strings.HasSuffix(parts[1], ".m3u8") {
 		apiresponse.Error(w, http.StatusBadRequest, "Caminho inválido.")
 		return
 	}
-	videoID := parts[0]
+	urlTag := parts[0]
+	videoID := strings.TrimSuffix(parts[1], ".m3u8")
 
-	// 2. Valida o video_id como UUID v4 estrito. Isso, por si só, já bloqueia
-	// qualquer tentativa de path traversal (ex.: "../etc/passwd").
+	// 2. Valida o video_id como UUID — bloqueia path traversal por si só.
 	if !uuidV4Re.MatchString(videoID) {
 		apiresponse.Error(w, http.StatusBadRequest, "video_id inválido.")
 		return
 	}
 
-	// 3. Extrai expires e token dos query params.
-	q := r.URL.Query()
-	expires, err := strconv.ParseInt(q.Get("expires"), 10, 64)
-	if err != nil {
-		apiresponse.Error(w, http.StatusUnauthorized, "Parâmetro expires inválido.")
-		return
-	}
-	token := q.Get("token")
-
-	// 4. Valida o token de reprodução (expiração, TTL máximo e assinatura HMAC).
-	// O secret de reprodução é o secret HMAC compartilhado (UPLOAD_TOKEN_SECRET).
-	if err := auth.ValidatePlayToken(h.cfg.UploadTokenSecret, videoID, expires, token, h.cfg.PlayTokenMaxTTL); err != nil {
-		apiresponse.Error(w, http.StatusUnauthorized, err.Error())
+	// 3. Valida o token de play: existe, é de propósito 'play', pertence a
+	// este vídeo e não expirou (validação por lookup, sem HMAC).
+	token := r.URL.Query().Get("token")
+	at, err := models.GetAccessToken(h.db, token)
+	if err != nil || at.Purpose != models.PurposePlay || at.VideoID != videoID || at.IsExpired() {
+		apiresponse.Error(w, http.StatusUnauthorized, "Token de reprodução inválido ou expirado.")
 		return
 	}
 
-	// 5. Busca o vídeo no banco e exige status "ready".
-	var status string
-	var projectID sql.NullInt64
-	err = h.db.QueryRow("SELECT status, project_id FROM videos WHERE video_id = ?", videoID).Scan(&status, &projectID)
+	// 4. Busca o vídeo: exige status "ready" e que a tag da URL corresponda à
+	// tag real (evita URLs com namespace incorreto).
+	video, err := models.GetVideo(h.db, videoID)
 	if err == sql.ErrNoRows {
 		apiresponse.Error(w, http.StatusNotFound, "Vídeo não encontrado.")
 		return
@@ -135,47 +109,56 @@ func (h *MasterHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		apiresponse.Error(w, http.StatusInternalServerError, "Erro ao consultar o vídeo.")
 		return
 	}
-	if status != "ready" {
+	if video.Status != models.StatusReady {
 		apiresponse.Error(w, http.StatusNotFound, "Vídeo não está disponível para reprodução.")
 		return
 	}
-
-	// 6. Registra o evento de estatística (T26/T27): acesso ao master.m3u8
-	// conta como "playback" sem resolução associada (o master não tem uma).
-	// Gravado de forma assíncrona para não atrasar a entrega do conteúdo.
-	recordPlaybackAsync(h.db, videoID, "playback", nil, r.Header.Get("User-Agent"), h.onStatsRecorded)
-
-	// 7. Resolve o diretório raiz do projeto (issue #6, T34) e serve o
-	// master.m3u8 de <MEDIA_DIR>/<slug-do-projeto>/<video_id>/master.m3u8.
-	rootDir, err := models.ResolveVideoRootDir(h.db, nullableInt64(projectID))
-	if err != nil {
-		apiresponse.Error(w, http.StatusInternalServerError, "Erro ao resolver o diretório do projeto.")
+	if models.Slugify(urlTag) != video.Tag {
+		apiresponse.Error(w, http.StatusNotFound, "Vídeo não encontrado.")
 		return
 	}
-	masterPath := filepath.Join(h.cfg.MediaDir, rootDir, videoID, "master.m3u8")
-	http.ServeFile(w, r, masterPath)
+
+	// 5. Registra o evento de playback (assíncrono, best-effort).
+	recordPlaybackAsync(h.db, videoID, "playback", nil, r.Header.Get("User-Agent"), h.onStatsRecorded)
+
+	// 6. Lê o master.m3u8 do disco e reescreve as referências de variante
+	// para incluir o <video_id> (a URL pública é /video/<tag>/<id>.m3u8, então
+	// "480/playlist.m3u8" precisa virar "<id>/480/playlist.m3u8" para resolver
+	// em /video/<tag>/<id>/480/playlist.m3u8).
+	masterPath := filepath.Join(h.cfg.MediaDir, video.Tag, videoID, "master.m3u8")
+	content, err := os.ReadFile(masterPath)
+	if err != nil {
+		apiresponse.Error(w, http.StatusNotFound, "Master playlist não encontrado.")
+		return
+	}
+	rewritten := rewriteMasterPlaylist(content, videoID)
+
+	w.Header().Set("Content-Type", "application/vnd.apple.mpegurl")
+	_, _ = w.Write(rewritten)
 }
 
-// nullableInt64 converte um sql.NullInt64 em *int64 (nil se NULL) — usado
-// para repassar project_id a models.ResolveVideoRootDir.
-func nullableInt64(n sql.NullInt64) *int64 {
-	if !n.Valid {
-		return nil
+// rewriteMasterPlaylist prefixa cada linha de URI de variante (não-comentário,
+// não-vazia) com "<video_id>/", deixando intactas as linhas de diretiva (#...).
+func rewriteMasterPlaylist(content []byte, videoID string) []byte {
+	lines := strings.Split(string(content), "\n")
+	for i, line := range lines {
+		trimmed := strings.TrimSpace(line)
+		if trimmed == "" || strings.HasPrefix(trimmed, "#") {
+			continue
+		}
+		lines[i] = videoID + "/" + trimmed
 	}
-	v := n.Int64
-	return &v
+	return []byte(strings.Join(lines, "\n"))
 }
 
 // StaticHandler serve playlists de resolução e segmentos .ts como arquivos
-// estáticos públicos, sem autenticação, mas com validação rígida de path e
-// directory listing desabilitado.
+// estáticos públicos, com validação rígida de path e directory listing off.
 type StaticHandler struct {
 	cfg *config.Config
 	db  *sql.DB
 
 	// onStatsRecorded, se não-nil, é chamado ao final de cada gravação
-	// assíncrona de evento de estatística. Usado apenas em testes para
-	// aguardar deterministicamente a goroutine antes de inspecionar o banco.
+	// assíncrona de evento — usado apenas em testes.
 	onStatsRecorded func(error)
 }
 
@@ -185,21 +168,22 @@ func NewStaticHandler(cfg *config.Config, db *sql.DB) *StaticHandler {
 	return &StaticHandler{cfg: cfg, db: db}
 }
 
-// ServeHTTP implementa o fluxo de serving estático.
+// ServeHTTP implementa o fluxo de serving estático:
+// /video/{tag}/{video_id}/{resolution}/{filename}
 func (h *StaticHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	// 1. Extrai os componentes do path: /videos/{videoID}/{resolution}/{filename}
-	parts := pathParts(r.URL.Path)
-	if len(parts) < 3 {
+	// 1. Extrai os componentes do path.
+	parts := videoPathParts(r.URL.Path)
+	if len(parts) < 4 {
 		apiresponse.Error(w, http.StatusBadRequest, "Caminho inválido.")
 		return
 	}
-	videoID := parts[0]
-	resolution := parts[1]
-	// O filename é o restante reunido; assim, qualquer ".." no caminho aparece
-	// aqui e é rejeitado pela validação de filename abaixo.
-	filename := strings.Join(parts[2:], "/")
+	tag := parts[0]
+	videoID := parts[1]
+	resolution := parts[2]
+	// Qualquer ".." aparece aqui e é rejeitado pela validação de filename.
+	filename := strings.Join(parts[3:], "/")
 
-	// 2. Valida o video_id como UUID v4 estrito.
+	// 2. Valida o video_id como UUID.
 	if !uuidV4Re.MatchString(videoID) {
 		apiresponse.Error(w, http.StatusBadRequest, "video_id inválido.")
 		return
@@ -211,41 +195,25 @@ func (h *StaticHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// 4. Filename vazio (path terminando em "/", ex.: /videos/{id}/480/) é uma
-	// tentativa de listar o diretório da resolução. Nunca listamos: 404.
+	// 4. Filename vazio (tentativa de listar diretório): 404.
 	if filename == "" {
 		apiresponse.Error(w, http.StatusNotFound, "Arquivo não encontrado.")
 		return
 	}
 
-	// 5. Valida o filename: só segmentos "{digitos}.ts" ou "playlist.m3u8".
-	// Qualquer ".." ou barra extra reprova aqui.
+	// 5. Valida o filename: só "{dígitos}.ts" ou "playlist.m3u8".
 	if filename != "playlist.m3u8" && !models.SegmentNameRe.MatchString(filename) {
 		apiresponse.Error(w, http.StatusBadRequest, "Nome de arquivo inválido.")
 		return
 	}
 
-	// 5. Resolve o diretório raiz do projeto do vídeo (issue #6, T34) e
-	// constrói o path final dentro do MediaDir:
-	// <MEDIA_DIR>/<slug-do-projeto>/<video_id>/<resolution>/<filename>.
-	// Vídeo inexistente aqui não é erro de autorização — os segmentos são
-	// públicos e "opacos"; tratamos como arquivo não encontrado (404),
-	// igual a qualquer outro caminho inválido nesta rota.
-	var projectID sql.NullInt64
-	err := h.db.QueryRow("SELECT project_id FROM videos WHERE video_id = ?", videoID).Scan(&projectID)
-	if err != nil && err != sql.ErrNoRows {
-		apiresponse.Error(w, http.StatusInternalServerError, "Erro ao consultar o vídeo.")
-		return
-	}
-	rootDir, err := models.ResolveVideoRootDir(h.db, nullableInt64(projectID))
-	if err != nil {
-		apiresponse.Error(w, http.StatusInternalServerError, "Erro ao resolver o diretório do projeto.")
-		return
-	}
-	path := filepath.Join(h.cfg.MediaDir, rootDir, videoID, resolution, filename)
+	// 6. Resolve o path dentro do MediaDir a partir da tag (Slugify garante
+	// segurança de path; não há lookup no banco — segmentos são públicos):
+	// <MEDIA_DIR>/<tag>/<video_id>/<resolution>/<filename>.
+	path := filepath.Join(h.cfg.MediaDir, models.Slugify(tag), videoID, resolution, filename)
 
-	// 6. Proteção extra contra traversal: o path resolvido precisa estar
-	// contido no MediaDir. Usamos filepath.Clean nas duas pontas.
+	// 7. Proteção extra contra traversal: o path resolvido precisa estar
+	// contido no MediaDir.
 	mediaRoot := filepath.Clean(h.cfg.MediaDir)
 	cleanPath := filepath.Clean(path)
 	if cleanPath != mediaRoot && !strings.HasPrefix(cleanPath, mediaRoot+string(os.PathSeparator)) {
@@ -253,7 +221,7 @@ func (h *StaticHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// 7. Directory listing desabilitado: se o alvo for um diretório, 404.
+	// 8. Directory listing off: se for diretório ou não existir, 404.
 	info, err := os.Stat(cleanPath)
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -268,18 +236,13 @@ func (h *StaticHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// 8. Registra o evento de estatística (T26/T27) apenas para segmentos
-	// .ts — é o evento mais representativo de consumo real (download de
-	// dados de vídeo). Não registramos playlist.m3u8 aqui para evitar
-	// duplicidade com o evento "playback" já gerado no acesso ao master.
-	// Gravado de forma assíncrona para não atrasar a entrega do arquivo.
+	// 9. Registra o evento de estatística apenas para segmentos .ts.
 	if models.SegmentNameRe.MatchString(filename) {
-		resInt, err := strconv.Atoi(resolution)
-		if err == nil {
+		if resInt, err := strconv.Atoi(resolution); err == nil {
 			recordPlaybackAsync(h.db, videoID, "download_segment", &resInt, r.Header.Get("User-Agent"), h.onStatsRecorded)
 		}
 	}
 
-	// 9. Serve o arquivo estático.
+	// 10. Serve o arquivo estático.
 	http.ServeFile(w, r, cleanPath)
 }

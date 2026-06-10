@@ -35,13 +35,6 @@ func main() {
 	}
 	defer database.Close()
 
-	// Garante que o projeto padrão existe — idempotente, cria na primeira
-	// execução. Todo upload pertence a um projeto (issue #10, T48): sem
-	// X-Project-Key, o upload cai no projeto "default".
-	if _, err := models.EnsureDefaultProject(database); err != nil {
-		log.Fatalf("projeto padrão: %v", err)
-	}
-
 	// Client de webhook e adaptador para os callbacks (videoID, event, errMsg).
 	webhookClient := webhook.NewClient(cfg, database)
 	sendWebhook := func(videoID, event, errMsg string) {

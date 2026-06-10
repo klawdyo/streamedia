@@ -81,8 +81,8 @@ func TestReleaseWorkflowHasGHCR(t *testing.T) {
 	}
 }
 
-// TestReleaseWorkflowUsesGithubToken verifica se o workflow de Release usa GITHUB_TOKEN
-// e não contém UPLOAD_TOKEN_SECRET
+// TestReleaseWorkflowUsesGithubToken verifica se o workflow de Release usa
+// GITHUB_TOKEN e não vaza o ROOT_TOKEN.
 func TestReleaseWorkflowUsesGithubToken(t *testing.T) {
 	path := filepath.Join("../../.github/workflows/release.yml")
 	content, err := os.ReadFile(path)
@@ -95,8 +95,8 @@ func TestReleaseWorkflowUsesGithubToken(t *testing.T) {
 		t.Error("'GITHUB_TOKEN' não encontrado no workflow Release")
 	}
 
-	if strings.Contains(text, "UPLOAD_TOKEN_SECRET") {
-		t.Error("'UPLOAD_TOKEN_SECRET' não deveria estar no workflow Release")
+	if strings.Contains(text, "ROOT_TOKEN") {
+		t.Error("'ROOT_TOKEN' não deveria estar no workflow Release")
 	}
 }
 

@@ -8,13 +8,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/klawdyo/streamedia/internal/auth"
 	"github.com/klawdyo/streamedia/internal/models"
 )
 
 // awaitStats devolve um callback para passar como onStatsRecorded e uma
-// função wait() que bloqueia até que exatamente n gravações tenham
-// concluído. Evita flakiness ao testar a gravação assíncrona de eventos.
+// função wait() que bloqueia até que exatamente n gravações tenham concluído.
 func awaitStats(n int) (onDone func(error), wait func()) {
 	var wg sync.WaitGroup
 	wg.Add(n)
@@ -29,22 +27,15 @@ func TestMasterHandler_RecordsPlaybackEvent(t *testing.T) {
 	cfg := newTestConfig(t)
 	database := newTestDB(t)
 
-	project, err := models.EnsureDefaultProject(database)
-	if err != nil {
-		t.Fatalf("EnsureDefaultProject: %v", err)
-	}
-	insertVideo(t, database, testVideoID, "ready", &project.ID)
-	writeFile(t, filepath.Join(cfg.MediaDir, project.RootDir, testVideoID, "master.m3u8"), "#EXTM3U\n")
-
-	expires := time.Now().Add(time.Hour).Unix()
-	token := auth.GeneratePlayToken(testSecret, testVideoID, expires)
+	insertVideo(t, database, testVideoID, "ready", testTag)
+	writeFile(t, filepath.Join(cfg.MediaDir, testTag, testVideoID, "master.m3u8"), "#EXTM3U\n")
+	token := insertPlayToken(t, database, testVideoID, time.Now().Add(time.Hour))
 
 	onDone, wait := awaitStats(1)
 	h := NewMasterHandler(cfg, database)
 	h.onStatsRecorded = onDone
 
-	req := httptest.NewRequest(http.MethodGet,
-		"/videos/"+testVideoID+"/master.m3u8?expires="+itoa(expires)+"&token="+token, nil)
+	req := httptest.NewRequest(http.MethodGet, masterURL(token), nil)
 	req.Header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64)")
 	rec := httptest.NewRecorder()
 	h.ServeHTTP(rec, req)
@@ -76,18 +67,14 @@ func TestStaticHandler_RecordsSegmentDownloadEvent(t *testing.T) {
 	cfg := newTestConfig(t)
 	database := newTestDB(t)
 
-	project, err := models.EnsureDefaultProject(database)
-	if err != nil {
-		t.Fatalf("EnsureDefaultProject: %v", err)
-	}
-	insertVideo(t, database, testVideoID, "ready", &project.ID)
-	writeFile(t, filepath.Join(cfg.MediaDir, project.RootDir, testVideoID, "720", "0.ts"), "TS_DATA")
+	insertVideo(t, database, testVideoID, "ready", testTag)
+	writeFile(t, filepath.Join(cfg.MediaDir, testTag, testVideoID, "720", "0.ts"), "TS_DATA")
 
 	onDone, wait := awaitStats(1)
 	h := NewStaticHandler(cfg, database)
 	h.onStatsRecorded = onDone
 
-	req := httptest.NewRequest(http.MethodGet, "/videos/"+testVideoID+"/720/0.ts", nil)
+	req := httptest.NewRequest(http.MethodGet, "/video/"+testTag+"/"+testVideoID+"/720/0.ts", nil)
 	req.Header.Set("User-Agent", "Mozilla/5.0 (Linux; Android 14; Pixel 8)")
 	rec := httptest.NewRecorder()
 	h.ServeHTTP(rec, req)
@@ -117,11 +104,9 @@ func TestStaticHandler_RecordsSegmentDownloadEvent(t *testing.T) {
 func TestStaticHandler_DoesNotRecordOnAuthFailure(t *testing.T) {
 	cfg := newTestConfig(t)
 	database := newTestDB(t)
-	// Vídeo NÃO inserido — qualquer acesso resultará em falha de validação
-	// (resolução/arquivo inexistente), sem nunca chegar ao ponto de gravação.
 
 	h := NewStaticHandler(cfg, database)
-	req := httptest.NewRequest(http.MethodGet, "/videos/"+testVideoID+"/9999/0.ts", nil)
+	req := httptest.NewRequest(http.MethodGet, "/video/"+testTag+"/"+testVideoID+"/9999/0.ts", nil)
 	rec := httptest.NewRecorder()
 	h.ServeHTTP(rec, req)
 
@@ -139,12 +124,8 @@ func TestStaticHandler_DoesNotRecordOnAuthFailure(t *testing.T) {
 }
 
 func TestUploadCompleteRecordsEvent(t *testing.T) {
-	// O hook de finalização de upload (T09) não tem acesso direto ao
-	// *http.Request — registramos o evento com user_agent vazio (ver
-	// comentário no hook). Aqui testamos diretamente o contrato de
-	// gravação esperado: RecordEvent gera um registro "upload_complete".
 	database := newTestDB(t)
-	insertVideo(t, database, testVideoID, "ready", nil)
+	insertVideo(t, database, testVideoID, "ready", testTag)
 
 	if err := models.RecordEvent(database, testVideoID, "upload_complete", nil, ""); err != nil {
 		t.Fatalf("RecordEvent falhou: %v", err)

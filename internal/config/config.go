@@ -11,20 +11,24 @@ import (
 
 // Config agrega todas as configurações da aplicação.
 type Config struct {
-	UploadTokenSecret    string
+	// RootToken é a ÚNICA credencial durável de gestão (env ROOT_TOKEN):
+	// o backend principal a apresenta em Authorization: Bearer para criar
+	// vídeos (upload-init), emitir URLs de play, consultar status, listar e
+	// apagar. Sem vínculo com nenhum dado — pode ser trocada a qualquer
+	// momento (basta mudar o env e reiniciar).
+	RootToken            string
 	WebhookURL           string
 	WebhookSecret        string
-	AdminToken           string
 	MaxUploadSizeBytes   int64         // convertido de MB para bytes
 	MediaDir             string
 	UploadTmpDir         string
 	SQLitePath           string
 	QueueMaxSize         int
 	TranscodeWorkers     int
-	UploadTokenTTL       time.Duration // de segundos (UPLOAD_TOKEN_TTL_SECONDS) — TTL do token de upload (vida curta, ~20min)
-	PlayTokenMaxTTL      time.Duration // de segundos (PLAY_TOKEN_MAX_TTL_SECONDS)
-	UploadIdleTimeout    time.Duration // de segundos (UPLOAD_IDLE_TIMEOUT_SECONDS)
-	TranscodeStuckTime   time.Duration // de segundos (TRANSCODE_STUCK_SECONDS)
+	UploadTokenTTL       time.Duration // env UPLOAD_TOKEN_TTL (segundos) — TTL do token de upload (vida curta, ~20min)
+	PlayTokenTTL         time.Duration // env PLAY_TOKEN_TTL (segundos) — TTL do token de play emitido por /api/play/init
+	UploadIdleTimeout    time.Duration // env UPLOAD_IDLE_TIMEOUT (segundos)
+	TranscodeStuckTime   time.Duration // env TRANSCODE_STUCK (segundos)
 	MaxTranscodeAttempts int
 	KeepOriginal         bool
 	Port                 int
@@ -36,9 +40,9 @@ type Config struct {
 // padrão para as opcionais e validando as obrigatórias.
 func Load() (*Config, error) {
 	// Variáveis obrigatórias.
-	uploadTokenSecret := os.Getenv("UPLOAD_TOKEN_SECRET")
-	if uploadTokenSecret == "" {
-		return nil, fmt.Errorf("variável de ambiente UPLOAD_TOKEN_SECRET é obrigatória")
+	rootToken := os.Getenv("ROOT_TOKEN")
+	if rootToken == "" {
+		return nil, fmt.Errorf("variável de ambiente ROOT_TOKEN é obrigatória")
 	}
 	webhookURL := os.Getenv("WEBHOOK_URL")
 	if webhookURL == "" {
@@ -62,26 +66,25 @@ func Load() (*Config, error) {
 	if err != nil {
 		return nil, err
 	}
-	// Padronização em segundos (issue #4): todas as variáveis de tempo usam
-	// o sufixo _SECONDS, eliminando a mistura de unidades (horas e minutos)
-	// que existia antes (UPLOAD_TOKEN_TTL_H, UPLOAD_IDLE_TIMEOUT_MIN, etc.).
-	// Defaults equivalentes aos valores anteriores: 10min = 600s, 30min = 1800s.
-	// UPLOAD_TOKEN_TTL_SECONDS: TTL do token de upload. Com a unificação da
-	// issue #10 (T50), o valor padrão passou de 21600 (6h, semântica do fluxo
-	// legado HMAC que foi removido na T49) para 1200 (20min, "um único arquivo").
-	uploadTokenTTLSeconds, err := getEnvInt("UPLOAD_TOKEN_TTL_SECONDS", 1200)
+	// Variáveis de tempo, todas em SEGUNDOS (o nome não carrega o sufixo de
+	// unidade; o significado está documentado aqui e no .env.example).
+	// UPLOAD_TOKEN_TTL: TTL do token de upload (padrão 1200 = 20min).
+	uploadTokenTTLSeconds, err := getEnvInt("UPLOAD_TOKEN_TTL", 1200)
 	if err != nil {
 		return nil, err
 	}
-	playTokenMaxTTLSeconds, err := getEnvInt("PLAY_TOKEN_MAX_TTL_SECONDS", 21600)
+	// PLAY_TOKEN_TTL: TTL do token de play emitido por /api/play/init (padrão 3600 = 1h).
+	playTokenTTLSeconds, err := getEnvInt("PLAY_TOKEN_TTL", 3600)
 	if err != nil {
 		return nil, err
 	}
-	uploadIdleTimeoutSeconds, err := getEnvInt("UPLOAD_IDLE_TIMEOUT_SECONDS", 600)
+	// UPLOAD_IDLE_TIMEOUT: tempo de inatividade até matar um upload (padrão 600 = 10min).
+	uploadIdleTimeoutSeconds, err := getEnvInt("UPLOAD_IDLE_TIMEOUT", 600)
 	if err != nil {
 		return nil, err
 	}
-	transcodeStuckSeconds, err := getEnvInt("TRANSCODE_STUCK_SECONDS", 1800)
+	// TRANSCODE_STUCK: tempo para considerar uma transcodificação travada (padrão 1800 = 30min).
+	transcodeStuckSeconds, err := getEnvInt("TRANSCODE_STUCK", 1800)
 	if err != nil {
 		return nil, err
 	}
@@ -99,10 +102,9 @@ func Load() (*Config, error) {
 	}
 
 	cfg := &Config{
-		UploadTokenSecret:    uploadTokenSecret,
+		RootToken:            rootToken,
 		WebhookURL:           webhookURL,
 		WebhookSecret:        webhookSecret,
-		AdminToken:           getEnvStr("ADMIN_TOKEN", ""),
 		MaxUploadSizeBytes:   int64(maxUploadSizeMB) * 1024 * 1024,
 		MediaDir:             getEnvStr("MEDIA_DIR", "/media"),
 		UploadTmpDir:         getEnvStr("UPLOAD_TMP_DIR", "/media/.uploads"),
@@ -110,7 +112,7 @@ func Load() (*Config, error) {
 		QueueMaxSize:         queueMaxSize,
 		TranscodeWorkers:     transcodeWorkers,
 		UploadTokenTTL:       time.Second * time.Duration(uploadTokenTTLSeconds),
-		PlayTokenMaxTTL:      time.Second * time.Duration(playTokenMaxTTLSeconds),
+		PlayTokenTTL:         time.Second * time.Duration(playTokenTTLSeconds),
 		UploadIdleTimeout:    time.Second * time.Duration(uploadIdleTimeoutSeconds),
 		TranscodeStuckTime:   time.Second * time.Duration(transcodeStuckSeconds),
 		MaxTranscodeAttempts: maxTranscodeAttempts,

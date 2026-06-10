@@ -55,7 +55,9 @@ explícito do usuário.
 
 ## Arquivos do sistema
 
-- `spec/ESPECIFICACAOv4.md` — Especificação técnica completa (fonte de verdade)
+- `spec/README.md` — Índice da especificação técnica, dividida em arquivos
+  temáticos (arquitetura, autenticação, api, dados, pipeline, webhooks, operação).
+  Descreve o fluxo atual (tag + ROOT_TOKEN). Fonte de verdade última: o código.
 - `.agents/cto.md` — Instruções e workflow do agente CTO
 - `.agents/dev.md` — Instruções do agente Dev
 - `.agents/qa.md` — Instruções do agente QA

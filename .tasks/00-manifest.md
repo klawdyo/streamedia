@@ -6,10 +6,36 @@ Status possíveis: `pending` | `in-progress` | `done` | `blocked`
 ## Progresso geral
 
 ```
-Total: 68 tarefas
-Done:  68
+Total: 70 tarefas
+Done:  70
 Pending: 0
 ```
+
+## ⚠️ ARQUITETURA ATUAL (fluxo vigente) — leia antes de mexer
+
+O modelo de **"projetos" com chave mestra foi REMOVIDO** (T69). Várias tarefas
+antigas (T06, T32–T35, T44, T48–T50) descrevem um fluxo que **não existe mais** —
+elas ficam no histórico apenas como registro; **não** reflitam o código atual.
+
+Fluxo atual, enxuto:
+
+- **`ROOT_TOKEN`** (env) — credencial única de gestão, em
+  `Authorization: Bearer`. Protege `/api/upload/init`, `/api/play/init`,
+  `/api/status` e `/admin/*`. Substitui `ADMIN_TOKEN` e `UPLOAD_TOKEN_SECRET`
+  (ambos eliminados).
+- **`tag`** — namespace organizacional do vídeo (coluna `videos.tag`, indexada,
+  default `default`). Sem credencial própria. Disco: `<MEDIA_DIR>/<tag>/<id>`.
+  Substitui a tabela `projects` (removida).
+- **`access_tokens`** — tokens efêmeros de upload/play (linha no banco, coluna
+  `purpose`, validados por lookup, sem HMAC). Substitui `upload_tokens` e os
+  play tokens HMAC.
+- **Play** — `POST /api/play/init` emite `/video/<tag>/<id>.m3u8?token=...`
+  (master dinâmico; segmentos estáticos). Não há mais `/videos/...`.
+- **Webhook** — mantém HMAC (`WEBHOOK_SECRET`), único segredo compartilhado.
+- Variáveis de tempo **sem** sufixo `_SECONDS` (`UPLOAD_TOKEN_TTL`,
+  `PLAY_TOKEN_TTL`, `UPLOAD_IDLE_TIMEOUT`, `TRANSCODE_STUCK`).
+
+Spec dividida em `spec/` (índice + arquivos temáticos) — ver T70.
 
 ## Lista de tarefas
 
@@ -83,6 +109,8 @@ Pending: 0
 | T66 | `.tasks/66-fix-recovery-hardcoded-status-strings.md` | Fix: strings literais de status em `recovery.go` em vez de constantes | done | **media** — constantes models.Status* usadas |
 | T67 | `.tasks/67-fix-jobs-stop-no-waitgroup.md` | Fix: jobs periódicos sem `WaitGroup` no `Stop` — race no shutdown | done | **media** — WaitGroup em todos os 3 jobs |
 | T68 | `.tasks/68-fix-webhook-timeout-mismatch.md` | Fix: timeout incoerente no webhook client (30s client vs 10s context) | done | **media** — client timeout removido, só context 10s |
+| T69 | `.tasks/69-cleanup-legacy-flow.md` | Limpeza total do fluxo legado (projects/HMAC/scoped) — código, vars, comentários, OpenAPI | done | substitui o fluxo de projetos pelo de tag + ROOT_TOKEN; **supersede T06, T32–T35, T44, T48–T50** |
+| T70 | `.tasks/70-spec-reorg.md` | Reorganizar a especificação em arquivos menores + índice | done | `spec/` temática; depende T69 |
 
 ## Próxima onda — correções da análise de código (T56-T68)
 
@@ -157,6 +185,9 @@ Resumo por issue:
 [2026-06-08] T68: pending → done (Timeout: 30s removido do http.Client — só context 10s)
 [2026-06-08] T61+T64: pending → done (AdminAuth distingue sql.ErrNoRows; ScanVideoRow+SelectVideoColumns extraídas)
 [2026-06-08] T60: pending → done (limiterEntry com lastSeen, evictLoop periódico, Stop() no shutdown)
+[2026-06-10] REFACTOR ARQUITETURAL: modelo de projetos/chave-mestra substituído por tag + ROOT_TOKEN único (commit feat!). access_tokens com purpose; /api/play/init; serving /video/<tag>/<id>.m3u8; status via Bearer; vars de tempo sem _SECONDS. Supersede T06/T32–T35/T44/T48–T50.
+[2026-06-10] T69: in-progress → done (remoção total do fluxo legado: OpenAPI reescrito, telemetria /video/, comentários e testes limpos, ci_test usa ROOT_TOKEN; go vet limpo)
+[2026-06-10] T70: in-progress → done (spec dividida em spec/ temática + índice; CLAUDE.md aponta para o novo índice)
 [2026-06-08] T55: pending → done (já estava implementada — pacote internal/version e rota GET /api existentes)
 
 [2026-06-07] Análise completa de código: geradas T56-T68 (13 tasks) a partir de
