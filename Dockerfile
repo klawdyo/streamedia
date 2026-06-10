@@ -23,20 +23,21 @@ RUN CGO_ENABLED=0 go build \
 
 # Estágio de runtime — imagem mínima com FFmpeg
 FROM alpine:3.20
-# Cria os diretórios persistidos com o ownership correto do appuser. Para
-# VOLUMES NOMEADOS, o Docker copia o conteúdo+ownership do mount point da
-# imagem na primeira criação do volume — por isso pré-criar /data, /media e
-# /media/.uploads aqui garante que um volume novo já nasça gravável pelo
-# appuser (uid 10001). Em runtime, o binário ainda chama ensureRuntimeDirs
-# como rede de segurança (cobre bind mounts e volumes recriados/apagados).
-RUN apk add --no-cache ffmpeg wget && \
+# su-exec: utilitário minúsculo que executa um comando baixando o privilégio
+# para outro usuário (usado pelo entrypoint para sair de root → appuser).
+# Cria o appuser e pré-cria os diretórios persistidos. Para BIND MOUNTS, o
+# diretório do host sobrescreve estes em runtime e nasce como root — por isso
+# o ownership real é ajustado pelo docker-entrypoint.sh a cada boot.
+RUN apk add --no-cache ffmpeg wget su-exec && \
     adduser -D -u 10001 appuser && \
     mkdir -p /data /media /media/.uploads && \
     chown -R appuser:appuser /data /media
 COPY --from=build /mediaserver /usr/local/bin/mediaserver
-USER appuser
-# Declara os volumes persistidos: deixa explícito o que deve sobreviver entre
-# recriações do container e qual ownership o volume nomeado herda.
-VOLUME ["/data", "/media"]
+COPY docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh
+RUN chmod +x /usr/local/bin/docker-entrypoint.sh
+# IMPORTANTE: o container inicia como ROOT (sem USER appuser) — o entrypoint
+# precisa de root para fazer o chown dos bind mounts e SÓ DEPOIS baixa o
+# privilégio para appuser via su-exec. O processo final (mediaserver) roda como
+# não-root; a segurança de não-root é garantida pelo entrypoint, não por USER.
 EXPOSE 3000
-ENTRYPOINT ["mediaserver"]
+ENTRYPOINT ["/usr/local/bin/docker-entrypoint.sh"]

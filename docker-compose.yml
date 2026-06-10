@@ -29,12 +29,17 @@ services:
       - PORT=${PORT:-3000}
       - RATE_LIMIT_PER_MIN=${RATE_LIMIT_PER_MIN:-60}
     volumes:
-      # Volumes nomeados (não bind mounts): o Docker inicializa o ponto de
-      # montagem herdando a ownership do diretório na imagem (appuser:appuser),
-      # então o processo não-root consegue escrever. Bind mounts do host
-      # (./data) seriam criados como root e quebrariam o SQLite (erro 14).
-      - media:/media
-      - data:/data
+      # BIND MOUNTS para caminhos absolutos do host: assim o storage aparece
+      # como um DIRETÓRIO VISÍVEL na aba de Persistent Storage do Coolify (e é
+      # browsável/inspecionável no host), em vez de um volume nomeado opaco
+      # escondido em /var/lib/docker/volumes.
+      #
+      # A permissão é resolvida pelo docker-entrypoint.sh: o container sobe como
+      # root, faz chown destes diretórios para appuser e então baixa o
+      # privilégio via su-exec. Sem isso, o bind mount nasceria como root e o
+      # SQLite falharia (error 14).
+      - /data/coolify/streamedia/media:/media
+      - /data/coolify/streamedia/data:/data
     # SEM `ports:` em produção (segurança): não publicamos a porta da app no
     # host. O proxy reverso do Coolify (Traefik) alcança o container pela rede
     # interna do Docker — ele lê a porta exposta pela imagem (EXPOSE 3000 no
@@ -54,23 +59,7 @@ services:
       timeout: 5s
       retries: 3
 
-# Volumes nomeados persistentes — gerenciados pelo Docker/Coolify, sobrevivem
-# a recriações do container e preservam a ownership não-root da imagem.
-#
-# `name:` explícito: sem ele, o Coolify gera um nome com prefixo/hash do recurso
-# (ex.: `abc123def_data`), que fica difícil de identificar e parece "aleatório"
-# na aba de Persistent Storage. Fixando o nome, os volumes aparecem limpos e
-# previsíveis no Coolify (`streamedia_data` / `streamedia_media`) e são fáceis de
-# localizar/inspecionar/remover (`docker volume ls`, `docker volume rm`).
-#
-# Continuam sendo volumes NOMEADOS (não bind mounts) de propósito: o Docker
-# inicializa o ponto de montagem herdando a ownership da imagem (appuser:appuser),
-# então o processo não-root escreve sem erro. O conteúdo físico vive em
-# /var/lib/docker/volumes/<name>/_data — isso é intrínseco a volumes nomeados do
-# Docker; para um caminho de host arbitrário seria preciso usar bind mount, que
-# reintroduz o problema de permissão do usuário não-root (SQLite error 14).
-volumes:
-  media:
-    name: streamedia_media
-  data:
-    name: streamedia_data
+# Sem bloco `volumes:` nomeados: a persistência agora é feita por BIND MOUNTS
+# para caminhos absolutos do host (ver `volumes:` do serviço acima), para que os
+# diretórios apareçam na aba de Persistent Storage do Coolify. A ownership é
+# tratada em runtime pelo docker-entrypoint.sh (root → chown → su-exec appuser).
