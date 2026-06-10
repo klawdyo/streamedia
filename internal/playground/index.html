@@ -132,6 +132,8 @@
   /* Bloco de resposta com "syntax highlighting" de JSON */
   .response { display: flex; flex-direction: column; gap: 8px; }
   .response h4 { margin: 0; font-size: 11px; text-transform: uppercase; letter-spacing: 1px; color: var(--text-dim); }
+  .response h4.ex-req { color: var(--accent); margin-top: 2px; }
+  .response h4.ex-resp { color: var(--ok); margin-top: 6px; padding-top: 8px; border-top: 1px dashed var(--border-strong); }
   pre {
     background: var(--bg-inset);
     border: 1px solid var(--border);
@@ -198,6 +200,7 @@
         <button class="ghost" id="btnToggleToken" type="button">Mostrar/ocultar</button>
       </div>
       <div class="meta" id="authMeta"></div>
+      <div class="response" id="authResp"></div>
     </div>
   </section>
 
@@ -251,6 +254,7 @@
       </div>
       <div class="note">Cada chunk tem um timeout próprio; se a conexão travar, o chunk é abortado
         e você pode <b>Retry / Continuar</b> — o upload retoma do offset real no servidor (TUS é resumível).</div>
+      <div class="response" id="tusPreview"></div>
       <div id="chunkPlan"></div>
       <div class="progress unified" id="unifiedProgress" style="display:none">
         <div class="bar"></div><div class="label">0%</div>
@@ -306,6 +310,7 @@
         <code class="inline">ready</code>, <code class="inline">failed</code>. A conexão abre
         automaticamente após a etapa 2.</div>
       <div class="meta" id="sseMeta"><span class="pill">desconectado</span></div>
+      <div class="response" id="sseReq"></div>
       <div class="webhook-list" id="eventList">
         <div class="webhook-empty">Nenhum evento recebido ainda.</div>
       </div>
@@ -357,18 +362,61 @@ function highlightJSON(obj) {
   );
 }
 
-// Renderiza um bloco de resposta completo: status, timing, headers e body JSON.
-function renderResponse(containerId, { status, ms, headers, body }) {
-  const headerRows = headers
-    ? Object.entries(headers).map(([k, v]) => `<div><b>${k}:</b> ${v}</div>`).join("")
-    : "";
+// maskSecret encurta um valor sensível (token) para exibição "documentável":
+// mostra o início e o fim, escondendo o miolo. Mantém a estrutura visível sem
+// vazar o token inteiro em prints/compartilhamento.
+function maskSecret(v) {
+  if (typeof v !== "string" || v.length <= 14) return v;
+  return v.slice(0, 6) + "…" + v.slice(-4);
+}
+
+// maskHeaderValue mascara o token em cabeçalhos sensíveis, preservando o
+// formato (ex.: "Bearer abc123…wxyz").
+function maskHeaderValue(name, value) {
+  const n = name.toLowerCase();
+  if (n === "authorization") {
+    const parts = String(value).split(" ");
+    return parts.length === 2 ? parts[0] + " " + maskSecret(parts[1]) : maskSecret(value);
+  }
+  if (n === "upload-token") return maskSecret(value);
+  return value;
+}
+
+// maskURL mascara o token quando ele aparece na query string (ex.: SSE).
+function maskURL(url) {
+  return url.replace(/([?&]token=)([^&]+)/g, (_m, p, tok) => p + maskSecret(decodeURIComponent(tok)));
+}
+
+function headerRowsHTML(headers, mask) {
+  return Object.entries(headers || {})
+    .map(([k, v]) => `<div><b>${k}:</b> ${mask ? maskHeaderValue(k, v) : v}</div>`)
+    .join("");
+}
+
+// renderExchange mostra a TROCA completa: a requisição enviada (método, URL,
+// cabeçalhos, corpo) E a resposta recebida (status, timing, cabeçalhos, corpo).
+// Assim o playground também serve de documentação viva de cada chamada.
+//   req:  { method, url, headers?, body? }
+//   resp: { status, ms, headers, body }  (opcional — ausente enquanto carrega)
+function renderExchange(containerId, req, resp) {
+  const reqHeaders = req.headers ? `<h4>Request headers</h4><pre class="headers-table">${headerRowsHTML(req.headers, true)}</pre>` : "";
+  const reqBody = (req.body !== undefined && req.body !== null && req.body !== "")
+    ? `<h4>Request body</h4><pre>${highlightJSON(req.body)}</pre>` : "";
+  let respPart = "";
+  if (resp) {
+    respPart = `
+      <h4 class="ex-resp">↓ Resposta · HTTP ${resp.status} · ${resp.ms.toFixed(0)} ms</h4>
+      ${resp.headers ? `<h4>Response headers</h4><pre class="headers-table">${headerRowsHTML(resp.headers, false)}</pre>` : ""}
+      <h4>Response body</h4>
+      <pre>${highlightJSON(resp.body)}</pre>`;
+  }
   $(containerId).innerHTML = `
     <div class="response">
-      <h4>Status</h4>
-      <pre>HTTP ${status} · ${ms.toFixed(0)} ms</pre>
-      ${headerRows ? `<h4>Headers da resposta</h4><pre class="headers-table">${headerRows}</pre>` : ""}
-      <h4>Body</h4>
-      <pre>${highlightJSON(body)}</pre>
+      <h4 class="ex-req">↑ Requisição</h4>
+      <pre>${req.method} ${maskURL(req.url)}</pre>
+      ${reqHeaders}
+      ${reqBody}
+      ${respPart}
     </div>`;
 }
 
@@ -406,10 +454,15 @@ $("btnAuth").onclick = async () => {
   if (!token) { setMeta("authMeta", "err", "Informe o ROOT_TOKEN."); return; }
   setMeta("authMeta", "load", "validando…");
   // Valida o token contra uma rota protegida leve (GET /admin/stats).
+  const req = {
+    method: "GET",
+    url: origin + "/admin/stats",
+    headers: { "Authorization": "Bearer " + token },
+  };
+  renderExchange("authResp", req, null);
   try {
-    const r = await timedFetch(origin + "/admin/stats", {
-      headers: { "Authorization": "Bearer " + token },
-    });
+    const r = await timedFetch(req.url, { headers: req.headers });
+    renderExchange("authResp", req, r);
     if (r.status === 401 || r.status === 403) {
       setMeta("authMeta", "err", "Token rejeitado (HTTP " + r.status + ").");
       return;
@@ -433,17 +486,20 @@ $("btnInit").onclick = async () => {
   // declared_size_bytes precisa ser EXATO: o servidor valida actual == declared
   // no fim do upload. Por isso enviamos o tamanho real do arquivo escolhido.
   const declared = selectedFile.size;
+  const req = {
+    method: "POST",
+    url: origin + "/api/upload/init",
+    headers: {
+      "Authorization": "Bearer " + state.rootToken,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({ tag, declared_size_bytes: declared }),
+  };
+  renderExchange("initResp", req, null); // mostra a requisição já enviada
   setMeta("initMeta", "load", "solicitando…");
   try {
-    const r = await timedFetch(origin + "/api/upload/init", {
-      method: "POST",
-      headers: {
-        "Authorization": "Bearer " + state.rootToken,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({ tag, declared_size_bytes: declared }),
-    });
-    renderResponse("initResp", r);
+    const r = await timedFetch(req.url, { method: req.method, headers: req.headers, body: req.body });
+    renderExchange("initResp", req, r);
     if (r.status === 200 && r.body && r.body.data) {
       state.videoId = r.body.data.video_id;
       state.tag = r.body.data.tag;
@@ -613,9 +669,36 @@ function patchChunk(blob, offset, timeoutMs, onProgress) {
   });
 }
 
+// renderTusPreview documenta as duas requisições do protocolo TUS usadas no
+// upload — criar (POST) e enviar cada chunk (PATCH) — com seus cabeçalhos.
+function renderTusPreview() {
+  const createHeaders = {
+    "Upload-Token": state.uploadToken,
+    "Upload-Length": String(up.total),
+    "Tus-Resumable": "1.0.0",
+  };
+  const patchHeaders = {
+    "Upload-Token": state.uploadToken,
+    "Tus-Resumable": "1.0.0",
+    "Upload-Offset": "0",
+    "Content-Type": "application/offset+octet-stream",
+  };
+  $("tusPreview").innerHTML = `
+    <div class="response">
+      <h4 class="ex-req">↑ TUS · criar upload (uma vez)</h4>
+      <pre>POST ${up.url}</pre>
+      <pre class="headers-table">${headerRowsHTML(createHeaders, true)}</pre>
+      <h4 class="ex-req">↑ TUS · enviar chunk (repete por chunk; Upload-Offset cresce)</h4>
+      <pre>PATCH ${up.url}</pre>
+      <pre class="headers-table">${headerRowsHTML(patchHeaders, true)}</pre>
+      <pre>&lt;${up.chunkSize} bytes do arquivo&gt;</pre>
+    </div>`;
+}
+
 // runUpload roda o laço de envio a partir de up.offset até o fim, ou para
 // num erro/cancelamento deixando o estado pronto para retomar.
 async function runUpload() {
+  renderTusPreview();
   up.cancelled = false;
   up.running = true;
   setUploadButtons("running");
@@ -766,17 +849,20 @@ function stopStatusPolling() {
 $("btnPollStatus").onclick = pollStatusOnce;
 
 $("btnPlayInit").onclick = async () => {
+  const req = {
+    method: "POST",
+    url: origin + "/api/play/init",
+    headers: {
+      "Authorization": "Bearer " + state.rootToken,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({ video_id: state.videoId }),
+  };
+  renderExchange("playResp", req, null);
   setMeta("statusMeta", "load", "solicitando link de play…");
   try {
-    const r = await timedFetch(origin + "/api/play/init", {
-      method: "POST",
-      headers: {
-        "Authorization": "Bearer " + state.rootToken,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({ video_id: state.videoId }),
-    });
-    renderResponse("playResp", r);
+    const r = await timedFetch(req.url, { method: req.method, headers: req.headers, body: req.body });
+    renderExchange("playResp", req, r);
     if (r.status === 200 && r.body && r.body.data) {
       // Usa as resoluções devolvidas pelo play/init (variantes realmente geradas).
       state.resolutions = Array.isArray(r.body.data.resolutions) ? r.body.data.resolutions : [];
@@ -872,6 +958,12 @@ function connectEventStream() {
   unlock("step6");
 
   const url = `${origin}/api/events?video_id=${encodeURIComponent(state.videoId)}&token=${encodeURIComponent(state.uploadToken)}`;
+  // Documenta a requisição do stream (token mascarado).
+  $("sseReq").innerHTML = `<div class="response">
+    <h4 class="ex-req">↑ Requisição (EventSource)</h4>
+    <pre>GET ${maskURL(url)}</pre>
+    <pre class="headers-table"><b>Accept:</b> text/event-stream</pre>
+  </div>`;
   setMeta("sseMeta", "load", "conectando…");
   eventSource = new EventSource(url);
 
