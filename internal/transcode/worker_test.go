@@ -178,16 +178,10 @@ func TestTranscodeWorker_FFmpegNotAvailable(t *testing.T) {
 	}
 	defer database.Close()
 
-	// Garante o projeto padrão — ResolveVideoRootDir exige project_id (T48).
-	project, err := models.EnsureDefaultProject(database)
-	if err != nil {
-		t.Fatalf("EnsureDefaultProject: %v", err)
-	}
-
 	// Insere um vídeo com status 'transcoding' e tentativas = 2 (uma menos que max=3)
 	_, err = database.Exec(
-		"INSERT INTO videos (video_id, project_id, status, transcode_attempts) VALUES (?, ?, ?, ?)",
-		"test-ffmpeg-fail", project.ID, "transcoding", 2,
+		"INSERT INTO videos (video_id, tag, status, transcode_attempts) VALUES (?, ?, ?, ?)",
+		"test-ffmpeg-fail", "default", "transcoding", 2,
 	)
 	if err != nil {
 		t.Fatalf("erro ao inserir vídeo: %v", err)
@@ -257,12 +251,6 @@ func TestTranscodeWorker_UpdatesStatus(t *testing.T) {
 	}
 	defer database.Close()
 
-	// Garante o projeto padrão — ResolveVideoRootDir exige project_id (T48).
-	project, err := models.EnsureDefaultProject(database)
-	if err != nil {
-		t.Fatalf("EnsureDefaultProject: %v", err)
-	}
-
 	tempDir := t.TempDir()
 	uploadTmpDir := filepath.Join(tempDir, "uploads")
 	mediaDir := filepath.Join(tempDir, "media")
@@ -274,10 +262,11 @@ func TestTranscodeWorker_UpdatesStatus(t *testing.T) {
 		t.Fatalf("erro ao criar mediaDir: %v", err)
 	}
 
-	// Insere um vídeo com status 'upload_complete'
+	// Insere um vídeo com status 'upload_complete' e tag vazia (a saída cai
+	// direto em <MEDIA_DIR>/test-success, casando com o mock de FFmpeg abaixo).
 	_, err = database.Exec(
-		"INSERT INTO videos (video_id, project_id, status) VALUES (?, ?, ?)",
-		"test-success", project.ID, "upload_complete",
+		"INSERT INTO videos (video_id, tag, status) VALUES (?, ?, ?)",
+		"test-success", "", "upload_complete",
 	)
 	if err != nil {
 		t.Fatalf("erro ao inserir vídeo: %v", err)

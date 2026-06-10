@@ -17,7 +17,6 @@ import (
 func configTeste(t *testing.T) *config.Config {
 	t.Helper()
 	return &config.Config{
-		UploadTokenSecret:  "secret-test-upload",
 		WebhookURL:         "http://localhost",
 		WebhookSecret:      "secret-test-webhook",
 		MaxUploadSizeBytes: 50 * 1024 * 1024, // 50MB
@@ -83,8 +82,8 @@ func TestTUSPreCreate_ValidToken(t *testing.T) {
 	if err := models.InsertVideo(database, videoID, 1024); err != nil {
 		t.Fatal(err)
 	}
-	token := auth.GenerateUploadToken(cfg.UploadTokenSecret, videoID)
-	if err := models.InsertUploadToken(database, token, videoID, time.Now().Add(time.Hour)); err != nil {
+	token, _ := auth.GenerateToken()
+	if err := models.InsertAccessToken(database, token, videoID, models.PurposeUpload, time.Now().Add(time.Hour)); err != nil {
 		t.Fatal(err)
 	}
 
@@ -168,8 +167,8 @@ func TestTUSPreCreate_SizeExceedsLimit(t *testing.T) {
 	if err := models.InsertVideo(database, videoID, 1024); err != nil {
 		t.Fatal(err)
 	}
-	token := auth.GenerateUploadToken(cfg.UploadTokenSecret, videoID)
-	if err := models.InsertUploadToken(database, token, videoID, time.Now().Add(time.Hour)); err != nil {
+	token, _ := auth.GenerateToken()
+	if err := models.InsertAccessToken(database, token, videoID, models.PurposeUpload, time.Now().Add(time.Hour)); err != nil {
 		t.Fatal(err)
 	}
 

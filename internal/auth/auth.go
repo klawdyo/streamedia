@@ -1,105 +1,46 @@
-// Pacote auth implementa autenticação HMAC-SHA256 para os três tipos de token do sistema.
-// REGRA CRÍTICA DE SEGURANÇA: todas as comparações de HMAC usam hmac.Equal (tempo constante)
-// para prevenir timing attacks. Nunca use == para comparar tokens.
+// Pacote auth reúne os utilitários de credenciais do sistema.
+//
+// No modelo de TAG + ROOT_TOKEN único, não há mais tokens HMAC determinísticos:
+//   - O ROOT_TOKEN é comparado em tempo constante (SecureCompare).
+//   - Os tokens efêmeros de upload/play são strings aleatórias opacas
+//     (GenerateToken), persistidas em access_tokens e validadas por lookup
+//     no banco (ver internal/models/token.go) — sem segredo de assinatura.
+//
+// REGRA DE SEGURANÇA: comparações de credencial usam subtle.ConstantTimeCompare
+// (tempo constante) para prevenir timing attacks. Nunca use == para comparar.
 package auth
 
 import (
 	"crypto/hmac"
+	"crypto/rand"
 	"crypto/sha256"
+	"crypto/subtle"
 	"encoding/hex"
-	"errors"
 	"fmt"
-	"time"
 )
 
-// GenerateUploadToken gera um token HMAC-SHA256 para autorizar o upload de um vídeo.
-// O token é vinculado ao video_id: só autoriza o upload daquele vídeo específico.
-// Mesmo secret + mesmo video_id sempre geram o mesmo token (determinístico).
-func GenerateUploadToken(secret, videoID string) string {
-	mac := hmac.New(sha256.New, []byte(secret))
-	mac.Write([]byte(videoID))
-	return hex.EncodeToString(mac.Sum(nil))
+// GenerateToken gera um token opaco aleatório (32 bytes, hex = 64 chars).
+// Usado para os tokens efêmeros de upload e de play: o valor não carrega
+// significado — a autorização vem da linha correspondente em access_tokens.
+func GenerateToken() (string, error) {
+	buf := make([]byte, 32)
+	if _, err := rand.Read(buf); err != nil {
+		return "", fmt.Errorf("erro ao gerar token aleatório: %w", err)
+	}
+	return hex.EncodeToString(buf), nil
 }
 
-// ValidateUploadToken verifica se o token é válido para o video_id informado.
-// Usa comparação em tempo constante para prevenir timing attacks.
-func ValidateUploadToken(secret, videoID, token string) bool {
-	expected := GenerateUploadToken(secret, videoID)
-	expectedBytes, err := hex.DecodeString(expected)
-	if err != nil {
-		return false
-	}
-	tokenBytes, err := hex.DecodeString(token)
-	if err != nil {
-		return false
-	}
-	return hmac.Equal(expectedBytes, tokenBytes)
+// SecureCompare compara duas strings em tempo constante. Usada para validar
+// o ROOT_TOKEN apresentado em Authorization: Bearer.
+func SecureCompare(a, b string) bool {
+	return subtle.ConstantTimeCompare([]byte(a), []byte(b)) == 1
 }
 
-// GeneratePlayToken gera o token HMAC que o backend principal usa para criar URLs assinadas.
-// O payload assinado é "{video_id}:{expires_unix}" — vincula o token ao vídeo e à expiração.
-func GeneratePlayToken(secret, videoID string, expiresUnix int64) string {
-	payload := fmt.Sprintf("%s:%d", videoID, expiresUnix)
-	mac := hmac.New(sha256.New, []byte(secret))
-	mac.Write([]byte(payload))
-	return hex.EncodeToString(mac.Sum(nil))
-}
-
-// ValidatePlayToken valida um token de reprodução recebido na URL do master.m3u8.
-// Verifica em ordem: expiração, TTL máximo, assinatura HMAC.
-// Retorna erro descritivo em português para cada tipo de falha.
-func ValidatePlayToken(secret, videoID string, expiresUnix int64, token string, maxTTL time.Duration) error {
-	now := time.Now()
-	expiresAt := time.Unix(expiresUnix, 0)
-
-	// Verifica se o token já expirou
-	if now.After(expiresAt) {
-		return errors.New("Token de reprodução inválido.")
-	}
-
-	// Verifica se a expiração está dentro do TTL máximo permitido
-	// (protege contra tokens com expiração absurdamente longa)
-	maxExpires := now.Add(maxTTL)
-	if expiresAt.After(maxExpires) {
-		return errors.New("Token de reprodução inválido.")
-	}
-
-	// Recalcula o HMAC esperado e compara em tempo constante
-	expected := GeneratePlayToken(secret, videoID, expiresUnix)
-	expectedBytes, err := hex.DecodeString(expected)
-	if err != nil {
-		return errors.New("Token de reprodução inválido.")
-	}
-	tokenBytes, err := hex.DecodeString(token)
-	if err != nil {
-		return errors.New("Token de reprodução inválido.")
-	}
-	if !hmac.Equal(expectedBytes, tokenBytes) {
-		return errors.New("Token de reprodução inválido.")
-	}
-
-	return nil
-}
-
-// SignBackendRequest assina o body de uma requisição backend-to-backend.
-// O backend principal usa isso para autorizar chamadas ao /upload/init e /api/status.
-func SignBackendRequest(secret string, body []byte) string {
+// SignWebhook assina o corpo de um webhook com HMAC-SHA256 (hex), usando o
+// WEBHOOK_SECRET. É o único segredo compartilhado com o backend principal: o
+// outro lado valida a assinatura recalculando o HMAC com o mesmo segredo.
+func SignWebhook(secret string, body []byte) string {
 	mac := hmac.New(sha256.New, []byte(secret))
 	mac.Write(body)
 	return hex.EncodeToString(mac.Sum(nil))
-}
-
-// ValidateBackendAuth valida a assinatura de uma requisição do backend principal.
-// Compara em tempo constante para prevenir timing attacks.
-func ValidateBackendAuth(secret string, body []byte, signature string) bool {
-	expected := SignBackendRequest(secret, body)
-	expectedBytes, err := hex.DecodeString(expected)
-	if err != nil {
-		return false
-	}
-	sigBytes, err := hex.DecodeString(signature)
-	if err != nil {
-		return false
-	}
-	return hmac.Equal(expectedBytes, sigBytes)
 }

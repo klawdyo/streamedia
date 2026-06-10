@@ -29,7 +29,7 @@ func setupAdminTest(t *testing.T) (*sql.DB, *config.Config) {
 	t.Cleanup(func() { _ = database.Close() })
 
 	cfg := &config.Config{
-		AdminToken:       "test-admin-token",
+		RootToken:       "test-admin-token",
 		TranscodeWorkers: 1,
 	}
 
@@ -41,7 +41,7 @@ func insertVideo(t *testing.T, database *sql.DB, videoID string, status models.V
 	t.Helper()
 
 	_, err := database.Exec(
-		"INSERT INTO videos (video_id, status, created_at, updated_at) VALUES (?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)",
+		"INSERT INTO videos (video_id, tag, status, created_at, updated_at) VALUES (?, 'default', ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)",
 		videoID, status,
 	)
 	if err != nil {
@@ -107,7 +107,7 @@ func TestAdminVideos_WithoutAuth(t *testing.T) {
 	handler := NewAdminHandler(cfg, database, &mockQueue{})
 
 	// Wraps o handler com o middleware AdminAuth
-	wrapped := AdminAuth(cfg.AdminToken, database)(http.HandlerFunc(handler.HandleVideos))
+	wrapped := RootAuth(cfg.RootToken)(http.HandlerFunc(handler.HandleVideos))
 
 	// Cria a requisição SEM header Authorization
 	req := httptest.NewRequest("GET", "/admin/videos", nil)
@@ -330,10 +330,9 @@ func TestAdminVideos_InvalidStatus(t *testing.T) {
 // TestAdminAuth_WrongToken verifica que o middleware AdminAuth retorna 401
 // quando um token incorreto é fornecido.
 func TestAdminAuth_WrongToken(t *testing.T) {
-	cfg := &config.Config{AdminToken: "correct-token"}
-	database, _ := setupAdminTest(t)
+	cfg := &config.Config{RootToken: "correct-token"}
 
-	wrapped := AdminAuth(cfg.AdminToken, database)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	wrapped := RootAuth(cfg.RootToken)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	}))
 
@@ -351,10 +350,9 @@ func TestAdminAuth_WrongToken(t *testing.T) {
 // TestAdminAuth_BadAuthFormat verifica que o middleware AdminAuth retorna 401
 // quando o header Authorization não segue o formato "Bearer {token}".
 func TestAdminAuth_BadAuthFormat(t *testing.T) {
-	cfg := &config.Config{AdminToken: "correct-token"}
-	database, _ := setupAdminTest(t)
+	cfg := &config.Config{RootToken: "correct-token"}
 
-	wrapped := AdminAuth(cfg.AdminToken, database)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	wrapped := RootAuth(cfg.RootToken)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	}))
 
@@ -470,7 +468,7 @@ func TestAdminVideos_OrderByCreatedAt(t *testing.T) {
 		videoID := "vid-" + string(rune(48+i))
 		createdAt := now.Add(time.Duration(i) * time.Minute)
 		_, err := database.Exec(
-			"INSERT INTO videos (video_id, status, created_at, updated_at) VALUES (?, ?, ?, ?)",
+			"INSERT INTO videos (video_id, tag, status, created_at, updated_at) VALUES (?, 'default', ?, ?, ?)",
 			videoID, models.StatusReady, createdAt, createdAt,
 		)
 		if err != nil {

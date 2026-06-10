@@ -8,7 +8,7 @@ import (
 
 func TestLoad_RequiredVarsMissing(t *testing.T) {
 	// Garante que Load() falha quando variáveis obrigatórias estão ausentes.
-	t.Setenv("UPLOAD_TOKEN_SECRET", "")
+	t.Setenv("ROOT_TOKEN", "")
 	t.Setenv("WEBHOOK_URL", "")
 	t.Setenv("WEBHOOK_SECRET", "")
 
@@ -20,7 +20,7 @@ func TestLoad_RequiredVarsMissing(t *testing.T) {
 
 func TestLoad_RequiredVarsPresent(t *testing.T) {
 	// Verifica que Load() funciona com as variáveis obrigatórias definidas.
-	t.Setenv("UPLOAD_TOKEN_SECRET", "secret-upload")
+	t.Setenv("ROOT_TOKEN", "secret-upload")
 	t.Setenv("WEBHOOK_URL", "https://backend.exemplo.com/webhooks")
 	t.Setenv("WEBHOOK_SECRET", "secret-webhook")
 
@@ -28,8 +28,8 @@ func TestLoad_RequiredVarsPresent(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Load() retornou erro inesperado: %v", err)
 	}
-	if cfg.UploadTokenSecret != "secret-upload" {
-		t.Errorf("UploadTokenSecret: esperado %q, obtido %q", "secret-upload", cfg.UploadTokenSecret)
+	if cfg.RootToken != "secret-upload" {
+		t.Errorf("RootToken: esperado %q, obtido %q", "secret-upload", cfg.RootToken)
 	}
 	if cfg.WebhookURL != "https://backend.exemplo.com/webhooks" {
 		t.Errorf("WebhookURL: esperado %q, obtido %q", "https://backend.exemplo.com/webhooks", cfg.WebhookURL)
@@ -38,7 +38,7 @@ func TestLoad_RequiredVarsPresent(t *testing.T) {
 
 func TestLoad_Defaults(t *testing.T) {
 	// Verifica que os valores padrão são aplicados para variáveis opcionais.
-	t.Setenv("UPLOAD_TOKEN_SECRET", "s")
+	t.Setenv("ROOT_TOKEN", "s")
 	t.Setenv("WEBHOOK_URL", "https://x.com")
 	t.Setenv("WEBHOOK_SECRET", "s2")
 	// Garante que variáveis opcionais não estão setadas
@@ -73,7 +73,7 @@ func TestLoad_Defaults(t *testing.T) {
 
 func TestLoad_OverrideDefaults(t *testing.T) {
 	// Verifica que valores das variáveis de ambiente sobrescrevem os padrões.
-	t.Setenv("UPLOAD_TOKEN_SECRET", "s")
+	t.Setenv("ROOT_TOKEN", "s")
 	t.Setenv("WEBHOOK_URL", "https://x.com")
 	t.Setenv("WEBHOOK_SECRET", "s2")
 	t.Setenv("MAX_UPLOAD_SIZE_MB", "500")
@@ -94,7 +94,7 @@ func TestLoad_OverrideDefaults(t *testing.T) {
 
 func TestLoad_InvalidInt(t *testing.T) {
 	// Verifica que Load() retorna erro quando um inteiro inválido é fornecido.
-	t.Setenv("UPLOAD_TOKEN_SECRET", "s")
+	t.Setenv("ROOT_TOKEN", "s")
 	t.Setenv("WEBHOOK_URL", "https://x.com")
 	t.Setenv("WEBHOOK_SECRET", "s2")
 	t.Setenv("MAX_UPLOAD_SIZE_MB", "nao_e_numero")
@@ -105,16 +105,15 @@ func TestLoad_InvalidInt(t *testing.T) {
 	}
 }
 
-func TestLoad_TimeVarsDefaultsAreInSeconds(t *testing.T) {
-	// issue #4: as variáveis de tempo devem ser lidas em segundos, com
-	// defaults equivalentes aos valores anteriores (6h, 10min, 30min).
-	t.Setenv("UPLOAD_TOKEN_SECRET", "s")
+func TestLoad_TimeVarsDefaults(t *testing.T) {
+	// As variáveis de tempo são lidas em segundos; valida os defaults.
+	t.Setenv("ROOT_TOKEN", "s")
 	t.Setenv("WEBHOOK_URL", "https://x.com")
 	t.Setenv("WEBHOOK_SECRET", "s2")
-	t.Setenv("UPLOAD_TOKEN_TTL_SECONDS", "")
-	t.Setenv("PLAY_TOKEN_MAX_TTL_SECONDS", "")
-	t.Setenv("UPLOAD_IDLE_TIMEOUT_SECONDS", "")
-	t.Setenv("TRANSCODE_STUCK_SECONDS", "")
+	t.Setenv("UPLOAD_TOKEN_TTL", "")
+	t.Setenv("PLAY_TOKEN_TTL", "")
+	t.Setenv("UPLOAD_IDLE_TIMEOUT", "")
+	t.Setenv("TRANSCODE_STUCK", "")
 
 	cfg, err := Load()
 	if err != nil {
@@ -127,7 +126,7 @@ func TestLoad_TimeVarsDefaultsAreInSeconds(t *testing.T) {
 		want time.Duration
 	}{
 		{"UploadTokenTTL", cfg.UploadTokenTTL, 20 * time.Minute},
-		{"PlayTokenMaxTTL", cfg.PlayTokenMaxTTL, 6 * time.Hour},
+		{"PlayTokenTTL", cfg.PlayTokenTTL, 1 * time.Hour},
 		{"UploadIdleTimeout", cfg.UploadIdleTimeout, 10 * time.Minute},
 		{"TranscodeStuckTime", cfg.TranscodeStuckTime, 30 * time.Minute},
 	}
@@ -139,15 +138,15 @@ func TestLoad_TimeVarsDefaultsAreInSeconds(t *testing.T) {
 }
 
 func TestLoad_TimeVarsReadInSeconds(t *testing.T) {
-	// issue #4: definir as novas variáveis _SECONDS deve refletir
-	// diretamente em time.Duration via time.Second, sem conversões ocultas.
-	t.Setenv("UPLOAD_TOKEN_SECRET", "s")
+	// Os valores das variáveis de tempo refletem diretamente em time.Duration
+	// via time.Second, sem conversões ocultas.
+	t.Setenv("ROOT_TOKEN", "s")
 	t.Setenv("WEBHOOK_URL", "https://x.com")
 	t.Setenv("WEBHOOK_SECRET", "s2")
-	t.Setenv("UPLOAD_TOKEN_TTL_SECONDS", "900")
-	t.Setenv("PLAY_TOKEN_MAX_TTL_SECONDS", "1200")
-	t.Setenv("UPLOAD_IDLE_TIMEOUT_SECONDS", "120")
-	t.Setenv("TRANSCODE_STUCK_SECONDS", "300")
+	t.Setenv("UPLOAD_TOKEN_TTL", "900")
+	t.Setenv("PLAY_TOKEN_TTL", "1200")
+	t.Setenv("UPLOAD_IDLE_TIMEOUT", "120")
+	t.Setenv("TRANSCODE_STUCK", "300")
 
 	cfg, err := Load()
 	if err != nil {
@@ -157,8 +156,8 @@ func TestLoad_TimeVarsReadInSeconds(t *testing.T) {
 	if cfg.UploadTokenTTL != 900*time.Second {
 		t.Errorf("UploadTokenTTL: esperado %v, obtido %v", 900*time.Second, cfg.UploadTokenTTL)
 	}
-	if cfg.PlayTokenMaxTTL != 1200*time.Second {
-		t.Errorf("PlayTokenMaxTTL: esperado %v, obtido %v", 1200*time.Second, cfg.PlayTokenMaxTTL)
+	if cfg.PlayTokenTTL != 1200*time.Second {
+		t.Errorf("PlayTokenTTL: esperado %v, obtido %v", 1200*time.Second, cfg.PlayTokenTTL)
 	}
 	if cfg.UploadIdleTimeout != 120*time.Second {
 		t.Errorf("UploadIdleTimeout: esperado %v, obtido %v", 120*time.Second, cfg.UploadIdleTimeout)
@@ -168,44 +167,9 @@ func TestLoad_TimeVarsReadInSeconds(t *testing.T) {
 	}
 }
 
-func TestLoad_OldTimeVarNamesAreIgnored(t *testing.T) {
-	// issue #4: os nomes antigos (sufixos _H e _MIN) não devem mais ser
-	// lidos — é uma mudança incompatível intencional. Defini-los não deve
-	// influenciar o resultado; os defaults em segundos devem prevalecer.
-	t.Setenv("UPLOAD_TOKEN_SECRET", "s")
-	t.Setenv("WEBHOOK_URL", "https://x.com")
-	t.Setenv("WEBHOOK_SECRET", "s2")
-	t.Setenv("UPLOAD_TOKEN_TTL_H", "1")
-	t.Setenv("PLAY_TOKEN_MAX_TTL_H", "1")
-	t.Setenv("UPLOAD_IDLE_TIMEOUT_MIN", "1")
-	t.Setenv("TRANSCODE_STUCK_MIN", "1")
-	t.Setenv("UPLOAD_TOKEN_TTL_SECONDS", "")
-	t.Setenv("PLAY_TOKEN_MAX_TTL_SECONDS", "")
-	t.Setenv("UPLOAD_IDLE_TIMEOUT_SECONDS", "")
-	t.Setenv("TRANSCODE_STUCK_SECONDS", "")
-
-	cfg, err := Load()
-	if err != nil {
-		t.Fatalf("Load() retornou erro inesperado: %v", err)
-	}
-
-	if cfg.UploadTokenTTL != 20*time.Minute {
-		t.Errorf("UploadTokenTTL: variável antiga UPLOAD_TOKEN_TTL_H não deveria ser lida; esperado default %v, obtido %v", 20*time.Minute, cfg.UploadTokenTTL)
-	}
-	if cfg.PlayTokenMaxTTL != 6*time.Hour {
-		t.Errorf("PlayTokenMaxTTL: variável antiga PLAY_TOKEN_MAX_TTL_H não deveria ser lida; esperado default %v, obtido %v", 6*time.Hour, cfg.PlayTokenMaxTTL)
-	}
-	if cfg.UploadIdleTimeout != 10*time.Minute {
-		t.Errorf("UploadIdleTimeout: variável antiga UPLOAD_IDLE_TIMEOUT_MIN não deveria ser lida; esperado default %v, obtido %v", 10*time.Minute, cfg.UploadIdleTimeout)
-	}
-	if cfg.TranscodeStuckTime != 30*time.Minute {
-		t.Errorf("TranscodeStuckTime: variável antiga TRANSCODE_STUCK_MIN não deveria ser lida; esperado default %v, obtido %v", 30*time.Minute, cfg.TranscodeStuckTime)
-	}
-}
-
 func TestLoad_MissingUploadSecret(t *testing.T) {
-	// Verifica que o erro menciona UPLOAD_TOKEN_SECRET quando ele está ausente.
-	t.Setenv("UPLOAD_TOKEN_SECRET", "")
+	// Verifica que o erro menciona ROOT_TOKEN quando ele está ausente.
+	t.Setenv("ROOT_TOKEN", "")
 	t.Setenv("WEBHOOK_URL", "https://x.com")
 	t.Setenv("WEBHOOK_SECRET", "s2")
 
@@ -213,8 +177,8 @@ func TestLoad_MissingUploadSecret(t *testing.T) {
 	if err == nil {
 		t.Fatal("esperava erro, mas Load() retornou nil")
 	}
-	if !strings.Contains(err.Error(), "UPLOAD_TOKEN_SECRET") {
-		t.Errorf("erro deve mencionar UPLOAD_TOKEN_SECRET, mas foi: %v", err)
+	if !strings.Contains(err.Error(), "ROOT_TOKEN") {
+		t.Errorf("erro deve mencionar ROOT_TOKEN, mas foi: %v", err)
 	}
 }
 
@@ -482,7 +446,7 @@ func TestLoad_AllVarsDefinedInvalidCombos(t *testing.T) {
 		{
 			name: "all_required_present",
 			setupEnv: map[string]string{
-				"UPLOAD_TOKEN_SECRET": "secret",
+				"ROOT_TOKEN": "secret",
 				"WEBHOOK_URL":         "https://example.com",
 				"WEBHOOK_SECRET":      "whsecret",
 			},
@@ -492,7 +456,7 @@ func TestLoad_AllVarsDefinedInvalidCombos(t *testing.T) {
 		{
 			name: "missing_webhook_url",
 			setupEnv: map[string]string{
-				"UPLOAD_TOKEN_SECRET": "secret",
+				"ROOT_TOKEN": "secret",
 				"WEBHOOK_URL":         "",
 				"WEBHOOK_SECRET":      "whsecret",
 			},
@@ -503,7 +467,7 @@ func TestLoad_AllVarsDefinedInvalidCombos(t *testing.T) {
 		{
 			name: "missing_webhook_secret",
 			setupEnv: map[string]string{
-				"UPLOAD_TOKEN_SECRET": "secret",
+				"ROOT_TOKEN": "secret",
 				"WEBHOOK_URL":         "https://example.com",
 				"WEBHOOK_SECRET":      "",
 			},
@@ -514,7 +478,7 @@ func TestLoad_AllVarsDefinedInvalidCombos(t *testing.T) {
 		{
 			name: "zero_port",
 			setupEnv: map[string]string{
-				"UPLOAD_TOKEN_SECRET": "secret",
+				"ROOT_TOKEN": "secret",
 				"WEBHOOK_URL":         "https://example.com",
 				"WEBHOOK_SECRET":      "whsecret",
 				"PORT":                "0",
@@ -525,7 +489,7 @@ func TestLoad_AllVarsDefinedInvalidCombos(t *testing.T) {
 		{
 			name: "negative_max_size",
 			setupEnv: map[string]string{
-				"UPLOAD_TOKEN_SECRET": "secret",
+				"ROOT_TOKEN": "secret",
 				"WEBHOOK_URL":         "https://example.com",
 				"WEBHOOK_SECRET":      "whsecret",
 				"MAX_UPLOAD_SIZE_MB":  "-10",

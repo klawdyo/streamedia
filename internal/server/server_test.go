@@ -13,7 +13,6 @@ import (
 	"github.com/klawdyo/streamedia/internal/config"
 	"github.com/klawdyo/streamedia/internal/db"
 	"github.com/klawdyo/streamedia/internal/middleware"
-	"github.com/klawdyo/streamedia/internal/models"
 	"github.com/klawdyo/streamedia/internal/transcode"
 	"github.com/klawdyo/streamedia/internal/webhook"
 )
@@ -26,17 +25,16 @@ func newTestConfig(t *testing.T) *config.Config {
 		UploadTmpDir:         t.TempDir(),
 		MediaDir:             t.TempDir(),
 		SQLitePath:           ":memory:",
-		UploadTokenSecret:    "test-secret",
+		RootToken:            "root-token",
 		WebhookURL:           "http://example.com/webhook",
 		WebhookSecret:        "webhook-secret",
-		AdminToken:           "admin-token",
 		RateLimitPerMin:      100,
 		MaxUploadSizeBytes:   1 << 30,
 		MaxTranscodeAttempts: 3,
 		TranscodeWorkers:     1,
 		QueueMaxSize:         10,
 		UploadTokenTTL:       6 * time.Hour,
-		PlayTokenMaxTTL:      24 * time.Hour,
+		PlayTokenTTL:         24 * time.Hour,
 	}
 }
 
@@ -144,7 +142,7 @@ func TestAllRoutesRegistered(t *testing.T) {
 		body   string
 		want   int
 	}{
-		{"upload init sem auth", http.MethodPost, "/upload/init", `{"video_id":"` + validUUID + `","declared_size_bytes":1024}`, http.StatusOK},
+		{"upload init sem auth", http.MethodPost, "/api/upload/init", `{"tag":"t","video_id":"` + validUUID + `","declared_size_bytes":1024}`, http.StatusUnauthorized},
 		{"status sem auth", http.MethodGet, "/api/status/" + validUUID, "", http.StatusUnauthorized},
 		{"admin videos sem auth", http.MethodGet, "/admin/videos", "", http.StatusUnauthorized},
 		{"healthz", http.MethodGet, "/healthz", "", http.StatusOK},
@@ -171,23 +169,17 @@ func TestAllRoutesRegistered(t *testing.T) {
 	}
 }
 
-// TestUploadInitE2E faz um POST /upload/init completo com X-Project-Key válido
+// TestUploadInitE2E faz um POST /api/upload/init completo com ROOT_TOKEN válido
 // e verifica que a resposta 200 traz upload_url e token.
 func TestUploadInitE2E(t *testing.T) {
 	cfg := newTestConfig(t)
-	router, db := newTestRouter(t, cfg)
-
-	project, key, err := models.CreateProject(db, "Server Test")
-	if err != nil {
-		t.Fatalf("CreateProject: %v", err)
-	}
-	_ = project
+	router, _ := newTestRouter(t, cfg)
 
 	const validUUID = "550e8400-e29b-4100-8716-446655440000"
-	body := []byte(`{"video_id":"` + validUUID + `","declared_size_bytes":1024}`)
+	body := []byte(`{"tag":"server-test","video_id":"` + validUUID + `","declared_size_bytes":1024}`)
 
-	req := httptest.NewRequest(http.MethodPost, "/upload/init", strings.NewReader(string(body)))
-	req.Header.Set("X-Project-Key", key)
+	req := httptest.NewRequest(http.MethodPost, "/api/upload/init", strings.NewReader(string(body)))
+	req.Header.Set("Authorization", "Bearer "+cfg.RootToken)
 	rec := httptest.NewRecorder()
 	router.ServeHTTP(rec, req)
 

@@ -55,17 +55,16 @@ func TestAllJSONRoutes_ErrorResponses_FollowEnvelope(t *testing.T) {
 		header map[string]string
 	}{
 		{
-			name:   "POST /upload/init com X-Project-Key inválida",
+			name:   "POST /api/upload/init sem auth",
 			method: http.MethodPost,
-			path:   "/upload/init",
-			body:   `{"video_id":"` + validUUID + `","declared_size_bytes":1024}`,
-			header: map[string]string{"X-Project-Key": "chave-invalida"},
+			path:   "/api/upload/init",
+			body:   `{"tag":"t","video_id":"` + validUUID + `","declared_size_bytes":1024}`,
 		},
 		{
-			name:   "POST /upload/init com JSON inválido",
+			name:   "POST /api/play/init sem auth",
 			method: http.MethodPost,
-			path:   "/upload/init",
-			body:   `não é json`,
+			path:   "/api/play/init",
+			body:   `{"video_id":"` + validUUID + `"}`,
 		},
 		{
 			name:   "GET /api/status sem auth",
@@ -88,20 +87,9 @@ func TestAllJSONRoutes_ErrorResponses_FollowEnvelope(t *testing.T) {
 			path:   "/admin/stats",
 		},
 		{
-			name:   "POST /admin/projects sem auth",
-			method: http.MethodPost,
-			path:   "/admin/projects",
-			body:   `{"name":"test"}`,
-		},
-		{
-			name:   "GET /admin/projects sem auth",
-			method: http.MethodGet,
-			path:   "/admin/projects",
-		},
-		{
-			name:   "POST /admin/projects/{slug}/upload-tokens sem key",
-			method: http.MethodPost,
-			path:   "/admin/projects/test/upload-tokens",
+			name:   "DELETE /admin/videos/{id} sem auth",
+			method: http.MethodDelete,
+			path:   "/admin/videos/" + validUUID,
 		},
 	}
 
@@ -185,18 +173,12 @@ func TestAllJSONRoutes_SuccessResponses_FollowEnvelope(t *testing.T) {
 		}
 	})
 
-	// --- Upload init com X-Project-Key válido ---
-	t.Run("POST /upload/init com auth", func(t *testing.T) {
-		project, key, err := models.CreateProject(db, "Conformance Test")
-		if err != nil {
-			t.Fatalf("CreateProject: %v", err)
-		}
-		_ = project
+	// --- Upload init com ROOT_TOKEN válido ---
+	t.Run("POST /api/upload/init com auth", func(t *testing.T) {
+		body := `{"tag":"conformance","video_id":"` + uuidUploadInit + `","declared_size_bytes":1024}`
 
-		body := `{"video_id":"` + uuidUploadInit + `","declared_size_bytes":1024}`
-
-		req := httptest.NewRequest(http.MethodPost, "/upload/init", strings.NewReader(body))
-		req.Header.Set("X-Project-Key", key)
+		req := httptest.NewRequest(http.MethodPost, "/api/upload/init", strings.NewReader(body))
+		req.Header.Set("Authorization", "Bearer "+cfg.RootToken)
 		rec := httptest.NewRecorder()
 		router.ServeHTTP(rec, req)
 
@@ -235,7 +217,7 @@ func TestAllJSONRoutes_SuccessResponses_FollowEnvelope(t *testing.T) {
 		insertTestVideo(t, db, uuidAdminVideo, models.StatusReady)
 
 		req := httptest.NewRequest(http.MethodGet, "/admin/videos", nil)
-		req.Header.Set("Authorization", "Bearer "+cfg.AdminToken)
+		req.Header.Set("Authorization", "Bearer "+cfg.RootToken)
 		rec := httptest.NewRecorder()
 		router.ServeHTTP(rec, req)
 
@@ -261,7 +243,7 @@ func TestAllJSONRoutes_SuccessResponses_FollowEnvelope(t *testing.T) {
 
 	t.Run("GET /admin/queue com auth", func(t *testing.T) {
 		req := httptest.NewRequest(http.MethodGet, "/admin/queue", nil)
-		req.Header.Set("Authorization", "Bearer "+cfg.AdminToken)
+		req.Header.Set("Authorization", "Bearer "+cfg.RootToken)
 		rec := httptest.NewRecorder()
 		router.ServeHTTP(rec, req)
 
@@ -284,7 +266,7 @@ func TestAllJSONRoutes_SuccessResponses_FollowEnvelope(t *testing.T) {
 
 	t.Run("GET /admin/stats com auth", func(t *testing.T) {
 		req := httptest.NewRequest(http.MethodGet, "/admin/stats", nil)
-		req.Header.Set("Authorization", "Bearer "+cfg.AdminToken)
+		req.Header.Set("Authorization", "Bearer "+cfg.RootToken)
 		rec := httptest.NewRecorder()
 		router.ServeHTTP(rec, req)
 
@@ -420,7 +402,7 @@ func TestNonAPIRoutes_NotForcedIntoEnvelope(t *testing.T) {
 	// (porque é um erro da API JSON, mesmo que a rota sirva conteúdo binário
 	// em caso de sucesso — ver seção "Escopo" da T45)
 	t.Run("GET master.m3u8 sem token retorna erro no envelope", func(t *testing.T) {
-		req := httptest.NewRequest(http.MethodGet, "/videos/"+validUUID+"/master.m3u8", nil)
+		req := httptest.NewRequest(http.MethodGet, "/video/default/"+validUUID+".m3u8", nil)
 		rec := httptest.NewRecorder()
 		router.ServeHTTP(rec, req)
 
@@ -440,7 +422,7 @@ func TestNonAPIRoutes_NotForcedIntoEnvelope(t *testing.T) {
 
 	// --- Static HLS — segmento inexistente retorna erro no envelope ---
 	t.Run("GET segmento .ts inexistente retorna erro no envelope", func(t *testing.T) {
-		req := httptest.NewRequest(http.MethodGet, "/videos/"+validUUID+"/480/0.ts", nil)
+		req := httptest.NewRequest(http.MethodGet, "/video/default/"+validUUID+"/480/0.ts", nil)
 		rec := httptest.NewRecorder()
 		router.ServeHTTP(rec, req)
 

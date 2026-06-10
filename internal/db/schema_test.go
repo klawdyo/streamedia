@@ -8,7 +8,6 @@ import (
 )
 
 func TestSchema_TablesExist(t *testing.T) {
-	// Verifica que o schema cria todas as tabelas esperadas.
 	database, err := Open(":memory:")
 	if err != nil {
 		t.Fatalf("Open() falhou: %v", err)
@@ -17,10 +16,9 @@ func TestSchema_TablesExist(t *testing.T) {
 
 	tables := []string{
 		"videos",
-		"upload_tokens",
+		"access_tokens",
 		"webhook_log",
 		"playback_events",
-		"projects",
 		"video_renditions",
 	}
 
@@ -38,35 +36,34 @@ func TestSchema_TablesExist(t *testing.T) {
 	}
 }
 
-func TestSchema_VideosTable_Columns(t *testing.T) {
-	// Verifica que a tabela videos tem todas as colunas esperadas.
+func TestSchema_ProjectsTableRemoved(t *testing.T) {
+	// A tabela projects foi removida no modelo de tags.
 	database, err := Open(":memory:")
 	if err != nil {
 		t.Fatalf("Open() falhou: %v", err)
 	}
 	defer database.Close()
 
-	expectedColumns := []string{
-		"video_id",
-		"status",
-		"declared_size_bytes",
-		"actual_size_bytes",
-		"duration_s",
-		"resolutions",
-		"transcode_attempts",
-		"last_chunk_at",
-		"error_message",
-		"created_at",
-		"updated_at",
+	var count int
+	if err := database.QueryRow(
+		"SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='projects'",
+	).Scan(&count); err != nil {
+		t.Fatalf("erro ao consultar sqlite_master: %v", err)
 	}
+	if count != 0 {
+		t.Error("tabela projects deveria ter sido removida do schema")
+	}
+}
 
-	rows, err := database.Query("PRAGMA table_info(videos)")
+func columnsOf(t *testing.T, database *sql.DB, table string) map[string]bool {
+	t.Helper()
+	rows, err := database.Query("PRAGMA table_info(" + table + ")")
 	if err != nil {
-		t.Fatalf("PRAGMA table_info(videos) falhou: %v", err)
+		t.Fatalf("PRAGMA table_info(%s) falhou: %v", table, err)
 	}
 	defer rows.Close()
 
-	foundColumns := make(map[string]bool)
+	found := make(map[string]bool)
 	for rows.Next() {
 		var cid, notNull, pk int
 		var name, ctype string
@@ -74,137 +71,64 @@ func TestSchema_VideosTable_Columns(t *testing.T) {
 		if err := rows.Scan(&cid, &name, &ctype, &notNull, &dfltValue, &pk); err != nil {
 			t.Fatalf("erro ao ler coluna: %v", err)
 		}
-		foundColumns[name] = true
+		found[name] = true
 	}
+	return found
+}
 
+func TestSchema_VideosTable_Columns(t *testing.T) {
+	database, err := Open(":memory:")
+	if err != nil {
+		t.Fatalf("Open() falhou: %v", err)
+	}
+	defer database.Close()
+
+	expectedColumns := []string{
+		"video_id", "status", "declared_size_bytes", "actual_size_bytes",
+		"duration_s", "resolutions", "transcode_attempts", "last_chunk_at",
+		"error_message", "tag", "created_at", "updated_at",
+	}
+	found := columnsOf(t, database, "videos")
 	for _, col := range expectedColumns {
-		if !foundColumns[col] {
+		if !found[col] {
 			t.Errorf("coluna %q não encontrada em videos", col)
 		}
 	}
 }
 
-func TestSchema_UploadTokensTable_Columns(t *testing.T) {
-	// Verifica que a tabela upload_tokens tem as colunas esperadas.
+func TestSchema_AccessTokensTable_Columns(t *testing.T) {
 	database, err := Open(":memory:")
 	if err != nil {
 		t.Fatalf("Open() falhou: %v", err)
 	}
 	defer database.Close()
 
-	expectedColumns := []string{
-		"token",
-		"video_id",
-		"expires_at",
-	}
-
-	rows, err := database.Query("PRAGMA table_info(upload_tokens)")
-	if err != nil {
-		t.Fatalf("PRAGMA table_info(upload_tokens) falhou: %v", err)
-	}
-	defer rows.Close()
-
-	foundColumns := make(map[string]bool)
-	for rows.Next() {
-		var cid, notNull, pk int
-		var name, ctype string
-		var dfltValue sql.NullString
-		if err := rows.Scan(&cid, &name, &ctype, &notNull, &dfltValue, &pk); err != nil {
-			t.Fatalf("erro ao ler coluna: %v", err)
-		}
-		foundColumns[name] = true
-	}
-
+	expectedColumns := []string{"token", "video_id", "purpose", "expires_at"}
+	found := columnsOf(t, database, "access_tokens")
 	for _, col := range expectedColumns {
-		if !foundColumns[col] {
-			t.Errorf("coluna %q não encontrada em upload_tokens", col)
-		}
-	}
-}
-
-func TestSchema_ProjectsTable_Columns(t *testing.T) {
-	// Verifica que a tabela projects (T33) tem as colunas esperadas.
-	database, err := Open(":memory:")
-	if err != nil {
-		t.Fatalf("Open() falhou: %v", err)
-	}
-	defer database.Close()
-
-	expectedColumns := []string{
-		"id",
-		"name",
-		"slug",
-		"root_dir",
-		"master_key_hash",
-		"created_at",
-	}
-
-	rows, err := database.Query("PRAGMA table_info(projects)")
-	if err != nil {
-		t.Fatalf("PRAGMA table_info(projects) falhou: %v", err)
-	}
-	defer rows.Close()
-
-	foundColumns := make(map[string]bool)
-	for rows.Next() {
-		var cid, notNull, pk int
-		var name, ctype string
-		var dfltValue sql.NullString
-		if err := rows.Scan(&cid, &name, &ctype, &notNull, &dfltValue, &pk); err != nil {
-			t.Fatalf("erro ao ler coluna: %v", err)
-		}
-		foundColumns[name] = true
-	}
-
-	for _, col := range expectedColumns {
-		if !foundColumns[col] {
-			t.Errorf("coluna %q não encontrada em projects", col)
+		if !found[col] {
+			t.Errorf("coluna %q não encontrada em access_tokens", col)
 		}
 	}
 }
 
 func TestSchema_VideoRenditionsTable(t *testing.T) {
-	// Verifica que a tabela video_renditions (T36) foi criada.
 	database, err := Open(":memory:")
 	if err != nil {
 		t.Fatalf("Open() falhou: %v", err)
 	}
 	defer database.Close()
 
-	expectedColumns := []string{
-		"video_id",
-		"resolution",
-		"size_bytes",
-		"segment_count",
-		"updated_at",
-	}
-
-	rows, err := database.Query("PRAGMA table_info(video_renditions)")
-	if err != nil {
-		t.Fatalf("PRAGMA table_info(video_renditions) falhou: %v", err)
-	}
-	defer rows.Close()
-
-	foundColumns := make(map[string]bool)
-	for rows.Next() {
-		var cid, notNull, pk int
-		var name, ctype string
-		var dfltValue sql.NullString
-		if err := rows.Scan(&cid, &name, &ctype, &notNull, &dfltValue, &pk); err != nil {
-			t.Fatalf("erro ao ler coluna: %v", err)
-		}
-		foundColumns[name] = true
-	}
-
+	expectedColumns := []string{"video_id", "resolution", "size_bytes", "segment_count", "updated_at"}
+	found := columnsOf(t, database, "video_renditions")
 	for _, col := range expectedColumns {
-		if !foundColumns[col] {
+		if !found[col] {
 			t.Errorf("coluna %q não encontrada em video_renditions", col)
 		}
 	}
 }
 
 func TestSchema_IndicesCreated(t *testing.T) {
-	// Verifica que todos os índices foram criados.
 	database, err := Open(":memory:")
 	if err != nil {
 		t.Fatalf("Open() falhou: %v", err)
@@ -214,10 +138,10 @@ func TestSchema_IndicesCreated(t *testing.T) {
 	expectedIndices := []string{
 		"idx_videos_status",
 		"idx_videos_last_chunk",
-		"idx_tokens_expires",
+		"idx_videos_tag",
+		"idx_access_tokens_expires",
 		"idx_playback_events_video",
 		"idx_playback_events_occurred",
-		"idx_projects_slug",
 		"idx_video_renditions_video",
 	}
 
@@ -236,7 +160,6 @@ func TestSchema_IndicesCreated(t *testing.T) {
 }
 
 func TestSchema_TriggersCreated(t *testing.T) {
-	// Verifica que o trigger updated_at foi criado.
 	database, err := Open(":memory:")
 	if err != nil {
 		t.Fatalf("Open() falhou: %v", err)
@@ -255,68 +178,23 @@ func TestSchema_TriggersCreated(t *testing.T) {
 	}
 }
 
-func TestSchema_ProjectIDMigration_VideosTable(t *testing.T) {
-	// Verifica que a coluna project_id foi adicionada à tabela videos (T33, issue #6).
+func TestSchema_AccessTokensUniqueVideoPurpose(t *testing.T) {
+	// UNIQUE(video_id, purpose): dois tokens de mesmo propósito para o mesmo
+	// vídeo conflitam (INSERT puro falha).
 	database, err := Open(":memory:")
 	if err != nil {
 		t.Fatalf("Open() falhou: %v", err)
 	}
 	defer database.Close()
 
-	var count int
-	if err := database.QueryRow(
-		"SELECT COUNT(*) FROM sqlite_master WHERE type='index' AND name=?",
-		"idx_videos_project",
-	).Scan(&count); err != nil {
-		t.Fatalf("erro ao verificar índice: %v", err)
+	if _, err := database.Exec("INSERT INTO videos (video_id, tag) VALUES ('v1', 'default')"); err != nil {
+		t.Fatalf("INSERT video falhou: %v", err)
 	}
-	if count != 1 {
-		t.Error("índice idx_videos_project não existe (coluna project_id não foi adicionada)")
+	if _, err := database.Exec("INSERT INTO access_tokens (token, video_id, purpose, expires_at) VALUES ('t1', 'v1', 'upload', '2099-01-01 00:00:00')"); err != nil {
+		t.Fatalf("primeiro INSERT token falhou: %v", err)
 	}
-}
-
-func TestSchema_ProjectIDMigration_TokensTable(t *testing.T) {
-	// Verifica que a coluna project_id foi adicionada à tabela upload_tokens (T33, issue #6).
-	database, err := Open(":memory:")
-	if err != nil {
-		t.Fatalf("Open() falhou: %v", err)
-	}
-	defer database.Close()
-
-	var count int
-	if err := database.QueryRow(
-		"SELECT COUNT(*) FROM sqlite_master WHERE type='index' AND name=?",
-		"idx_upload_tokens_project",
-	).Scan(&count); err != nil {
-		t.Fatalf("erro ao verificar índice: %v", err)
-	}
-	if count != 1 {
-		t.Error("índice idx_upload_tokens_project não existe (coluna project_id não foi adicionada)")
-	}
-}
-
-func TestSchema_VideosSlugUnique(t *testing.T) {
-	// Verifica que projects.slug tem constraint UNIQUE.
-	database, err := Open(":memory:")
-	if err != nil {
-		t.Fatalf("Open() falhou: %v", err)
-	}
-	defer database.Close()
-
-	// Tenta inserir dois projetos com o mesmo slug
-	_, err = database.Exec(
-		"INSERT INTO projects (name, slug, root_dir, master_key_hash) VALUES (?, ?, ?, ?)",
-		"Projeto 1", "projeto1", "/root1", "hash1",
-	)
-	if err != nil {
-		t.Fatalf("primeiro INSERT em projects falhou: %v", err)
-	}
-
-	_, err = database.Exec(
-		"INSERT INTO projects (name, slug, root_dir, master_key_hash) VALUES (?, ?, ?, ?)",
-		"Projeto 2", "projeto1", "/root2", "hash2", // mesmo slug
-	)
+	_, err = database.Exec("INSERT INTO access_tokens (token, video_id, purpose, expires_at) VALUES ('t2', 'v1', 'upload', '2099-01-01 00:00:00')")
 	if err == nil {
-		t.Error("esperava erro de UNIQUE constraint para slug duplicado em projects")
+		t.Error("esperava erro de UNIQUE(video_id, purpose) para mesmo propósito duplicado")
 	}
 }
