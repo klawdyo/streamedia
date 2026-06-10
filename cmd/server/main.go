@@ -7,7 +7,9 @@ import (
 	"context"
 	"log"
 	"net/http"
+	"os"
 	"os/signal"
+	"path/filepath"
 	"strconv"
 	"syscall"
 	"time"
@@ -26,6 +28,17 @@ func main() {
 	cfg, err := config.Load()
 	if err != nil {
 		log.Fatalf("config: %v", err)
+	}
+
+	// Garante que os diretórios persistidos existam ANTES de abrir o banco
+	// e de aceitar uploads. Em Docker, o `mkdir` do Dockerfile roda em build
+	// time e é sobrescrito quando um volume é montado em runtime — se o volume
+	// estiver vazio (ou tiver sido apagado), os diretórios precisam ser
+	// recriados aqui. db.Open já cuida do diretório do SQLite, mas o diretório
+	// de mídia e o de uploads temporários (usado pelo tusd) também precisam
+	// existir, senão o upload falha ao gravar em disco.
+	if err := ensureRuntimeDirs(cfg); err != nil {
+		log.Fatalf("diretórios: %v", err)
 	}
 
 	// Abre o banco SQLite (aplica migrations internamente).
@@ -119,4 +132,32 @@ func main() {
 	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer shutdownCancel()
 	_ = srv.Shutdown(shutdownCtx)
+}
+
+// ensureRuntimeDirs cria, se necessário, todos os diretórios que a aplicação
+// precisa para persistir dados em disco. É idempotente (MkdirAll não falha se
+// o diretório já existir) e roda a cada inicialização — assim, se o volume
+// Docker for recriado/apagado, os diretórios são restaurados automaticamente.
+//
+// Diretórios garantidos:
+//   - diretório do banco SQLite (pai de SQLitePath)
+//   - MediaDir: onde ficam os HLS transcodificados servidos ao público
+//   - UploadTmpDir: onde o tusd grava os uploads em andamento (.uploads)
+func ensureRuntimeDirs(cfg *config.Config) error {
+	dirs := []string{
+		filepath.Dir(cfg.SQLitePath),
+		cfg.MediaDir,
+		cfg.UploadTmpDir,
+	}
+	for _, dir := range dirs {
+		// Caminhos especiais (ex.: ":memory:" para o banco) não são diretórios.
+		if dir == "" || dir == "." || dir == ":memory:" {
+			continue
+		}
+		if err := os.MkdirAll(dir, 0755); err != nil {
+			return err
+		}
+		log.Printf("diretório persistido garantido: %s", dir)
+	}
+	return nil
 }

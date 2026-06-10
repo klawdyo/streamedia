@@ -23,11 +23,20 @@ RUN CGO_ENABLED=0 go build \
 
 # Estágio de runtime — imagem mínima com FFmpeg
 FROM alpine:3.20
+# Cria os diretórios persistidos com o ownership correto do appuser. Para
+# VOLUMES NOMEADOS, o Docker copia o conteúdo+ownership do mount point da
+# imagem na primeira criação do volume — por isso pré-criar /data, /media e
+# /media/.uploads aqui garante que um volume novo já nasça gravável pelo
+# appuser (uid 10001). Em runtime, o binário ainda chama ensureRuntimeDirs
+# como rede de segurança (cobre bind mounts e volumes recriados/apagados).
 RUN apk add --no-cache ffmpeg wget && \
     adduser -D -u 10001 appuser && \
-    mkdir -p /data /media && \
-    chown appuser:appuser /data /media
+    mkdir -p /data /media /media/.uploads && \
+    chown -R appuser:appuser /data /media
 COPY --from=build /mediaserver /usr/local/bin/mediaserver
 USER appuser
+# Declara os volumes persistidos: deixa explícito o que deve sobreviver entre
+# recriações do container e qual ownership o volume nomeado herda.
+VOLUME ["/data", "/media"]
 EXPOSE 3000
 ENTRYPOINT ["mediaserver"]
