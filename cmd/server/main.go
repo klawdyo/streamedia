@@ -7,7 +7,9 @@ import (
 	"context"
 	"log"
 	"net/http"
+	"os"
 	"os/signal"
+	"path/filepath"
 	"strconv"
 	"syscall"
 	"time"
@@ -15,8 +17,9 @@ import (
 	"github.com/klawdyo/streamedia/internal/config"
 	"github.com/klawdyo/streamedia/internal/db"
 	"github.com/klawdyo/streamedia/internal/jobs"
-	"github.com/klawdyo/streamedia/internal/models"
+	"github.com/klawdyo/streamedia/internal/notify"
 	"github.com/klawdyo/streamedia/internal/server"
+	"github.com/klawdyo/streamedia/internal/sse"
 	"github.com/klawdyo/streamedia/internal/transcode"
 	"github.com/klawdyo/streamedia/internal/webhook"
 )
@@ -28,6 +31,17 @@ func main() {
 		log.Fatalf("config: %v", err)
 	}
 
+	// Garante que os diretórios persistidos existam ANTES de abrir o banco
+	// e de aceitar uploads. Em Docker, o `mkdir` do Dockerfile roda em build
+	// time e é sobrescrito quando um volume é montado em runtime — se o volume
+	// estiver vazio (ou tiver sido apagado), os diretórios precisam ser
+	// recriados aqui. db.Open já cuida do diretório do SQLite, mas o diretório
+	// de mídia e o de uploads temporários (usado pelo tusd) também precisam
+	// existir, senão o upload falha ao gravar em disco.
+	if err := ensureRuntimeDirs(cfg); err != nil {
+		log.Fatalf("diretórios: %v", err)
+	}
+
 	// Abre o banco SQLite (aplica migrations internamente).
 	database, err := db.Open(cfg.SQLitePath)
 	if err != nil {
@@ -35,18 +49,14 @@ func main() {
 	}
 	defer database.Close()
 
-	// Client de webhook e adaptador para os callbacks (videoID, event, errMsg).
+	// Camada de notificações: cada evento do pipeline é distribuído para os
+	// destinos (sinks) registrados — o cliente de webhook (se houver URL) e o
+	// hub de SSE (se houver ouvinte em /api/events). O notifier.Notify substitui
+	// o antigo sendWebhook e tem a mesma assinatura (videoID, event, errMsg).
 	webhookClient := webhook.NewClient(cfg, database)
-	sendWebhook := func(videoID, event, errMsg string) {
-		video, err := models.GetVideo(database, videoID)
-		if err != nil {
-			log.Printf("[webhook] erro ao buscar vídeo %s para webhook %s: %v", videoID, event, err)
-			return
-		}
-		if err := webhookClient.Send(videoID, event, video); err != nil {
-			log.Printf("[webhook] erro ao enviar webhook %s para vídeo %s: %v", event, videoID, err)
-		}
-	}
+	sseHub := sse.NewHub()
+	notifier := notify.New(database, webhookClient, sseHub)
+	sendWebhook := notifier.Notify
 
 	// Worker e fila de transcodificação. A fila é criada com a função do
 	// worker e iniciada aqui; o roteador a recebe pronta.
@@ -79,7 +89,7 @@ func main() {
 	// Monta o roteador HTTP com todas as rotas e handlers.
 	// O closer encerra recursos internos (goroutines do TUS handler, etc.)
 	// e deve ser chamado no shutdown (T59).
-	router, routerCloser, err := server.NewRouter(cfg, database, queue, webhookClient)
+	router, routerCloser, err := server.NewRouter(cfg, database, queue, notifier, sseHub)
 	if err != nil {
 		log.Fatalf("router: %v", err)
 	}
@@ -119,4 +129,32 @@ func main() {
 	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer shutdownCancel()
 	_ = srv.Shutdown(shutdownCtx)
+}
+
+// ensureRuntimeDirs cria, se necessário, todos os diretórios que a aplicação
+// precisa para persistir dados em disco. É idempotente (MkdirAll não falha se
+// o diretório já existir) e roda a cada inicialização — assim, se o volume
+// Docker for recriado/apagado, os diretórios são restaurados automaticamente.
+//
+// Diretórios garantidos:
+//   - diretório do banco SQLite (pai de SQLitePath)
+//   - MediaDir: onde ficam os HLS transcodificados servidos ao público
+//   - UploadTmpDir: onde o tusd grava os uploads em andamento (.uploads)
+func ensureRuntimeDirs(cfg *config.Config) error {
+	dirs := []string{
+		filepath.Dir(cfg.SQLitePath),
+		cfg.MediaDir,
+		cfg.UploadTmpDir,
+	}
+	for _, dir := range dirs {
+		// Caminhos especiais (ex.: ":memory:" para o banco) não são diretórios.
+		if dir == "" || dir == "." || dir == ":memory:" {
+			continue
+		}
+		if err := os.MkdirAll(dir, 0755); err != nil {
+			return err
+		}
+		log.Printf("diretório persistido garantido: %s", dir)
+	}
+	return nil
 }

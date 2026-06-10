@@ -113,7 +113,7 @@ func openAPISpec() map[string]any {
 				"post": map[string]any{
 					"tags":        []string{"play"},
 					"summary":     "Emite uma URL de reprodução assinada",
-					"description": "O backend principal (que já autorizou o usuário) troca o ROOT_TOKEN por uma URL assinada e de curta duração do master playlist. O Streamedia gera um token de play efêmero (lookup no banco, TTL PLAY_TOKEN_TTL) e devolve a play_url.",
+					"description": "O backend principal (que já autorizou o usuário) troca o ROOT_TOKEN por uma URL assinada e de curta duração do master playlist. O Streamedia gera um token de play efêmero (lookup no banco, TTL PLAY_TOKEN_TTL) e devolve a play_url junto com a lista de resoluções (variantes HLS) disponíveis para o vídeo.",
 					"security":    []map[string]any{{"rootToken": []string{}}},
 					"requestBody": map[string]any{
 						"required": true,
@@ -140,6 +140,11 @@ func openAPISpec() map[string]any {
 											"play_url":   map[string]any{"type": "string", "format": "uri"},
 											"token":      map[string]any{"type": "string"},
 											"expires_at": map[string]any{"type": "string", "format": "date-time"},
+											"resolutions": map[string]any{
+												"type":        "array",
+												"items":       map[string]any{"type": "integer"},
+												"description": "Resoluções (alturas) das variantes HLS disponíveis, ordenadas asc. Ex.: [480, 720, 1080].",
+											},
 										},
 									},
 								},
@@ -148,6 +153,25 @@ func openAPISpec() map[string]any {
 						"401": map[string]any{"description": "ROOT_TOKEN ausente ou inválido"},
 						"404": map[string]any{"description": "Vídeo não encontrado"},
 						"409": map[string]any{"description": "Vídeo não está pronto (status != ready)"},
+					},
+				},
+			},
+			"/api/events": map[string]any{
+				"get": map[string]any{
+					"tags":        []string{"play"},
+					"summary":     "Stream de eventos do vídeo (Server-Sent Events)",
+					"description": "Stream SSE (text/event-stream) com as notificações do pipeline de um vídeo (processing, ready, failed) ao vivo — os mesmos dados do webhook. Escopado por video_id e autenticado pelo token de upload do vídeo (na query, pois EventSource não envia cabeçalhos). Cada evento chega como 'event: <nome>' + 'data: <json>'. Sem buffer/replay.",
+					"parameters": []map[string]any{
+						{"name": "video_id", "in": "query", "required": true, "schema": map[string]any{"type": "string", "format": "uuid"}},
+						{"name": "token", "in": "query", "required": true, "schema": map[string]any{"type": "string"}, "description": "Token de upload do vídeo (o 'token' devolvido por /api/upload/init)"},
+					},
+					"responses": map[string]any{
+						"200": map[string]any{
+							"description": "Stream SSE aberto (text/event-stream)",
+							"content":     map[string]any{"text/event-stream": map[string]any{}},
+						},
+						"400": map[string]any{"description": "Faltam video_id ou token"},
+						"401": map[string]any{"description": "Token inválido, expirado ou de outro vídeo"},
 					},
 				},
 			},
@@ -199,8 +223,8 @@ func openAPISpec() map[string]any {
 			},
 			"/video/{tag}/{video_id}/{resolution}/playlist.m3u8": map[string]any{
 				"get": map[string]any{
-					"tags":        []string{"play"},
-					"summary":     "Playlist HLS de uma resolução (estática, pública)",
+					"tags":    []string{"play"},
+					"summary": "Playlist HLS de uma resolução (estática, pública)",
 					"parameters": []map[string]any{
 						{"name": "tag", "in": "path", "required": true, "schema": map[string]any{"type": "string"}},
 						{"name": "video_id", "in": "path", "required": true, "schema": map[string]any{"type": "string"}},

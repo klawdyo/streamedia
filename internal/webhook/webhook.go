@@ -7,24 +7,20 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"log"
 	"net/http"
 	"time"
 
 	"github.com/klawdyo/streamedia/internal/auth"
 	"github.com/klawdyo/streamedia/internal/config"
 	"github.com/klawdyo/streamedia/internal/models"
+	"github.com/klawdyo/streamedia/internal/notify"
 )
 
-// WebhookPayload representa os dados enviados ao webhook do backend principal.
-type WebhookPayload struct {
-	VideoID      string `json:"video_id"`
-	Event        string `json:"event"`
-	Status       string `json:"status"`
-	DurationS    *int   `json:"duration_s"`
-	Resolutions  []int  `json:"resolutions"`
-	ErrorMessage *string `json:"error_message"`
-	Timestamp    time.Time `json:"timestamp"`
-}
+// WebhookPayload é o payload enviado ao backend principal. É um alias para
+// notify.Notification (a notificação canônica do pipeline), garantindo que
+// webhook e SSE entreguem exatamente os mesmos dados.
+type WebhookPayload = notify.Notification
 
 // WebhookLogEntry representa um registro na tabela webhook_log.
 type WebhookLogEntry struct {
@@ -36,14 +32,20 @@ type WebhookLogEntry struct {
 	Success bool
 }
 
-// Client é o cliente de webhook com suporte a retry.
+// Client é o cliente de webhook com suporte a retry. Implementa notify.Sink.
 type Client struct {
 	cfg  *config.Config
 	db   *sql.DB
 	http *http.Client
+	// resolveURL devolve a URL de destino do webhook para um vídeo e se há
+	// destino (ok). Hoje sempre devolve a URL global da config; foi extraído
+	// para um ponto único para, no futuro, suportar URL por vídeo (sobrescrita
+	// da padrão) sem tocar no envio. Quando ok=false, nenhum webhook é enviado.
+	resolveURL func(videoID string) (url string, ok bool)
 }
 
-// NewClient cria um novo cliente de webhook.
+// NewClient cria um novo cliente de webhook. Sem WEBHOOK_URL configurada, o
+// resolvedor devolve ok=false e nenhum webhook é enviado.
 func NewClient(cfg *config.Config, db *sql.DB) *Client {
 	return &Client{
 		cfg: cfg,
@@ -51,18 +53,42 @@ func NewClient(cfg *config.Config, db *sql.DB) *Client {
 		// Sem Timeout no client: o timeout por tentativa é controlado pelo
 		// context.WithTimeout de 10s em sendAttempt — evita redundância.
 		http: &http.Client{},
+		resolveURL: func(string) (string, bool) {
+			return cfg.WebhookURL, cfg.WebhookURL != ""
+		},
 	}
 }
 
-// Send envia um webhook ao backend principal com retry automático.
-// Realiza até 3 tentativas com backoff exponencial (1s, 2s, 4s).
-// Registra cada tentativa na tabela webhook_log.
-func (c *Client) Send(videoID, event string, video *models.Video) error {
-	// Constrói o payload a partir do vídeo
-	payload := buildPayload(videoID, event, video)
+// Deliver implementa notify.Sink: envia a notificação via webhook se houver
+// URL cadastrada para o vídeo. Erros são apenas logados — o fan-out do
+// Notifier não propaga erros de sink.
+func (c *Client) Deliver(n notify.Notification) {
+	url, ok := c.resolveURL(n.VideoID)
+	if !ok {
+		// Sem URL → nenhum webhook é enviado (o SSE em /api/events segue valendo).
+		return
+	}
+	if err := c.send(n, url); err != nil {
+		log.Printf("[webhook] erro ao enviar evento %s do vídeo %s: %v", n.Event, n.VideoID, err)
+	}
+}
 
-	// Marshala para JSON
-	payloadBytes, err := json.Marshal(payload)
+// Send envia um webhook para o vídeo/evento informados, com retry. Mantido
+// para chamadas diretas e testes; devolve o erro do envio (ou nil se não há
+// URL configurada). O fluxo de produção usa Deliver, via Notifier.
+func (c *Client) Send(videoID, event string, video *models.Video) error {
+	url, ok := c.resolveURL(videoID)
+	if !ok {
+		return nil
+	}
+	return c.send(notify.Build(videoID, event, video), url)
+}
+
+// send serializa, assina e envia a notificação para a URL informada, com até
+// 3 tentativas (backoff exponencial 1s/2s/4s), registrando cada uma na tabela
+// webhook_log.
+func (c *Client) send(n notify.Notification, url string) error {
+	payloadBytes, err := json.Marshal(n)
 	if err != nil {
 		return fmt.Errorf("erro ao serializar payload: %w", err)
 	}
@@ -76,10 +102,10 @@ func (c *Client) Send(videoID, event string, video *models.Video) error {
 
 	for attempt := 0; attempt < 3; attempt++ {
 		// Tenta enviar o webhook
-		success, err := c.sendAttempt(payloadBytes, signature)
+		success, err := c.sendAttempt(url, payloadBytes, signature)
 
 		// Registra a tentativa no banco
-		logErr := insertWebhookLog(c.db, videoID, event, string(payloadBytes), success)
+		logErr := insertWebhookLog(c.db, n.VideoID, n.Event, string(payloadBytes), success)
 		if logErr != nil {
 			return fmt.Errorf("erro ao registrar tentativa de webhook: %w", logErr)
 		}
@@ -98,15 +124,15 @@ func (c *Client) Send(videoID, event string, video *models.Video) error {
 	return fmt.Errorf("webhook falhou após 3 tentativas: %w", lastErr)
 }
 
-// sendAttempt realiza uma tentativa de envio do webhook.
+// sendAttempt realiza uma tentativa de envio do webhook para a URL informada.
 // Retorna true se o envio foi bem-sucedido (status 2xx), false caso contrário.
-func (c *Client) sendAttempt(payloadBytes []byte, signature string) (bool, error) {
+func (c *Client) sendAttempt(url string, payloadBytes []byte, signature string) (bool, error) {
 	// Cria um contexto com timeout de 10 segundos
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
 	// Cria a requisição
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.cfg.WebhookURL, bytes.NewReader(payloadBytes))
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(payloadBytes))
 	if err != nil {
 		return false, fmt.Errorf("erro ao criar requisição: %w", err)
 	}
@@ -128,37 +154,6 @@ func (c *Client) sendAttempt(payloadBytes []byte, signature string) (bool, error
 	}
 
 	return false, fmt.Errorf("status HTTP %d recebido", resp.StatusCode)
-}
-
-// buildPayload constrói o payload a partir dos dados do vídeo.
-// Trata corretamente os campos opcionais (DurationS e ErrorMessage como ponteiros).
-func buildPayload(videoID, event string, video *models.Video) *WebhookPayload {
-	payload := &WebhookPayload{
-		VideoID:   videoID,
-		Event:     event,
-		Status:    string(video.Status),
-		Timestamp: time.Now().UTC(),
-	}
-
-	// Define DurationS como ponteiro (nil se 0, ou *int se > 0)
-	if video.DurationS > 0 {
-		duration := video.DurationS
-		payload.DurationS = &duration
-	}
-
-	// Define Resolutions com o slice do vídeo (vazio se nil)
-	if video.Resolutions != nil && len(video.Resolutions) > 0 {
-		payload.Resolutions = video.Resolutions
-	} else {
-		payload.Resolutions = []int{}
-	}
-
-	// Define ErrorMessage como ponteiro (nil se vazio, ou *string se preenchido)
-	if video.ErrorMessage != "" {
-		payload.ErrorMessage = &video.ErrorMessage
-	}
-
-	return payload
 }
 
 // insertWebhookLog registra uma tentativa de envio de webhook no banco.

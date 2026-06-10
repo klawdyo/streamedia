@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"io"
+	"log"
 	"net/http"
 	"time"
 
@@ -79,11 +80,26 @@ func (h *PlayInitHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	playURL := httputil.PublicPlayURL(r, video.Tag, video.VideoID, token)
 
-	apiresponse.Success(w, http.StatusOK, map[string]string{
-		"video_id":   video.VideoID,
-		"tag":        video.Tag,
-		"play_url":   playURL,
-		"token":      token,
-		"expires_at": expiresAt.UTC().Format(time.RFC3339),
+	// Lista as resoluções disponíveis (variantes HLS geradas na transcodificação,
+	// tabela video_renditions, ordenadas ASC). É informação auxiliar: se a
+	// consulta falhar, ainda emitimos a play_url — o essencial para reprodução —
+	// com a lista vazia, apenas logando o erro.
+	resolutions := []int{}
+	renditions, err := models.StorageByVideo(h.db, video.VideoID)
+	if err != nil {
+		log.Printf("[play] init: erro ao listar resoluções do vídeo %s: %v", video.VideoID, err)
+	} else {
+		for _, rd := range renditions {
+			resolutions = append(resolutions, rd.Resolution)
+		}
+	}
+
+	apiresponse.Success(w, http.StatusOK, map[string]any{
+		"video_id":    video.VideoID,
+		"tag":         video.Tag,
+		"play_url":    playURL,
+		"token":       token,
+		"expires_at":  expiresAt.UTC().Format(time.RFC3339),
+		"resolutions": resolutions,
 	})
 }

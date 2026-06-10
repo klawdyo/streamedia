@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"path/filepath"
 	"testing"
 
 	_ "modernc.org/sqlite"
@@ -178,6 +179,67 @@ func TestStatusRoute_ErrorMessageNilWhenEmpty(t *testing.T) {
 	resp := decodeStatus(t, rec)
 	if resp.ErrorMessage != nil {
 		t.Fatalf("esperado error_message nil, obtido %v", resp.ErrorMessage)
+	}
+}
+
+func TestStatusRoute_HasThumbnailsFalseWhenNoneOnDisk(t *testing.T) {
+	cfg := newTestConfig(t)
+	database := newTestDB(t)
+	if _, err := database.Exec(
+		"INSERT INTO videos (video_id, tag, status, resolutions) VALUES (?, 'default', ?, ?)",
+		testVideoID, "ready", "[480,720]",
+	); err != nil {
+		t.Fatalf("erro ao inserir vídeo: %v", err)
+	}
+
+	h := NewStatusHandler(cfg, database)
+	req := httptest.NewRequest(http.MethodGet, "/api/status/"+testVideoID, nil)
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+
+	resp := decodeStatus(t, rec)
+	if resp.HasThumbnails {
+		t.Fatalf("esperado has_thumbnails false sem arquivos no disco")
+	}
+	if len(resp.Thumbnails) != 0 {
+		t.Fatalf("esperado thumbnails vazio, obtido %v", resp.Thumbnails)
+	}
+}
+
+func TestStatusRoute_ThumbnailsListedWhenOnDisk(t *testing.T) {
+	cfg := newTestConfig(t)
+	database := newTestDB(t)
+	if _, err := database.Exec(
+		"INSERT INTO videos (video_id, tag, status, resolutions) VALUES (?, 'default', ?, ?)",
+		testVideoID, "ready", "[480,720]",
+	); err != nil {
+		t.Fatalf("erro ao inserir vídeo: %v", err)
+	}
+
+	// Cria apenas o thumbnail de 480p no disco: has_thumbnails deve ficar true
+	// e a lista deve conter só a resolução existente.
+	writeFile(t, filepath.Join(cfg.MediaDir, testTag, testVideoID, "thumb_480.jpg"), "jpeg")
+
+	h := NewStatusHandler(cfg, database)
+	req := httptest.NewRequest(http.MethodGet, "/api/status/"+testVideoID, nil)
+	req.Host = "example.com"
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+
+	resp := decodeStatus(t, rec)
+	if !resp.HasThumbnails {
+		t.Fatalf("esperado has_thumbnails true com thumbnail no disco")
+	}
+	url, ok := resp.Thumbnails["480"]
+	if !ok {
+		t.Fatalf("esperado thumbnail 480 na lista, obtido %v", resp.Thumbnails)
+	}
+	want := "http://example.com/video/default/" + testVideoID + "/thumb_480.jpg"
+	if url != want {
+		t.Fatalf("URL do thumbnail inesperada:\n  esperado %q\n  obtido   %q", want, url)
+	}
+	if _, ok := resp.Thumbnails["720"]; ok {
+		t.Fatalf("não esperava thumbnail 720 (não existe no disco): %v", resp.Thumbnails)
 	}
 }
 

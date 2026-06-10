@@ -41,6 +41,16 @@ func PublicPlayURL(r *http.Request, tag, videoID, token string) string {
 	return fmt.Sprintf("%s://%s/video/%s/%s.m3u8?token=%s", scheme, host, tag, videoID, token)
 }
 
+// PublicThumbnailURL monta a URL pública do thumbnail (poster) de uma
+// resolução: <scheme>://<host>/video/<tag>/<video_id>/thumb_<res>.jpg.
+// Os thumbnails são públicos (poster por natureza), então a URL não leva
+// token. Resolve scheme e host com a mesma lógica de proxy das demais.
+func PublicThumbnailURL(r *http.Request, tag, videoID string, resolution int) string {
+	scheme := resolveScheme(r)
+	host := resolveHost(r)
+	return fmt.Sprintf("%s://%s/video/%s/%s/thumb_%d.jpg", scheme, host, tag, videoID, resolution)
+}
+
 // resolveScheme devolve o scheme (http ou https) a partir dos headers de
 // proxy e do estado TLS da requisição.
 func resolveScheme(r *http.Request) string {

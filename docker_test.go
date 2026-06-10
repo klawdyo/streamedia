@@ -105,7 +105,9 @@ func TestDockerfileMultiStage(t *testing.T) {
 		"FROM golang",
 		"FROM alpine",
 		"CGO_ENABLED=0",
-		"USER appuser",
+		// O servidor roda como não-root: o container sobe como root só para o
+		// chown dos bind mounts no entrypoint e baixa o privilégio com su-exec.
+		"su-exec",
 	}
 
 	for _, str := range requiredStrings {

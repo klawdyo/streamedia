@@ -19,13 +19,14 @@ import (
 	"github.com/klawdyo/streamedia/internal/docs"
 	"github.com/klawdyo/streamedia/internal/middleware"
 	"github.com/klawdyo/streamedia/internal/models"
+	"github.com/klawdyo/streamedia/internal/notify"
+	"github.com/klawdyo/streamedia/internal/playground"
 	"github.com/klawdyo/streamedia/internal/serve"
+	"github.com/klawdyo/streamedia/internal/sse"
 	"github.com/klawdyo/streamedia/internal/telemetry"
 	"github.com/klawdyo/streamedia/internal/transcode"
-	"github.com/klawdyo/streamedia/internal/ui"
 	"github.com/klawdyo/streamedia/internal/upload"
 	"github.com/klawdyo/streamedia/internal/version"
-	"github.com/klawdyo/streamedia/internal/webhook"
 )
 
 // NewRouter monta e devolve o roteador chi completo da aplicação e um
@@ -34,35 +35,22 @@ import (
 // Close() antes de encerrar o servidor (T59).
 //
 // Recebe a config, o banco, a fila de transcodificação (já criada e conectada
-// ao worker pelo chamador) e o client de webhook. Todos os handlers são
-// construídos internamente. A fila é passada pronta porque ela é criada fora
-// (com a função do worker) e também precisa ser iniciada/parada pelo main.
+// ao worker pelo chamador), o notifier (que faz fan-out dos eventos para
+// webhook + SSE) e o hub de SSE (para a rota /api/events). Todos os handlers
+// são construídos internamente. A fila e o notifier são passados prontos
+// porque são compartilhados com o worker/jobs, criados pelo main.
 func NewRouter(
 	cfg *config.Config,
 	database *sql.DB,
 	queue *transcode.Queue,
-	wc *webhook.Client,
+	notifier *notify.Notifier,
+	hub *sse.Hub,
 ) (http.Handler, io.Closer, error) {
-	// sendWebhook adapta o client de webhook para a assinatura usada pelos
-	// callbacks (videoID, event, errMsg). Busca o vídeo no banco para enviar
-	// o payload completo; se o vídeo não for encontrado, loga e aborta (T56:
-	// evita nil pointer dereference em buildPayload).
-	sendWebhook := func(videoID, event, errMsg string) {
-		video, err := models.GetVideo(database, videoID)
-		if err != nil {
-			log.Printf("[webhook] erro ao buscar vídeo %s para webhook %s: %v", videoID, event, err)
-			return
-		}
-		if err := wc.Send(videoID, event, video); err != nil {
-			log.Printf("[webhook] erro ao enviar webhook %s para vídeo %s: %v", event, videoID, err)
-		}
-	}
-
 	// onFinish é chamado pelo handler TUS quando o upload termina: valida o
-	// arquivo, enfileira a transcodificação e dispara webhooks.
+	// arquivo, enfileira a transcodificação e emite a notificação (webhook + SSE).
 	onFinish := func(videoID, userAgent string) {
 		filePath := filepath.Join(cfg.UploadTmpDir, videoID)
-		upload.HandlePostFinish(database, cfg, queue.Enqueue, sendWebhook, videoID, filePath, userAgent)
+		upload.HandlePostFinish(database, cfg, queue.Enqueue, notifier.Notify, videoID, filePath, userAgent)
 	}
 
 	// Constrói todos os handlers da aplicação.
@@ -73,6 +61,7 @@ func NewRouter(
 	}
 	masterHandler := serve.NewMasterHandler(cfg, database)
 	staticHandler := serve.NewStaticHandler(cfg, database)
+	thumbnailHandler := serve.NewThumbnailHandler(cfg)
 	statusHandler := serve.NewStatusHandler(cfg, database)
 	playInitHandler := serve.NewPlayInitHandler(cfg, database)
 	adminHandler := admin.NewAdminHandler(cfg, database, queue)
@@ -133,6 +122,19 @@ func NewRouter(
 		r.Delete("/admin/videos/{videoID}", adminHandler.HandleDeleteVideo)
 	})
 
+	// --- Stream de eventos (SSE) em /api/events ---
+	// Entrega ao vivo as notificações do pipeline (as mesmas do webhook),
+	// escopadas por video_id e autenticadas pelo token de upload do vídeo na
+	// query (EventSource não envia cabeçalhos). Fora do RootAuth: é uma
+	// credencial de cliente, não o ROOT_TOKEN. Mesmos critérios do TUS: token
+	// existente, purpose=upload, não expirado e pertencente ao vídeo.
+	sseAuth := func(token, videoID string) bool {
+		t, err := models.GetAccessToken(database, token)
+		return err == nil && t.Purpose == models.PurposeUpload && !t.IsExpired() && t.VideoID == videoID
+	}
+	sseHandler := sse.NewHandler(hub, sseAuth)
+	r.Get("/api/events", sseHandler.ServeHTTP)
+
 	// --- Upload TUS ---
 	// O handler TUS valida o token de upload efêmero (Upload-Token) por conta
 	// própria; por isso não fica sob o RootAuth. O chi exige registro explícito
@@ -148,6 +150,9 @@ func NewRouter(
 	// na query). As playlists de resolução e segmentos são estáticos/públicos.
 	// Os handlers fazem o parsing do path internamente (prefixo /video/).
 	r.Get("/video/{tag}/{file}", masterHandler.ServeHTTP)
+	// Thumbnail (poster) público por resolução: 3 segmentos após /video/,
+	// distinto do master (2) e do segmento (4). Sem autenticação (issue #19).
+	r.Get("/video/{tag}/{videoID}/{thumb}", thumbnailHandler.ServeHTTP)
 	r.Get("/video/{tag}/{videoID}/{res}/{segment}", staticHandler.ServeHTTP)
 
 	// --- Health check ---
@@ -174,18 +179,14 @@ func NewRouter(
 		})
 	})
 
-	// --- Console de teste do pipeline em /ui (issue #18) ---
-	// Página interativa que exercita o fluxo completo (auth → upload → play)
-	// e um receptor de webhooks de teste. A rota é /ui (e não /test) para não
-	// se confundir com testes unitários. Rotas PÚBLICAS (sem RootAuth): a
+	// --- Playground da API em /playground (issue #18) ---
+	// Página interativa que exercita o fluxo completo (auth → upload → play) e
+	// acompanha os eventos ao vivo via SSE (/api/events). "playground" é o termo
+	// usual para um testador interativo de API. Rota PÚBLICA (sem RootAuth): a
 	// página só faz algo de útil com o ROOT_TOKEN colado manualmente pelo
-	// usuário, e o receptor de webhooks precisa aceitar POSTs do próprio
-	// Streamedia (autenticados por HMAC, não por Bearer). O rate limiter
-	// global continua valendo.
-	uiHandler := ui.NewHandler()
-	r.Get("/ui", uiHandler.ServeUI)
-	r.Post("/ui/webhook", uiHandler.ReceiveWebhook)
-	r.Get("/ui/webhook/events", uiHandler.ListEvents)
+	// usuário. O rate limiter global continua valendo.
+	playgroundHandler := playground.NewHandler()
+	r.Get("/playground", playgroundHandler.ServeUI)
 
 	// --- Observabilidade e documentação (protegidas pelo ROOT_TOKEN) ---
 	// /metrics (OpenTelemetry/Prometheus) e /docs (Scalar UI) exigem o mesmo
