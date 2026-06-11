@@ -68,13 +68,28 @@ type videosResponse struct {
 	Total  int             `json:"total"`
 }
 
+// sortableVideoColumns mapeia o valor aceito no query param `sort` à coluna
+// real usada no ORDER BY. É uma WHITELIST: nomes de coluna não podem ser
+// parametrizados em SQL (só valores), então só interpolamos um nome que esteja
+// aqui — qualquer outro valor cai no default, evitando injeção de SQL.
+var sortableVideoColumns = map[string]string{
+	"created_at":        "created_at",
+	"updated_at":        "updated_at",
+	"status":            "status",
+	"actual_size_bytes": "actual_size_bytes",
+	"duration_s":        "duration_s",
+}
+
 // HandleVideos retorna uma lista paginada de vídeos, opcionalmente filtrada por
-// status e/ou tag.
+// status e/ou tag, com ordenação configurável.
 // Query params:
 //   - status (opcional): filtro por status do vídeo
 //   - tag (opcional): filtro por namespace (tag)
 //   - limit (opcional, padrão 50, máximo 200): número de registros por página
 //   - offset (opcional, padrão 0): número de registros a pular
+//   - sort (opcional, padrão created_at): coluna de ordenação; só aceita os
+//     valores da whitelist sortableVideoColumns, demais caem no default
+//   - order (opcional, padrão desc): direção da ordenação (asc|desc)
 func (h *AdminHandler) HandleVideos(w http.ResponseWriter, r *http.Request) {
 	limit := 50
 	if l := r.URL.Query().Get("limit"); l != "" {
@@ -111,9 +126,21 @@ func (h *AdminHandler) HandleVideos(w http.ResponseWriter, r *http.Request) {
 		whereClause = " WHERE " + strings.Join(conditions, " AND ")
 	}
 
+	// Ordenação: coluna pela whitelist (default created_at) e direção asc|desc
+	// (default desc). Como o nome da coluna não pode ser parametrizado, só
+	// interpolamos valores já validados — nunca o input cru do cliente.
+	sortColumn := "created_at"
+	if col, ok := sortableVideoColumns[r.URL.Query().Get("sort")]; ok {
+		sortColumn = col
+	}
+	orderDir := "DESC"
+	if strings.EqualFold(r.URL.Query().Get("order"), "asc") {
+		orderDir = "ASC"
+	}
+
 	countQuery := "SELECT COUNT(*) FROM videos" + whereClause
 	listQuery := "SELECT " + models.SelectVideoColumns + " FROM videos" +
-		whereClause + " ORDER BY created_at DESC LIMIT ? OFFSET ?"
+		whereClause + " ORDER BY " + sortColumn + " " + orderDir + " LIMIT ? OFFSET ?"
 
 	var total int
 	if err := h.db.QueryRow(countQuery, args...).Scan(&total); err != nil {

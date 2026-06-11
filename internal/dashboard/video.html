@@ -1,0 +1,211 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Streamedia — Vídeo</title>
+<link rel="stylesheet" href="/dashboard/assets/theme.css">
+<!-- hls.js: navegadores (exceto Safari) não tocam HLS nativamente — mesmo uso
+     do /playground. Chart.js para as estatísticas do vídeo. -->
+<script src="https://cdn.jsdelivr.net/npm/hls.js@1"></script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4"></script>
+<script src="/dashboard/assets/app.js"></script>
+</head>
+<body>
+<header class="top">
+  <h1>Streamedia</h1>
+  <span class="tagline">Dashboard — vídeo</span>
+  <nav>
+    <a href="/dashboard">Visão geral</a>
+    <a href="/dashboard/videos">Vídeos</a>
+    <a href="/playground">Playground</a>
+    <a href="/docs">Docs</a>
+  </nav>
+</header>
+
+<div class="wrap">
+  <div class="tokenbar">
+    <label for="rootToken">ROOT_TOKEN</label>
+    <input type="password" id="rootToken" placeholder="root-token-...">
+    <button id="saveToken">Carregar</button>
+  </div>
+  <div id="tokenStatus" class="note"></div>
+
+  <div id="content" class="hidden">
+    <p><a href="/dashboard/videos">← Voltar para a biblioteca</a></p>
+
+    <div class="video-layout">
+      <!-- Player (estilo YouTube) -->
+      <div>
+        <div class="player-wrap">
+          <video id="player" controls playsinline poster=""></video>
+        </div>
+        <div id="playNote" class="note"></div>
+      </div>
+
+      <!-- Ficha do vídeo -->
+      <div class="panel">
+        <h2>Informações</h2>
+        <div class="kv" id="info"></div>
+      </div>
+    </div>
+
+    <!-- Cartões de uso -->
+    <div class="cards" id="cards"></div>
+
+    <!-- Armazenamento por resolução -->
+    <div class="panel">
+      <h2>Armazenamento por resolução</h2>
+      <table>
+        <thead><tr><th>Resolução</th><th class="num">Tamanho</th><th class="num">Segmentos</th></tr></thead>
+        <tbody id="renditions"></tbody>
+      </table>
+    </div>
+
+    <!-- Estatísticas de reprodução do vídeo -->
+    <div class="panel">
+      <h2>Reproduções deste vídeo</h2>
+      <div class="chart-grid">
+        <div class="chart-box"><h3>Por data</h3><canvas id="vByDate"></canvas></div>
+        <div class="chart-box"><h3>Por dia da semana</h3><canvas id="vByDow"></canvas></div>
+        <div class="chart-box"><h3>Por hora do dia</h3><canvas id="vByHour"></canvas></div>
+        <div class="chart-box"><h3>Por resolução</h3><canvas id="vByRes"></canvas></div>
+        <div class="chart-box"><h3>Por sistema operacional</h3><canvas id="vByOS"></canvas></div>
+      </div>
+    </div>
+  </div>
+
+  <div id="error" class="note err hidden"></div>
+</div>
+
+<script>
+(function () {
+  var D = window.Dash;
+  D.applyChartTheme();
+
+  // O id do vídeo vem do último segmento do path /dashboard/videos/{id}.
+  var parts = window.location.pathname.replace(/\/+$/, "").split("/");
+  var videoID = decodeURIComponent(parts[parts.length - 1] || "");
+
+  function showError(msg) {
+    var e = document.getElementById("error");
+    e.textContent = msg;
+    e.classList.remove("hidden");
+    document.getElementById("content").classList.add("hidden");
+  }
+  function hideError() { document.getElementById("error").classList.add("hidden"); }
+
+  function card(k, v, sub) {
+    return '<div class="card"><div class="k">' + D.escapeHtml(k) + '</div>' +
+      '<div class="v">' + D.escapeHtml(v) + '</div>' +
+      (sub ? '<div class="sub">' + D.escapeHtml(sub) + '</div>' : '') + '</div>';
+  }
+
+  function renderInfo(status, stats) {
+    var resolutions = (status.resolutions || []).join(", ") || "—";
+    var rows = [
+      ["ID", '<span class="mono-id">' + D.escapeHtml(status.video_id) + '</span>'],
+      ["Status", '<span class="chip ' + D.escapeHtml(status.status) + '">' + D.escapeHtml(D.statusLabel(status.status)) + '</span>'],
+      ["Duração", D.escapeHtml(D.fmtDuration(status.duration_s || 0))],
+      ["Resoluções", D.escapeHtml(resolutions)],
+      ["Enviado em", D.escapeHtml(D.fmtDateTime(status.created_at))],
+      ["Atualizado em", D.escapeHtml(D.fmtDateTime(status.updated_at))],
+    ];
+    if (status.error_message) rows.push(["Erro", D.escapeHtml(status.error_message)]);
+    document.getElementById("info").innerHTML = rows.map(function (r) {
+      return '<div class="k">' + r[0] + '</div><div>' + r[1] + '</div>';
+    }).join("");
+  }
+
+  function renderCards(stats) {
+    var totals = stats.totals || {};
+    var vs = stats.video_storage || {};
+    var html = "";
+    html += card("Reproduções", String(totals.playback || 0));
+    html += card("Segmentos servidos", String(totals.download_segment || 0));
+    html += card("Peso total", D.fmtBytes(vs.total_bytes || 0), "soma das variantes HLS");
+    document.getElementById("cards").innerHTML = html;
+  }
+
+  function renderRenditions(stats) {
+    var rds = (stats.video_storage && stats.video_storage.renditions) || [];
+    var rows = rds.map(function (r) {
+      return '<tr><td>' + r.resolution + 'p</td><td class="num">' + D.fmtBytes(r.size_bytes) +
+        '</td><td class="num">' + r.segment_count + '</td></tr>';
+    }).join("");
+    document.getElementById("renditions").innerHTML = rows || '<tr><td colspan="3" class="note">Sem variantes ainda.</td></tr>';
+  }
+
+  function renderCharts(stats) {
+    D.barChart("vByDate", D.dateSeries(stats.by_date), "Reproduções", "#4ade80");
+    D.barChart("vByDow", D.weekdaySeries(stats.by_day_of_week), "Reproduções", "#4ade80");
+    D.barChart("vByHour", D.hourSeries(stats.by_hour), "Reproduções", "#4ade80");
+    var res = stats.by_resolution || {};
+    var resKeys = Object.keys(res).sort(function (a, b) { return a - b; });
+    D.doughnutChart("vByRes", resKeys.map(function (r) { return r + "p"; }), resKeys.map(function (r) { return res[r]; }));
+    var os = stats.by_os || {};
+    var osKeys = Object.keys(os);
+    D.doughnutChart("vByOS", osKeys, osKeys.map(function (k) { return os[k]; }));
+  }
+
+  // setupPlayer pede a play_url assinada (/api/play/init) e toca via hls.js;
+  // só faz sentido se o vídeo estiver "ready". Para outros status, mostra um
+  // aviso no lugar do player.
+  async function setupPlayer(status) {
+    var note = document.getElementById("playNote");
+    var video = document.getElementById("player");
+    if (status.has_thumbnails && status.thumbnails) {
+      // Usa o maior poster disponível como capa.
+      var keys = Object.keys(status.thumbnails).sort(function (a, b) { return b - a; });
+      if (keys.length) video.poster = status.thumbnails[keys[0]];
+    }
+    if (status.status !== "ready") {
+      note.textContent = "O vídeo não está pronto para reprodução (status: " + D.statusLabel(status.status) + ").";
+      return;
+    }
+    try {
+      var play = await D.apiFetch("/api/play/init", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ video_id: status.video_id }),
+      });
+      var url = play.play_url;
+      if (video.canPlayType("application/vnd.apple.mpegurl")) {
+        // Safari toca HLS nativamente.
+        video.src = url;
+      } else if (window.Hls && window.Hls.isSupported()) {
+        var hls = new Hls();
+        hls.loadSource(url);
+        hls.attachMedia(video);
+      } else {
+        note.textContent = "Este navegador não suporta HLS.";
+        return;
+      }
+      note.textContent = "";
+    } catch (e) {
+      note.textContent = "Falha ao iniciar a reprodução: " + (e.message || e);
+    }
+  }
+
+  async function load() {
+    hideError();
+    if (!videoID) { showError("video_id ausente na URL."); return; }
+    try {
+      var status = await D.apiFetch("/api/status/" + encodeURIComponent(videoID));
+      var stats = await D.apiFetch("/admin/stats?video_id=" + encodeURIComponent(videoID));
+      renderInfo(status, stats);
+      renderCards(stats);
+      renderRenditions(stats);
+      renderCharts(stats);
+      document.getElementById("content").classList.remove("hidden");
+      await setupPlayer(status);
+    } catch (e) {
+      showError(e.message || "Falha ao carregar o vídeo.");
+    }
+  }
+
+  D.setupToken(load);
+})();
+</script>
+</body>
+</html>

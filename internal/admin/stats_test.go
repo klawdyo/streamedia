@@ -14,22 +14,46 @@ import (
 // statsTestResponse espelha a estrutura JSON retornada por HandleStats,
 // usada para decodificar e inspecionar a resposta nos testes.
 type statsTestResponse struct {
-	VideoID      *string             `json:"video_id"`
-	Totals       map[string]int64    `json:"totals"`
-	ByResolution map[int]int64       `json:"by_resolution"`
-	ByOS         map[string]int64    `json:"by_os"`
-	ByDayOfWeek  map[int]int64       `json:"by_day_of_week"`
-	Storage      *storageTestSection `json:"storage"`
+	VideoID      *string                  `json:"video_id"`
+	Totals       map[string]int64         `json:"totals"`
+	ByResolution map[int]int64            `json:"by_resolution"`
+	ByOS         map[string]int64         `json:"by_os"`
+	ByDayOfWeek  map[int]int64            `json:"by_day_of_week"`
+	ByHour       map[int]int64            `json:"by_hour"`
+	ByDate       map[string]int64         `json:"by_date"`
+	Storage      *storageTestSection      `json:"storage"`
+	Uploads      *uploadsTestSection      `json:"uploads"`
+	VideoStorage *videoStorageTestSection `json:"video_storage"`
 }
 
 // storageTestSection espelha a seção "storage" da resposta (T36/T37,
 // issue #5): armazenamento e fila, somadas às estatísticas de uso já
-// existentes (T28).
+// existentes (T28). Workers foi acrescentado para o dashboard.
 type storageTestSection struct {
 	TotalBytes           int64                      `json:"total_bytes"`
 	TotalDurationSeconds int64                      `json:"total_duration_seconds"`
 	VideosByStatus       map[models.VideoStatus]int `json:"videos_by_status"`
 	QueuePending         int                        `json:"queue_pending"`
+	Workers              int                        `json:"workers"`
+}
+
+// uploadsTestSection espelha a seção "uploads" (movimentação de envios).
+type uploadsTestSection struct {
+	Total       int64            `json:"total"`
+	ByDate      map[string]int64 `json:"by_date"`
+	ByDayOfWeek map[int]int64    `json:"by_day_of_week"`
+	ByHour      map[int]int64    `json:"by_hour"`
+}
+
+// videoStorageTestSection espelha a ficha de armazenamento por vídeo.
+type videoStorageTestSection struct {
+	Renditions []struct {
+		Resolution   int   `json:"resolution"`
+		SizeBytes    int64 `json:"size_bytes"`
+		SegmentCount int   `json:"segment_count"`
+	} `json:"renditions"`
+	TotalBytes      int64 `json:"total_bytes"`
+	DurationSeconds int   `json:"duration_seconds"`
 }
 
 // recordEvent é um atalho para inserir eventos de teste, abortando o teste
@@ -290,5 +314,147 @@ func TestHandleStats_StorageSectionConsistentWithQueueRoute(t *testing.T) {
 	}
 	if statsResp.Storage.QueuePending != 7 {
 		t.Errorf("esperava queue_pending = 7, obteve %d", statsResp.Storage.QueuePending)
+	}
+}
+
+// decodeStats decodifica a resposta de HandleStats no envelope padrão.
+func decodeStats(t *testing.T, rec *httptest.ResponseRecorder) statsTestResponse {
+	t.Helper()
+	if rec.Code != http.StatusOK {
+		t.Fatalf("esperado 200, obtido %d (body: %s)", rec.Code, rec.Body.String())
+	}
+	var env apiresponse.Envelope
+	if err := json.Unmarshal(rec.Body.Bytes(), &env); err != nil {
+		t.Fatalf("erro ao decodificar resposta: %v", err)
+	}
+	dataJSON, _ := json.Marshal(env.Data)
+	var resp statsTestResponse
+	if err := json.Unmarshal(dataJSON, &resp); err != nil {
+		t.Fatalf("erro ao decodificar data: %v", err)
+	}
+	return resp
+}
+
+// TestHandleStats_GlobalIncludesUploadsAndWorkers verifica as seções novas do
+// dashboard na visão global: "uploads" (movimentação de envios por
+// data/dia/hora) e storage.workers.
+func TestHandleStats_GlobalIncludesUploadsAndWorkers(t *testing.T) {
+	database, cfg := setupAdminTest(t)
+	cfg.TranscodeWorkers = 3
+	handler := NewAdminHandler(cfg, database, &mockQueue{length: 1})
+
+	insertVideo(t, database, "vid-1", models.StatusReady)
+	insertVideo(t, database, "vid-2", models.StatusReady)
+	// created_at controlado: 2026-06-07 (domingo) 10h e 2026-06-08 (segunda) 22h.
+	if _, err := database.Exec(`UPDATE videos SET created_at = datetime('2026-06-07 10:00:00') WHERE video_id = 'vid-1'`); err != nil {
+		t.Fatalf("erro ao ajustar created_at: %v", err)
+	}
+	if _, err := database.Exec(`UPDATE videos SET created_at = datetime('2026-06-08 22:00:00') WHERE video_id = 'vid-2'`); err != nil {
+		t.Fatalf("erro ao ajustar created_at: %v", err)
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/admin/stats", nil)
+	req.Header.Set("Authorization", "Bearer "+cfg.RootToken)
+	rec := httptest.NewRecorder()
+	handler.HandleStats(rec, req)
+
+	resp := decodeStats(t, rec)
+
+	if resp.Storage == nil || resp.Storage.Workers != 3 {
+		t.Errorf("esperava storage.workers = 3, obteve %+v", resp.Storage)
+	}
+	if resp.Uploads == nil {
+		t.Fatalf("esperava seção 'uploads' presente na visão global")
+	}
+	if resp.Uploads.Total != 2 {
+		t.Errorf("uploads.total = %d, esperava 2", resp.Uploads.Total)
+	}
+	if resp.Uploads.ByDate["2026-06-07"] != 1 || resp.Uploads.ByDate["2026-06-08"] != 1 {
+		t.Errorf("uploads.by_date inesperado: %+v", resp.Uploads.ByDate)
+	}
+	if resp.Uploads.ByDayOfWeek[0] != 1 || resp.Uploads.ByDayOfWeek[1] != 1 {
+		t.Errorf("uploads.by_day_of_week inesperado: %+v", resp.Uploads.ByDayOfWeek)
+	}
+	if resp.Uploads.ByHour[10] != 1 || resp.Uploads.ByHour[22] != 1 {
+		t.Errorf("uploads.by_hour inesperado: %+v", resp.Uploads.ByHour)
+	}
+	// VideoStorage não deve aparecer na visão global.
+	if resp.VideoStorage != nil {
+		t.Errorf("não esperava video_storage na visão global")
+	}
+}
+
+// TestHandleStats_PlaybackByHourAndDate verifica as agregações de playback por
+// hora e por data (alimentam os gráficos de horários/dias mais movimentados).
+func TestHandleStats_PlaybackByHourAndDate(t *testing.T) {
+	database, cfg := setupAdminTest(t)
+	handler := NewAdminHandler(cfg, database, &mockQueue{})
+
+	insertVideo(t, database, "vid-1", models.StatusReady)
+	recordEvent(t, database, "vid-1", "playback", nil, "Mozilla/5.0 (Windows NT 10.0)")
+	recordEvent(t, database, "vid-1", "playback", nil, "Mozilla/5.0 (Windows NT 10.0)")
+	if _, err := database.Exec(`UPDATE playback_events SET occurred_at = datetime('2026-06-07 09:00:00') WHERE id = 1`); err != nil {
+		t.Fatalf("erro ao ajustar occurred_at: %v", err)
+	}
+	if _, err := database.Exec(`UPDATE playback_events SET occurred_at = datetime('2026-06-07 09:30:00') WHERE id = 2`); err != nil {
+		t.Fatalf("erro ao ajustar occurred_at: %v", err)
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/admin/stats", nil)
+	req.Header.Set("Authorization", "Bearer "+cfg.RootToken)
+	rec := httptest.NewRecorder()
+	handler.HandleStats(rec, req)
+
+	resp := decodeStats(t, rec)
+	if resp.ByHour[9] != 2 {
+		t.Errorf("by_hour[9] = %d, esperava 2", resp.ByHour[9])
+	}
+	if resp.ByDate["2026-06-07"] != 2 {
+		t.Errorf("by_date[2026-06-07] = %d, esperava 2", resp.ByDate["2026-06-07"])
+	}
+}
+
+// TestHandleStats_PerVideoStorage verifica que ?video_id= inclui a ficha de
+// armazenamento do vídeo (renditions + total_bytes + duração) e NÃO inclui as
+// seções globais storage/uploads.
+func TestHandleStats_PerVideoStorage(t *testing.T) {
+	database, cfg := setupAdminTest(t)
+	handler := NewAdminHandler(cfg, database, &mockQueue{})
+
+	insertVideo(t, database, "vid-1", models.StatusReady)
+	if _, err := database.Exec(`UPDATE videos SET duration_s = 90 WHERE video_id = 'vid-1'`); err != nil {
+		t.Fatalf("erro ao ajustar duration_s: %v", err)
+	}
+	if err := models.UpsertVideoRendition(database, "vid-1", 480, 500, 5); err != nil {
+		t.Fatalf("UpsertVideoRendition: %v", err)
+	}
+	if err := models.UpsertVideoRendition(database, "vid-1", 720, 1500, 7); err != nil {
+		t.Fatalf("UpsertVideoRendition: %v", err)
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/admin/stats?video_id=vid-1", nil)
+	req.Header.Set("Authorization", "Bearer "+cfg.RootToken)
+	rec := httptest.NewRecorder()
+	handler.HandleStats(rec, req)
+
+	resp := decodeStats(t, rec)
+	if resp.Storage != nil || resp.Uploads != nil {
+		t.Errorf("não esperava seções globais storage/uploads na visão por-vídeo")
+	}
+	if resp.VideoStorage == nil {
+		t.Fatalf("esperava video_storage presente na visão por-vídeo")
+	}
+	if resp.VideoStorage.TotalBytes != 2000 {
+		t.Errorf("video_storage.total_bytes = %d, esperava 2000", resp.VideoStorage.TotalBytes)
+	}
+	if resp.VideoStorage.DurationSeconds != 90 {
+		t.Errorf("video_storage.duration_seconds = %d, esperava 90", resp.VideoStorage.DurationSeconds)
+	}
+	if len(resp.VideoStorage.Renditions) != 2 {
+		t.Fatalf("esperava 2 renditions, obteve %d", len(resp.VideoStorage.Renditions))
+	}
+	// StorageByVideo ordena por resolução ASC.
+	if resp.VideoStorage.Renditions[0].Resolution != 480 || resp.VideoStorage.Renditions[0].SizeBytes != 500 {
+		t.Errorf("rendition[0] inesperado: %+v", resp.VideoStorage.Renditions[0])
 	}
 }

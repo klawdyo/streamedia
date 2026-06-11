@@ -29,7 +29,7 @@ func setupAdminTest(t *testing.T) (*sql.DB, *config.Config) {
 	t.Cleanup(func() { _ = database.Close() })
 
 	cfg := &config.Config{
-		RootToken:       "test-admin-token",
+		RootToken:        "test-admin-token",
 		TranscodeWorkers: 1,
 	}
 
@@ -98,6 +98,74 @@ func TestAdminVideos_WithAuth(t *testing.T) {
 	if resp.Total != 2 {
 		t.Errorf("total esperado 2, obtido %d", resp.Total)
 	}
+}
+
+// listVideos é um atalho de teste: chama HandleVideos com a query informada e
+// devolve a lista de vídeos decodificada do envelope.
+func listVideos(t *testing.T, handler *AdminHandler, query string) []*models.Video {
+	t.Helper()
+	req := httptest.NewRequest("GET", "/admin/videos"+query, nil)
+	req.Header.Set("Authorization", "Bearer test-admin-token")
+	w := httptest.NewRecorder()
+	handler.HandleVideos(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("esperado 200, obtido %d (body: %s)", w.Code, w.Body.String())
+	}
+	var env apiresponse.Envelope
+	body, _ := io.ReadAll(w.Body)
+	if err := json.Unmarshal(body, &env); err != nil {
+		t.Fatalf("erro ao decodificar resposta: %v", err)
+	}
+	dataJSON, _ := json.Marshal(env.Data)
+	var resp videosResponse
+	json.Unmarshal(dataJSON, &resp)
+	return resp.Videos
+}
+
+// TestAdminVideos_SortAndOrder verifica a ordenação configurável (sort/order):
+// por duration_s asc/desc, e que um valor de sort inválido cai no default
+// (created_at), sem permitir injeção de SQL.
+func TestAdminVideos_SortAndOrder(t *testing.T) {
+	database, cfg := setupAdminTest(t)
+	handler := NewAdminHandler(cfg, database, &mockQueue{})
+
+	insertVideo(t, database, "vid-curto", models.StatusReady)
+	insertVideo(t, database, "vid-medio", models.StatusReady)
+	insertVideo(t, database, "vid-longo", models.StatusReady)
+	if _, err := database.Exec(`UPDATE videos SET duration_s = 10 WHERE video_id = 'vid-curto'`); err != nil {
+		t.Fatalf("erro ao ajustar duration_s: %v", err)
+	}
+	if _, err := database.Exec(`UPDATE videos SET duration_s = 50 WHERE video_id = 'vid-medio'`); err != nil {
+		t.Fatalf("erro ao ajustar duration_s: %v", err)
+	}
+	if _, err := database.Exec(`UPDATE videos SET duration_s = 90 WHERE video_id = 'vid-longo'`); err != nil {
+		t.Fatalf("erro ao ajustar duration_s: %v", err)
+	}
+
+	asc := listVideos(t, handler, "?sort=duration_s&order=asc")
+	if len(asc) != 3 || asc[0].VideoID != "vid-curto" || asc[2].VideoID != "vid-longo" {
+		t.Errorf("ordenação asc por duration_s inesperada: %v", idsOf(asc))
+	}
+
+	desc := listVideos(t, handler, "?sort=duration_s&order=desc")
+	if len(desc) != 3 || desc[0].VideoID != "vid-longo" || desc[2].VideoID != "vid-curto" {
+		t.Errorf("ordenação desc por duration_s inesperada: %v", idsOf(desc))
+	}
+
+	// Valor de sort inválido (potencial injeção) deve cair no default sem erro.
+	def := listVideos(t, handler, "?sort=duration_s;DROP+TABLE+videos&order=weird")
+	if len(def) != 3 {
+		t.Errorf("sort inválido deveria cair no default e retornar 3 vídeos, obteve %d", len(def))
+	}
+}
+
+// idsOf extrai os video_id de uma lista, para mensagens de erro legíveis.
+func idsOf(videos []*models.Video) []string {
+	ids := make([]string, len(videos))
+	for i, v := range videos {
+		ids[i] = v.VideoID
+	}
+	return ids
 }
 
 // TestAdminVideos_WithoutAuth verifica que HandleVideos retorna 401 quando

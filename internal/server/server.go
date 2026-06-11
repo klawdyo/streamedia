@@ -16,6 +16,7 @@ import (
 	"github.com/klawdyo/streamedia/internal/admin"
 	"github.com/klawdyo/streamedia/internal/apiresponse"
 	"github.com/klawdyo/streamedia/internal/config"
+	"github.com/klawdyo/streamedia/internal/dashboard"
 	"github.com/klawdyo/streamedia/internal/docs"
 	"github.com/klawdyo/streamedia/internal/middleware"
 	"github.com/klawdyo/streamedia/internal/models"
@@ -187,6 +188,21 @@ func NewRouter(
 	// usuário. O rate limiter global continua valendo.
 	playgroundHandler := playground.NewHandler()
 	r.Get("/playground", playgroundHandler.ServeUI)
+
+	// --- Dashboard administrativo em /dashboard ---
+	// Visão geral (estatísticas + gráficos), biblioteca de vídeos (lista com
+	// paginação/filtros/ordenação) e página por vídeo (player + estatísticas).
+	// Rotas PÚBLICAS (sem RootAuth), no MESMO padrão do /playground: as páginas
+	// HTML não fazem nada de útil sem o ROOT_TOKEN — todo dado vem das rotas
+	// protegidas (/admin/*, /api/status, /api/play/init), que continuam exigindo
+	// o token. O usuário cola o ROOT_TOKEN uma vez (guardado no sessionStorage)
+	// e o JS o envia em Authorization: Bearer. O rate limiter global continua
+	// valendo. StripSlashMiddleware (global) normaliza /dashboard/ → /dashboard.
+	dashboardHandler := dashboard.NewHandler()
+	r.Get("/dashboard", dashboardHandler.ServeOverview)
+	r.Get("/dashboard/videos", dashboardHandler.ServeVideos)
+	r.Get("/dashboard/videos/{videoID}", dashboardHandler.ServeVideo)
+	r.Get("/dashboard/assets/{file}", dashboardHandler.ServeAsset)
 
 	// --- Observabilidade e documentação (protegidas pelo ROOT_TOKEN) ---
 	// /metrics (OpenTelemetry/Prometheus) e /docs (Scalar UI) exigem o mesmo

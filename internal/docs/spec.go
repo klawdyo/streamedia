@@ -25,6 +25,7 @@ func openAPISpec() map[string]any {
 			{"name": "status", "description": "Consulta de status de processamento de vídeos"},
 			{"name": "admin", "description": "Rotas administrativas (protegidas pelo ROOT_TOKEN)"},
 			{"name": "observability", "description": "Versão, métricas e estatísticas operacionais"},
+			{"name": "dashboard", "description": "Páginas web da área administrativa (visão geral, biblioteca e vídeo)"},
 		},
 		"paths": map[string]any{
 			"/api/upload/init": map[string]any{
@@ -258,13 +259,15 @@ func openAPISpec() map[string]any {
 				"get": map[string]any{
 					"tags":        []string{"admin"},
 					"summary":     "Lista vídeos cadastrados",
-					"description": "Lista paginada de vídeos com seus status. Aceita os query params opcionais status, tag, limit e offset.",
+					"description": "Lista paginada de vídeos com seus status. Aceita os query params opcionais status, tag, limit, offset, sort e order.",
 					"security":    []map[string]any{{"rootToken": []string{}}},
 					"parameters": []map[string]any{
 						{"name": "status", "in": "query", "required": false, "schema": map[string]any{"type": "string"}},
 						{"name": "tag", "in": "query", "required": false, "schema": map[string]any{"type": "string"}},
 						{"name": "limit", "in": "query", "required": false, "schema": map[string]any{"type": "integer"}},
 						{"name": "offset", "in": "query", "required": false, "schema": map[string]any{"type": "integer"}},
+						{"name": "sort", "in": "query", "required": false, "schema": map[string]any{"type": "string", "enum": []string{"created_at", "updated_at", "status", "actual_size_bytes", "duration_s"}, "default": "created_at"}, "description": "Coluna de ordenação (whitelist; valor fora dela cai no default)"},
+						{"name": "order", "in": "query", "required": false, "schema": map[string]any{"type": "string", "enum": []string{"asc", "desc"}, "default": "desc"}},
 					},
 					"responses": map[string]any{
 						"200": map[string]any{"description": "Lista de vídeos"},
@@ -304,7 +307,7 @@ func openAPISpec() map[string]any {
 				"get": map[string]any{
 					"tags":        []string{"admin", "observability"},
 					"summary":     "Estatísticas agregadas de uso",
-					"description": "Agrega eventos de reprodução/upload em totais por tipo de evento, resolução, sistema operacional e dia da semana — e, na visão global (sem ?video_id=), também armazenamento e fila (bytes totais, duração, vídeos por status, fila pendente).",
+					"description": "Agrega eventos de reprodução em totais por tipo de evento, resolução, sistema operacional, dia da semana, hora (by_hour) e data (by_date). Na visão global (sem ?video_id=) inclui ainda 'storage' (bytes totais, duração, vídeos por status, fila pendente, workers) e 'uploads' (movimentação de envios por data/dia/hora). Com ?video_id=, inclui 'video_storage' (variantes HLS e peso do vídeo).",
 					"security":    []map[string]any{{"rootToken": []string{}}},
 					"parameters": []map[string]any{
 						{"name": "video_id", "in": "query", "required": false, "schema": map[string]any{"type": "string"}, "description": "Restringe a agregação a um único vídeo; sem este parâmetro, a visão é global"},
@@ -322,6 +325,8 @@ func openAPISpec() map[string]any {
 											"by_resolution":  map[string]any{"type": "object", "additionalProperties": map[string]any{"type": "integer"}},
 											"by_os":          map[string]any{"type": "object", "additionalProperties": map[string]any{"type": "integer"}},
 											"by_day_of_week": map[string]any{"type": "object", "additionalProperties": map[string]any{"type": "integer"}},
+											"by_hour":        map[string]any{"type": "object", "additionalProperties": map[string]any{"type": "integer"}, "description": "Reproduções por hora do dia (0..23)"},
+											"by_date":        map[string]any{"type": "object", "additionalProperties": map[string]any{"type": "integer"}, "description": "Reproduções por data (YYYY-MM-DD)"},
 											"storage": map[string]any{
 												"type":        "object",
 												"nullable":    true,
@@ -331,6 +336,38 @@ func openAPISpec() map[string]any {
 													"total_duration_seconds": map[string]any{"type": "integer", "format": "int64"},
 													"videos_by_status":       map[string]any{"type": "object", "additionalProperties": map[string]any{"type": "integer"}},
 													"queue_pending":          map[string]any{"type": "integer"},
+													"workers":                map[string]any{"type": "integer", "description": "Número de workers de transcodificação configurados"},
+												},
+											},
+											"uploads": map[string]any{
+												"type":        "object",
+												"nullable":    true,
+												"description": "Visão GLOBAL da movimentação de envios (videos.created_at); presente apenas quando ?video_id= não é informado.",
+												"properties": map[string]any{
+													"total":          map[string]any{"type": "integer", "format": "int64"},
+													"by_date":        map[string]any{"type": "object", "additionalProperties": map[string]any{"type": "integer"}},
+													"by_day_of_week": map[string]any{"type": "object", "additionalProperties": map[string]any{"type": "integer"}},
+													"by_hour":        map[string]any{"type": "object", "additionalProperties": map[string]any{"type": "integer"}},
+												},
+											},
+											"video_storage": map[string]any{
+												"type":        "object",
+												"nullable":    true,
+												"description": "Ficha de armazenamento do vídeo; presente apenas quando ?video_id= é informado.",
+												"properties": map[string]any{
+													"renditions": map[string]any{
+														"type": "array",
+														"items": map[string]any{
+															"type": "object",
+															"properties": map[string]any{
+																"resolution":    map[string]any{"type": "integer"},
+																"size_bytes":    map[string]any{"type": "integer", "format": "int64"},
+																"segment_count": map[string]any{"type": "integer"},
+															},
+														},
+													},
+													"total_bytes":      map[string]any{"type": "integer", "format": "int64"},
+													"duration_seconds": map[string]any{"type": "integer"},
 												},
 											},
 										},
@@ -376,6 +413,47 @@ func openAPISpec() map[string]any {
 					"description": "Expõe métricas operacionais no formato de texto Prometheus, coletável por scrapers OpenTelemetry/Prometheus. Não é uma rota JSON.",
 					"responses": map[string]any{
 						"200": map[string]any{"description": "Métricas no formato de exposição do Prometheus", "content": map[string]any{"text/plain": map[string]any{}}},
+					},
+				},
+			},
+			"/dashboard": map[string]any{
+				"get": map[string]any{
+					"tags":        []string{"dashboard"},
+					"summary":     "Dashboard — visão geral (página HTML)",
+					"description": "Página HTML da visão geral do sistema: cartões de estatística, gráficos de movimentação (uploads e reproduções por data/dia/hora) e os últimos vídeos enviados. Rota PÚBLICA (como /playground): a página só age com o ROOT_TOKEN colado pelo usuário, enviado pelo JS em Authorization: Bearer às rotas de dados (/admin/*, /api/status, /api/play/init).",
+					"responses":   map[string]any{"200": map[string]any{"description": "Página HTML", "content": map[string]any{"text/html": map[string]any{}}}},
+				},
+			},
+			"/dashboard/videos": map[string]any{
+				"get": map[string]any{
+					"tags":        []string{"dashboard"},
+					"summary":     "Dashboard — biblioteca de vídeos (página HTML)",
+					"description": "Página HTML com a lista completa de vídeos (paginação, filtros por status/tag e ordenação), consumindo /admin/videos. Rota pública (ver /dashboard).",
+					"responses":   map[string]any{"200": map[string]any{"description": "Página HTML", "content": map[string]any{"text/html": map[string]any{}}}},
+				},
+			},
+			"/dashboard/videos/{video_id}": map[string]any{
+				"get": map[string]any{
+					"tags":        []string{"dashboard"},
+					"summary":     "Dashboard — página de um vídeo (HTML)",
+					"description": "Página HTML com o player HLS (estilo YouTube) e as estatísticas do vídeo na mesma página, consumindo /api/status/{video_id}, /admin/stats?video_id= e /api/play/init. Rota pública (ver /dashboard).",
+					"parameters": []map[string]any{
+						{"name": "video_id", "in": "path", "required": true, "schema": map[string]any{"type": "string"}},
+					},
+					"responses": map[string]any{"200": map[string]any{"description": "Página HTML", "content": map[string]any{"text/html": map[string]any{}}}},
+				},
+			},
+			"/dashboard/assets/{file}": map[string]any{
+				"get": map[string]any{
+					"tags":        []string{"dashboard"},
+					"summary":     "Dashboard — asset estático (CSS/JS)",
+					"description": "Serve os assets compartilhados do dashboard (theme.css, app.js). Rota pública.",
+					"parameters": []map[string]any{
+						{"name": "file", "in": "path", "required": true, "schema": map[string]any{"type": "string"}, "example": "theme.css"},
+					},
+					"responses": map[string]any{
+						"200": map[string]any{"description": "Asset estático"},
+						"404": map[string]any{"description": "Asset não encontrado"},
 					},
 				},
 			},

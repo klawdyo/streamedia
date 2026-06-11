@@ -1,0 +1,188 @@
+/* ---------------------------------------------------------------------------
+   Tema do dashboard — reaproveita a paleta "inspirada no Scalar" do
+   /playground (tema escuro, tipografia mono, cards bem definidos) e acrescenta
+   utilidades de layout que o dashboard precisa (grid de cartões, tabelas,
+   chips de status, barra de token). Mantido como CSS único e autocontido,
+   servido em /dashboard/assets/theme.css e compartilhado pelas 3 páginas.
+   --------------------------------------------------------------------------- */
+:root {
+  --bg: #0b0e14;
+  --bg-card: #11151f;
+  --bg-inset: #0a0d13;
+  --border: #1e2533;
+  --border-strong: #2b3445;
+  --text: #e6edf3;
+  --text-dim: #8b98a9;
+  --accent: #6ea8fe;
+  --accent-hover: #8bbcff;
+  --ok: #4ade80;
+  --err: #f87171;
+  --warn: #fbbf24;
+  --mono: ui-monospace, "SF Mono", "JetBrains Mono", "Fira Code", Menlo, Consolas, monospace;
+}
+* { box-sizing: border-box; }
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--mono);
+  font-size: 14px;
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+}
+a { color: var(--accent); text-decoration: none; }
+a:hover { color: var(--accent-hover); text-decoration: underline; }
+
+header.top {
+  padding: 20px 32px;
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  align-items: baseline;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+header.top h1 { font-size: 18px; margin: 0; letter-spacing: 0.5px; }
+header.top .tagline { color: var(--text-dim); font-size: 13px; }
+header.top nav { margin-left: auto; display: flex; gap: 16px; font-size: 13px; }
+
+.wrap { max-width: 1100px; margin: 0 auto; padding: 24px 16px 80px; }
+
+/* Barra de token (colar o ROOT_TOKEN) */
+.tokenbar {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 14px 16px;
+  margin: 16px 0;
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+.tokenbar label { color: var(--text-dim); font-size: 12px; }
+.tokenbar input {
+  flex: 1 1 280px;
+  background: var(--bg-inset);
+  border: 1px solid var(--border-strong);
+  border-radius: 6px;
+  color: var(--text);
+  font-family: var(--mono);
+  font-size: 13px;
+  padding: 9px 12px;
+}
+.tokenbar input:focus { outline: none; border-color: var(--accent); }
+
+button, .btn {
+  background: var(--accent);
+  color: #08182f;
+  border: none;
+  border-radius: 6px;
+  font-family: var(--mono);
+  font-size: 13px;
+  font-weight: 600;
+  padding: 9px 16px;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+button:hover, .btn:hover { background: var(--accent-hover); text-decoration: none; }
+button:disabled { background: var(--border-strong); color: var(--text-dim); cursor: not-allowed; }
+button.ghost, .btn.ghost { background: transparent; color: var(--accent); border: 1px solid var(--border-strong); }
+button.ghost:hover, .btn.ghost:hover { border-color: var(--accent); background: var(--bg-inset); }
+button.small, .btn.small { padding: 6px 12px; font-size: 12px; }
+
+/* Grid de cartões de métrica */
+.cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  gap: 14px;
+  margin: 16px 0;
+}
+.card {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 16px 18px;
+}
+.card .k { color: var(--text-dim); font-size: 12px; text-transform: uppercase; letter-spacing: 0.4px; }
+.card .v { font-size: 26px; font-weight: 700; margin-top: 6px; }
+.card .sub { color: var(--text-dim); font-size: 12px; margin-top: 4px; }
+
+/* Painéis (gráficos, tabelas) */
+.panel {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 18px 20px;
+  margin: 16px 0;
+}
+.panel h2 { font-size: 15px; margin: 0 0 14px; font-weight: 600; }
+.panel .panel-head { display: flex; align-items: center; gap: 12px; margin-bottom: 14px; flex-wrap: wrap; }
+.panel .panel-head h2 { margin: 0; }
+.panel .panel-head .spacer { margin-left: auto; }
+
+.chart-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+  gap: 18px;
+}
+.chart-box { background: var(--bg-inset); border: 1px solid var(--border); border-radius: 8px; padding: 12px; }
+.chart-box h3 { font-size: 13px; color: var(--text-dim); margin: 0 0 10px; font-weight: 600; }
+.chart-box canvas { max-height: 240px; }
+
+/* Tabelas */
+table { width: 100%; border-collapse: collapse; font-size: 13px; }
+th, td { text-align: left; padding: 10px 12px; border-bottom: 1px solid var(--border); }
+th { color: var(--text-dim); font-weight: 600; font-size: 12px; text-transform: uppercase; letter-spacing: 0.4px; }
+tbody tr:hover { background: var(--bg-inset); }
+td.num, th.num { text-align: right; }
+
+/* Chips de status */
+.chip {
+  display: inline-block;
+  padding: 2px 9px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 600;
+  border: 1px solid var(--border-strong);
+  color: var(--text-dim);
+  white-space: nowrap;
+}
+.chip.ready { color: var(--ok); border-color: var(--ok); }
+.chip.transcoding, .chip.upload_complete, .chip.uploading { color: var(--warn); border-color: var(--warn); }
+.chip.failed_transcode, .chip.failed_upload { color: var(--err); border-color: var(--err); }
+
+/* Controles de filtro/ordenação */
+.controls { display: flex; gap: 10px; flex-wrap: wrap; align-items: flex-end; margin-bottom: 16px; }
+.controls label { display: flex; flex-direction: column; gap: 5px; font-size: 12px; color: var(--text-dim); }
+.controls select, .controls input {
+  background: var(--bg-inset);
+  border: 1px solid var(--border-strong);
+  border-radius: 6px;
+  color: var(--text);
+  font-family: var(--mono);
+  font-size: 13px;
+  padding: 8px 10px;
+}
+.controls select:focus, .controls input:focus { outline: none; border-color: var(--accent); }
+
+/* Paginação */
+.pager { display: flex; gap: 10px; align-items: center; margin-top: 16px; justify-content: flex-end; color: var(--text-dim); font-size: 13px; }
+
+/* Mensagens de estado */
+.note { color: var(--text-dim); font-size: 13px; padding: 16px 0; }
+.note.err { color: var(--err); }
+.hidden { display: none !important; }
+
+/* Player */
+.player-wrap { background: #000; border: 1px solid var(--border); border-radius: 10px; overflow: hidden; }
+.player-wrap video { width: 100%; display: block; max-height: 70vh; background: #000; }
+
+/* Thumbnail miniatura na tabela */
+img.thumb { width: 96px; height: 54px; object-fit: cover; border-radius: 4px; background: var(--bg-inset); border: 1px solid var(--border); }
+
+/* Layout da página de vídeo: player + estatísticas lado a lado em telas largas */
+.video-layout { display: grid; grid-template-columns: minmax(0, 1.6fr) minmax(0, 1fr); gap: 18px; align-items: start; }
+@media (max-width: 900px) { .video-layout { grid-template-columns: 1fr; } }
+.kv { display: grid; grid-template-columns: auto 1fr; gap: 6px 14px; font-size: 13px; }
+.kv .k { color: var(--text-dim); }
+.mono-id { font-family: var(--mono); color: var(--text-dim); font-size: 12px; word-break: break-all; }

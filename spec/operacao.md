@@ -47,7 +47,12 @@ configuradas no painel (o `docker-compose.yml` usa `${VAR:-default}`).
   andamento e eventos de playback). Sem auth — proteja na camada de rede.
 - `GET /api` — nome, versão (injetada via `-ldflags`) e status; rate limit baixo.
 - `GET /admin/stats` — estatísticas agregadas de uso e armazenamento
-  (Bearer ROOT_TOKEN).
+  (Bearer ROOT_TOKEN). Inclui séries temporais de uploads e reproduções
+  (por data/dia/hora) que alimentam os gráficos do dashboard.
+- `GET /dashboard` — área visual de administração (visão geral com gráficos,
+  biblioteca de vídeos e página por vídeo com player). Páginas públicas que só
+  agem com o `ROOT_TOKEN` colado pelo usuário; consomem as rotas protegidas via
+  `Authorization: Bearer`. Ver [api.md](api.md#dashboard-administrativo-get-dashboard).
 
 ## Alertas operacionais no Discord (opcional)
 
