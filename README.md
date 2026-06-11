@@ -88,8 +88,9 @@ curl http://localhost:3000/healthz
 | Variável | Obrigatória | Padrão | Descrição |
 |---|---|---|---|
 | `ROOT_TOKEN` | Sim | — | Credencial única de gestão. O backend principal a apresenta em `Authorization: Bearer <ROOT_TOKEN>` para iniciar uploads, emitir URLs de play, consultar status, listar e apagar. Gere com `openssl rand -hex 32`. Pode ser trocada a qualquer momento. |
-| `WEBHOOK_SECRET` | Sim | — | Segredo para assinar (HMAC) os webhooks enviados ao backend principal. Único segredo compartilhado entre os dois lados. |
-| `WEBHOOK_URL` | Sim | — | URL do backend principal que recebe os webhooks de evento. |
+| `WEBHOOK_SECRET` | Condic. | — | Obrigatório quando há webhooks (`WEBHOOK_URL` global ou `webhook_url` por vídeo). Assina (HMAC) os webhooks; único segredo compartilhado entre os dois lados, independente do destino. |
+| `WEBHOOK_URL` | Não | — | URL **global** do backend principal que recebe os webhooks de evento. Pode ser sobrescrita por vídeo via o campo `webhook_url` no `POST /api/upload/init`. |
+| `DISCORD_WEBHOOK_URL` | Não | — | Webhook do Discord para **alertas operacionais** internos (falha de transcode, fila cheia, transcode travado, falhas consecutivas). Vazio desabilita o canal. |
 | `MAX_UPLOAD_SIZE_MB` | Não | `10` | Tamanho máximo de upload em MB. |
 | `MEDIA_DIR` | Não | `/media` | Diretório raiz onde os arquivos HLS são armazenados (`<MEDIA_DIR>/<tag>/<video_id>/...`). |
 | `UPLOAD_TMP_DIR` | Não | `/media/.uploads` | Diretório temporário para receber os uploads TUS. |
@@ -120,6 +121,7 @@ O `docker-compose.yml` usa a sintaxe `${VAR:-default}`, que o Coolify lê como v
    | `ROOT_TOKEN` | `<saída de openssl rand -hex 32>` | Sim |
    | `WEBHOOK_SECRET` | `<saída de openssl rand -hex 32>` | Sim |
    | `WEBHOOK_URL` | `https://seu-backend.com/webhooks/media` | Sim |
+   | `DISCORD_WEBHOOK_URL` (opcional) | `https://discord.com/api/webhooks/...` | Sim |
 
 3. **Adicionar volumes persistentes** no Coolify para que os dados sobrevivam a redeploys:
    - `media_files` → montado em `/media`
@@ -488,6 +490,15 @@ contato com o Streamedia só acontece na reprodução, nunca ao listar a timelin
 ## Webhook
 
 O Streamedia envia webhooks ao `WEBHOOK_URL` a cada transição de estado significativa. Cada chamada inclui o header `X-Signature` com o HMAC-SHA256 do payload.
+
+> **Destino por vídeo:** o `WEBHOOK_URL` é o destino *global*. Cada vídeo pode
+> sobrescrevê-lo informando `webhook_url` (URL HTTPS válida, ≤ 2048 caracteres)
+> no `POST /api/upload/init` — útil em cenários multi-tenant. A assinatura HMAC
+> (`WEBHOOK_SECRET`) é a mesma, qualquer que seja o destino.
+>
+> **Alertas operacionais (Discord):** separadamente, defina `DISCORD_WEBHOOK_URL`
+> para receber alertas internos (falha de transcode, fila cheia, transcode
+> travado, falhas consecutivas). É opcional e independente dos webhooks de negócio.
 
 ### Verificação da Assinatura
 

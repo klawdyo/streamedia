@@ -114,6 +114,86 @@ func TestSend_NoURLSkips(t *testing.T) {
 	}
 }
 
+// TestSend_PerVideoURLOverride garante que, quando o vídeo tem uma webhook_url
+// própria (issue #20), o webhook é enviado para ela em vez da WEBHOOK_URL
+// global.
+func TestSend_PerVideoURLOverride(t *testing.T) {
+	database := openTestDB(t)
+	defer database.Close()
+
+	// Servidor "global" (não deve receber nada) e servidor "por vídeo".
+	globalHits := 0
+	globalSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		globalHits++
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer globalSrv.Close()
+
+	perVideoHits := 0
+	perVideoSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		perVideoHits++
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer perVideoSrv.Close()
+
+	// Insere um vídeo com webhook_url própria apontando para perVideoSrv.
+	videoID := "test-video-override"
+	if err := models.InsertVideoWithTagAndWebhook(database, videoID, 1000, "default", perVideoSrv.URL); err != nil {
+		t.Fatalf("erro ao inserir vídeo com webhook: %v", err)
+	}
+	video, err := models.GetVideo(database, videoID)
+	if err != nil {
+		t.Fatalf("erro ao obter vídeo: %v", err)
+	}
+
+	cfg := &config.Config{WebhookURL: globalSrv.URL, WebhookSecret: "s"}
+	client := NewClient(cfg, database)
+
+	if err := client.Send(videoID, "processing", video); err != nil {
+		t.Fatalf("Send falhou: %v", err)
+	}
+
+	if perVideoHits != 1 {
+		t.Errorf("servidor por vídeo deveria receber 1 requisição, recebeu %d", perVideoHits)
+	}
+	if globalHits != 0 {
+		t.Errorf("servidor global não deveria receber nada, recebeu %d", globalHits)
+	}
+}
+
+// TestSend_FallsBackToGlobalURL garante que, sem webhook_url própria, o vídeo
+// usa a WEBHOOK_URL global (comportamento histórico) — issue #20.
+func TestSend_FallsBackToGlobalURL(t *testing.T) {
+	database := openTestDB(t)
+	defer database.Close()
+
+	globalHits := 0
+	globalSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		globalHits++
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer globalSrv.Close()
+
+	videoID := "test-video-fallback"
+	if err := models.InsertVideo(database, videoID, 1000); err != nil {
+		t.Fatalf("erro ao inserir vídeo: %v", err)
+	}
+	video, err := models.GetVideo(database, videoID)
+	if err != nil {
+		t.Fatalf("erro ao obter vídeo: %v", err)
+	}
+
+	cfg := &config.Config{WebhookURL: globalSrv.URL, WebhookSecret: "s"}
+	client := NewClient(cfg, database)
+
+	if err := client.Send(videoID, "processing", video); err != nil {
+		t.Fatalf("Send falhou: %v", err)
+	}
+	if globalHits != 1 {
+		t.Errorf("servidor global deveria receber 1 requisição, recebeu %d", globalHits)
+	}
+}
+
 // TestSend_SignatureVerification verifica se o header X-Signature é enviado corretamente.
 func TestSend_SignatureVerification(t *testing.T) {
 	database := openTestDB(t)

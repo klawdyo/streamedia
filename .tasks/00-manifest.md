@@ -6,8 +6,8 @@ Status possíveis: `pending` | `in-progress` | `done` | `blocked`
 ## Progresso geral
 
 ```
-Total: 72 tarefas
-Done:  72
+Total: 74 tarefas
+Done:  74
 Pending: 0
 ```
 
@@ -113,6 +113,8 @@ Spec dividida em `spec/` (índice + arquivos temáticos) — ver T70.
 | T70 | `.tasks/70-spec-reorg.md` | Reorganizar a especificação em arquivos menores + índice | done | `spec/` temática; depende T69 |
 | T71 | `.tasks/71-test-console-pipeline.md` | Console de teste interativo do pipeline completo (`GET /playground`) | done | issue #18 — pacote internal/playground, receptor de webhooks local, players HLS por resolução — fecha issue #18 |
 | T72 | `.tasks/72-thumbnails-por-resolucao.md` | Gerar thumbnails (poster) por resolução ao final da transcodificação | done | issue #19 — geração JPEG por resolução (frame a 1s, proporção preservada), rota pública `/video/<tag>/<id>/thumb_<res>.jpg`, `has_thumbnails`+`thumbnails` no status — fecha issue #19 |
+| T73 | `.tasks/73-webhook-url-por-video.md` | URL de webhook customizada por vídeo no POST /api/upload/init | done | issue #20 — coluna `videos.webhook_url` (migration 0002), validação HTTPS/≤2048 no init, `webhook.Client.resolveURL` prioriza URL do vídeo sobre a global — fecha issue #20 |
+| T74 | `.tasks/74-discord-alertas-operacionais.md` | Webhook do Discord para notificação de erros operacionais | done | issue #21 — pacote `internal/discord` (Alerter nil-safe), `DISCORD_WEBHOOK_URL`, alertas de failed_transcode/fila cheia/transcode travado/falhas consecutivas injetados via SetAlerter em worker/queue/requeue — fecha issue #21 |
 
 ## Próxima onda — correções da análise de código (T56-T68)
 
@@ -194,6 +196,9 @@ Resumo por issue:
 [2026-06-08] T55: pending → done (já estava implementada — pacote internal/version e rota GET /api existentes)
 [2026-06-10] T72: pending → done (thumbnails por resolução, issue #19: geração JPEG best-effort no worker (internal/transcode/thumbnail.go) a partir do frame a 1s do original com fallback ao primeiro frame, proporção preservada (menor dimensão = "p"), ~80% via mjpeg -q:v 5; rota pública GET /video/<tag>/<id>/thumb_<res>.jpg (serve/thumbnail.go) com blindagem de traversal; has_thumbnails+thumbnails derivados do disco no status; httputil.PublicThumbnailURL; ThumbnailNameRe/ThumbnailFileName em models/hls.go; testes em transcode/serve; spec/api.md e api.http atualizados — fecha issue #19. Worktree baseado em origin/main por dev estar 24 commits atrás (faltava a feature de SSE/notify/playground já lançada em main))
 [2026-06-10] T72 (follow-up): playground usa o thumbnail como `poster` dos <video> por resolução (internal/playground/index.html) — antes, com preload="none", o player ficava um quadrado preto até o play; agora mostra a capa daquela resolução. Adicionado object-fit:contain p/ não distorcer portrait. Refs #19.
+
+[2026-06-11] T73: pending → done (issue #20 — webhook_url por vídeo: migration 0002_video_webhook_url.sql adiciona coluna `videos.webhook_url TEXT NOT NULL DEFAULT ''`; initRequest aceita `webhook_url` com validação HTTPS/formato/≤2048 (informado-mas-inválido → 400, omitido → global); models.InsertVideoWithTagAndWebhook + WebhookURL em SelectVideoColumns/ScanVideoRow; webhook.Client.resolveURL prioriza a URL do vídeo sobre a WEBHOOK_URL global, com fallback; HMAC inalterado; testes de validação/persistência/override/fallback; docs spec/api.md, spec/webhooks.md, spec/dados.md, OpenAPI, api.http, .env.example, README — fecha issue #20)
+[2026-06-11] T74: pending → done (issue #21 — alertas operacionais no Discord: pacote internal/discord com Alerter nil-safe (NewAlerter("")→nil, métodos no-op); DISCORD_WEBHOOK_URL opcional na config; gatilhos failed_transcode (worker+requeue), fila cheia (queue.Enqueue), transcode travado (requeue.runOnce) e falhas consecutivas (contador no Alerter, limiar 5, reset no sucesso); embed com video_id/status/error_message/timestamp; best-effort com log de sucesso/falha; injeção via SetAlerter em worker/queue/requeue + main; testes do pacote e gatilho de fila cheia ponta-a-ponta; docs spec/operacao.md, spec/webhooks.md, .env.example, README — fecha issue #21)
 
 [2026-06-07] Análise completa de código: geradas T56-T68 (13 tasks) a partir de
   revisão profunda de todos os arquivos .go de produção (~20k linhas).

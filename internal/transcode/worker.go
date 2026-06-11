@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/klawdyo/streamedia/internal/config"
+	"github.com/klawdyo/streamedia/internal/discord"
 	"github.com/klawdyo/streamedia/internal/models"
 )
 
@@ -60,6 +61,7 @@ type Worker struct {
 	ffmpeg    FFmpegExecutor
 	ffprobe   FFprobeExecutor
 	onWebhook func(videoID, event, errMsg string)
+	alerter   *discord.Alerter // alerta operacional (falha terminal) — opcional, nil-safe
 }
 
 // NewWorker cria um Worker com os executores reais do FFmpeg e do ffprobe.
@@ -71,6 +73,13 @@ func NewWorker(cfg *config.Config, db *sql.DB, onWebhook func(videoID, event, er
 		ffprobe:   &RealFFprobe{},
 		onWebhook: onWebhook,
 	}
+}
+
+// SetAlerter conecta um alerter do Discord ao worker (issue #21). Pode ser nil
+// (canal desabilitado). Usado pelo main para alertar falhas terminais de
+// transcodificação e zerar o contador de falhas consecutivas em cada sucesso.
+func (w *Worker) SetAlerter(a *discord.Alerter) {
+	w.alerter = a
 }
 
 // resolutionProfile define os parâmetros de codificação por resolução.
@@ -365,6 +374,10 @@ func (w *Worker) Transcode(videoID string) error {
 	// 11. Notifica sucesso via webhook.
 	w.onWebhook(videoID, "ready", "")
 
+	// 11.1 Sucesso de transcodificação zera o contador de falhas consecutivas
+	// do alerter operacional (issue #21) — nil-safe.
+	w.alerter.RecordTranscodeSuccess()
+
 	// 12. Sucesso.
 	return nil
 }
@@ -385,6 +398,9 @@ func (w *Worker) handleTranscodeFailure(videoID string, currentAttempts int, err
 			log.Printf("[transcode] %s: erro ao marcar como falha terminal (best-effort): %v", videoID, err)
 		}
 		w.onWebhook(videoID, "failed", errMsg)
+		// Alerta operacional no Discord (issue #21) — falha terminal de
+		// transcodificação; também alimenta o contador de falhas consecutivas.
+		w.alerter.AlertTranscodeFailure(videoID, string(models.StatusFailedTranscode), errMsg)
 		return nil
 	}
 
