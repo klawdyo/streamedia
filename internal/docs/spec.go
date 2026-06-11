@@ -9,8 +9,15 @@ package docs
 //
 // Modelo de autenticação: uma credencial única de gestão (ROOT_TOKEN, em
 // Authorization: Bearer) protege /api/upload/init, /api/play/init,
-// /api/status e /admin/*. Os tokens efêmeros de upload (Upload-Token no TUS) e
-// de play (query ?token=) são emitidos por essas rotas e validados por lookup.
+// /api/status, /admin/*, /docs e /metrics. Os tokens efêmeros de upload
+// (Upload-Token no TUS) e de play (query ?token=) são emitidos por essas
+// rotas e validados por lookup.
+//
+// Para páginas de navegador, POST /admin/session troca o ROOT_TOKEN por um
+// cookie de sessão (streamedia_session: HttpOnly, Secure, SameSite=Strict),
+// aceito como alternativa ao Bearer pelas mesmas rotas — é o que permite
+// abrir /docs, /metrics e /dashboard/* por navegação normal (sem enviar o
+// header Authorization). DELETE /admin/session encerra a sessão.
 func openAPISpec() map[string]any {
 	return map[string]any{
 		"openapi": "3.0.3",
@@ -24,6 +31,7 @@ func openAPISpec() map[string]any {
 			{"name": "play", "description": "Emissão de URL assinada e entrega de conteúdo HLS"},
 			{"name": "status", "description": "Consulta de status de processamento de vídeos"},
 			{"name": "admin", "description": "Rotas administrativas (protegidas pelo ROOT_TOKEN)"},
+			{"name": "session", "description": "Sessão de navegador (cookie streamedia_session) para acessar /dashboard, /docs e /playground por navegação normal"},
 			{"name": "observability", "description": "Versão, métricas e estatísticas operacionais"},
 			{"name": "dashboard", "description": "Páginas web da área administrativa (visão geral, biblioteca e vídeo)"},
 		},
@@ -291,6 +299,26 @@ func openAPISpec() map[string]any {
 					},
 				},
 			},
+			"/admin/session": map[string]any{
+				"post": map[string]any{
+					"tags":        []string{"session"},
+					"summary":     "Inicia uma sessão de navegador",
+					"description": "Troca um Authorization: Bearer <ROOT_TOKEN> válido por um cookie de sessão (streamedia_session: HttpOnly, Secure, SameSite=Strict, validade SESSION_TTL). Usado pelo /dashboard ao colar o ROOT_TOKEN, para que /docs, /metrics e as páginas do dashboard funcionem por navegação normal do navegador (sem o header Authorization).",
+					"security":    []map[string]any{{"rootToken": []string{}}},
+					"responses": map[string]any{
+						"200": map[string]any{"description": "Sessão criada; resposta inclui Set-Cookie: streamedia_session"},
+						"401": map[string]any{"description": "ROOT_TOKEN ausente ou inválido"},
+					},
+				},
+				"delete": map[string]any{
+					"tags":        []string{"session"},
+					"summary":     "Encerra a sessão de navegador",
+					"description": "Apaga o cookie streamedia_session. Operação pública e idempotente — encerrar uma sessão inexistente ou já expirada não é um erro.",
+					"responses": map[string]any{
+						"200": map[string]any{"description": "Sessão encerrada"},
+					},
+				},
+			},
 			"/admin/queue": map[string]any{
 				"get": map[string]any{
 					"tags":        []string{"admin"},
@@ -420,7 +448,7 @@ func openAPISpec() map[string]any {
 				"get": map[string]any{
 					"tags":        []string{"dashboard"},
 					"summary":     "Dashboard — visão geral (página HTML)",
-					"description": "Página HTML da visão geral do sistema: cartões de estatística, gráficos de movimentação (uploads e reproduções por data/dia/hora) e os últimos vídeos enviados. Rota PÚBLICA (como /playground): a página só age com o ROOT_TOKEN colado pelo usuário, enviado pelo JS em Authorization: Bearer às rotas de dados (/admin/*, /api/status, /api/play/init).",
+					"description": "Página HTML da visão geral do sistema: cartões de estatística, gráficos de movimentação (uploads e reproduções por data/dia/hora) e os últimos vídeos enviados. Rota PÚBLICA (como /playground): a página só age com o ROOT_TOKEN colado pelo usuário, enviado pelo JS em Authorization: Bearer às rotas de dados (/admin/*, /api/status, /api/play/init). Ao colar o token, a página também chama POST /admin/session para abrir uma sessão de navegador (cookie streamedia_session) — é o que permite acessar /docs e /playground pelos links do menu por navegação normal.",
 					"responses":   map[string]any{"200": map[string]any{"description": "Página HTML", "content": map[string]any{"text/html": map[string]any{}}}},
 				},
 			},
@@ -463,7 +491,13 @@ func openAPISpec() map[string]any {
 				"rootToken": map[string]any{
 					"type":        "http",
 					"scheme":      "bearer",
-					"description": "Credencial única de gestão (ROOT_TOKEN), configurada via variável de ambiente. Protege /api/upload/init, /api/play/init, /api/status e /admin/*.",
+					"description": "Credencial única de gestão (ROOT_TOKEN), configurada via variável de ambiente. Protege /api/upload/init, /api/play/init, /api/status, /admin/*, /docs e /metrics.",
+				},
+				"sessionCookie": map[string]any{
+					"type":        "apiKey",
+					"in":          "cookie",
+					"name":        "streamedia_session",
+					"description": "Cookie de sessão de navegador (HttpOnly, Secure, SameSite=Strict), emitido por POST /admin/session. Aceito como alternativa ao rootToken nas mesmas rotas; em métodos que alteram estado (POST/PUT/PATCH/DELETE) exige também o header X-Streamedia-Csrf: 1.",
 				},
 			},
 		},

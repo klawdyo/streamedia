@@ -5,6 +5,13 @@
    sessionStorage (sobrevive à navegação entre as páginas do dashboard, some
    ao fechar a aba). Toda chamada de dados vai para as rotas protegidas
    (/admin/*, /api/status, /api/play/init) com `Authorization: Bearer`.
+
+   Além disso, ao colar o token a página chama POST /admin/session, que troca
+   o ROOT_TOKEN por um cookie de sessão (streamedia_session, HttpOnly, Secure,
+   SameSite=Strict). Esse cookie é enviado automaticamente pelo navegador em
+   qualquer navegação dentro do site — é o que permite abrir /docs e
+   /playground pelos links do menu sem colar o token de novo (uma navegação
+   de página não consegue enviar o header Authorization).
    --------------------------------------------------------------------------- */
 (function () {
   "use strict";
@@ -14,6 +21,24 @@
   // --- Token ----------------------------------------------------------------
   function getToken() { return sessionStorage.getItem(TOKEN_KEY) || ""; }
   function setToken(t) { sessionStorage.setItem(TOKEN_KEY, t); }
+
+  // startSession troca o ROOT_TOKEN pelo cookie streamedia_session (ver
+  // POST /admin/session). Não bloqueia o reload: mesmo se falhar, as chamadas
+  // a /admin/* continuam funcionando via Authorization: Bearer.
+  function startSession(token) {
+    return fetch("/admin/session", {
+      method: "POST",
+      headers: { "Authorization": "Bearer " + token },
+    }).then(function (res) { return res.ok; }).catch(function () { return false; });
+  }
+
+  // logout encerra a sessão de navegador (apaga o cookie streamedia_session),
+  // limpa o token salvo nesta aba e recarrega a página.
+  function logout() {
+    fetch("/admin/session", { method: "DELETE" }).catch(function () {});
+    sessionStorage.removeItem(TOKEN_KEY);
+    window.location.reload();
+  }
 
   // setupToken liga a barra de token (inputs #rootToken e botão #saveToken,
   // status em #tokenStatus) e chama reload() quando há um token disponível.
@@ -28,10 +53,22 @@
       if (!t) { if (status) { status.textContent = "Informe o ROOT_TOKEN."; status.className = "note err"; } return; }
       setToken(t);
       if (status) { status.textContent = "Token salvo nesta aba."; status.className = "note"; }
+      startSession(t).then(function (ok) {
+        if (status) {
+          status.textContent = ok
+            ? "Token salvo — sessão ativa (Docs e Playground também liberados)."
+            : "Token salvo nesta aba, mas a sessão de navegador não pôde ser criada — Docs pode pedir o token novamente.";
+          status.className = ok ? "note" : "note err";
+        }
+      });
       reload();
     }
     if (btn) btn.addEventListener("click", apply);
     if (input) input.addEventListener("keydown", function (e) { if (e.key === "Enter") apply(); });
+
+    // Link "Sair" do nav: encerra a sessão de navegador (cookie + token salvo).
+    var logoutLink = document.getElementById("logoutLink");
+    if (logoutLink) logoutLink.addEventListener("click", function (e) { e.preventDefault(); logout(); });
 
     // Se já há token (vindo de outra página do dashboard), carrega de imediato.
     if (getToken()) reload();
@@ -182,7 +219,7 @@
 
   // Exporta no escopo global um único namespace para as páginas usarem.
   window.Dash = {
-    getToken: getToken, setToken: setToken, setupToken: setupToken,
+    getToken: getToken, setToken: setToken, setupToken: setupToken, logout: logout,
     apiFetch: apiFetch,
     fmtBytes: fmtBytes, fmtDuration: fmtDuration, fmtDateTime: fmtDateTime,
     statusLabel: statusLabel, escapeHtml: escapeHtml, WEEKDAYS: WEEKDAYS,

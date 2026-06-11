@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/klawdyo/streamedia/internal/admin"
 	"github.com/klawdyo/streamedia/internal/apiresponse"
 	"github.com/klawdyo/streamedia/internal/config"
 	"github.com/klawdyo/streamedia/internal/db"
@@ -37,6 +38,8 @@ func newTestConfig(t *testing.T) *config.Config {
 		QueueMaxSize:         10,
 		UploadTokenTTL:       6 * time.Hour,
 		PlayTokenTTL:         24 * time.Hour,
+		SessionTTL:           time.Hour,
+		SessionCookieSecure:  false,
 	}
 }
 
@@ -241,6 +244,134 @@ func TestUploadInitE2E(t *testing.T) {
 	}
 	if !strings.Contains(uploadURL, validUUID) {
 		t.Errorf("upload_url deveria conter o video_id, obtido %q", uploadURL)
+	}
+}
+
+// TestSessionLogin_UnlocksDocsViaCookie cobre o fluxo completo da sessão de
+// navegador: POST /admin/session com Bearer válido emite o cookie
+// streamedia_session, e esse cookie sozinho (sem Authorization) passa a
+// autenticar GET /docs — que antes só aceitava Bearer e por isso não podia
+// ser acessado por navegação normal do navegador.
+func TestSessionLogin_UnlocksDocsViaCookie(t *testing.T) {
+	cfg := newTestConfig(t)
+	router, _ := newTestRouter(t, cfg)
+
+	// Sem autenticação, /docs retorna 401.
+	reqDocs := httptest.NewRequest(http.MethodGet, "/docs", nil)
+	recDocs := httptest.NewRecorder()
+	router.ServeHTTP(recDocs, reqDocs)
+	if recDocs.Code != http.StatusUnauthorized {
+		t.Fatalf("/docs sem auth: esperado 401, obtido %d", recDocs.Code)
+	}
+
+	// POST /admin/session com Bearer válido emite o cookie de sessão.
+	reqLogin := httptest.NewRequest(http.MethodPost, "/admin/session", nil)
+	reqLogin.Header.Set("Authorization", "Bearer "+cfg.RootToken)
+	recLogin := httptest.NewRecorder()
+	router.ServeHTTP(recLogin, reqLogin)
+	if recLogin.Code != http.StatusOK {
+		t.Fatalf("POST /admin/session: esperado 200, obtido %d (corpo: %s)", recLogin.Code, recLogin.Body.String())
+	}
+	cookies := recLogin.Result().Cookies()
+	if len(cookies) != 1 {
+		t.Fatalf("POST /admin/session: esperado 1 cookie, obtido %d", len(cookies))
+	}
+	sessionCookie := cookies[0]
+	if sessionCookie.Name != admin.SessionCookieName {
+		t.Fatalf("nome do cookie esperado %q, obtido %q", admin.SessionCookieName, sessionCookie.Name)
+	}
+
+	// Com o cookie (sem Authorization), /docs responde 200.
+	reqDocsWithCookie := httptest.NewRequest(http.MethodGet, "/docs", nil)
+	reqDocsWithCookie.AddCookie(sessionCookie)
+	recDocsWithCookie := httptest.NewRecorder()
+	router.ServeHTTP(recDocsWithCookie, reqDocsWithCookie)
+	if recDocsWithCookie.Code != http.StatusOK {
+		t.Fatalf("/docs com cookie de sessão: esperado 200, obtido %d", recDocsWithCookie.Code)
+	}
+}
+
+// TestSessionLogin_RequiresValidBearer verifica que POST /admin/session exige
+// um Bearer ROOT_TOKEN válido — não pode ser chamado a partir de uma sessão
+// de cookie já existente nem sem autenticação.
+func TestSessionLogin_RequiresValidBearer(t *testing.T) {
+	cfg := newTestConfig(t)
+	router, _ := newTestRouter(t, cfg)
+
+	req := httptest.NewRequest(http.MethodPost, "/admin/session", nil)
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusUnauthorized {
+		t.Fatalf("esperado 401, obtido %d", rec.Code)
+	}
+}
+
+// TestSessionCookie_RequiresCSRFHeaderForUnsafeMethods verifica que uma
+// requisição autenticada apenas pelo cookie de sessão precisa do header
+// X-Streamedia-Csrf para métodos não seguros (DELETE), enquanto GET continua
+// funcionando sem ele.
+func TestSessionCookie_RequiresCSRFHeaderForUnsafeMethods(t *testing.T) {
+	cfg := newTestConfig(t)
+	router, _ := newTestRouter(t, cfg)
+
+	reqLogin := httptest.NewRequest(http.MethodPost, "/admin/session", nil)
+	reqLogin.Header.Set("Authorization", "Bearer "+cfg.RootToken)
+	recLogin := httptest.NewRecorder()
+	router.ServeHTTP(recLogin, reqLogin)
+	sessionCookie := recLogin.Result().Cookies()[0]
+
+	const validUUID = "550e8400-e29b-4100-8716-446655440000"
+
+	// DELETE sem o header CSRF: 403, mesmo com cookie de sessão válido.
+	reqDelete := httptest.NewRequest(http.MethodDelete, "/admin/videos/"+validUUID, nil)
+	reqDelete.AddCookie(sessionCookie)
+	recDelete := httptest.NewRecorder()
+	router.ServeHTTP(recDelete, reqDelete)
+	if recDelete.Code != http.StatusForbidden {
+		t.Errorf("DELETE sem header CSRF: esperado 403, obtido %d", recDelete.Code)
+	}
+
+	// DELETE com o header CSRF: passa da autenticação (404, vídeo inexistente).
+	reqDeleteCSRF := httptest.NewRequest(http.MethodDelete, "/admin/videos/"+validUUID, nil)
+	reqDeleteCSRF.AddCookie(sessionCookie)
+	reqDeleteCSRF.Header.Set(admin.CSRFHeaderName, "1")
+	recDeleteCSRF := httptest.NewRecorder()
+	router.ServeHTTP(recDeleteCSRF, reqDeleteCSRF)
+	if recDeleteCSRF.Code != http.StatusNotFound {
+		t.Errorf("DELETE com header CSRF: esperado 404 (vídeo inexistente), obtido %d", recDeleteCSRF.Code)
+	}
+
+	// GET continua funcionando sem o header CSRF.
+	reqGet := httptest.NewRequest(http.MethodGet, "/admin/videos", nil)
+	reqGet.AddCookie(sessionCookie)
+	recGet := httptest.NewRecorder()
+	router.ServeHTTP(recGet, reqGet)
+	if recGet.Code != http.StatusOK {
+		t.Errorf("GET com cookie de sessão: esperado 200, obtido %d", recGet.Code)
+	}
+}
+
+// TestSessionLogout_ClearsCookieAndRevokesAccess verifica que DELETE
+// /admin/session é pública, limpa o cookie de sessão e que o cookie expirado
+// devolvido não autentica mais requisições subsequentes.
+func TestSessionLogout_ClearsCookieAndRevokesAccess(t *testing.T) {
+	cfg := newTestConfig(t)
+	router, _ := newTestRouter(t, cfg)
+
+	req := httptest.NewRequest(http.MethodDelete, "/admin/session", nil)
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("DELETE /admin/session: esperado 200, obtido %d", rec.Code)
+	}
+	cookies := rec.Result().Cookies()
+	if len(cookies) != 1 {
+		t.Fatalf("esperado 1 cookie, obtido %d", len(cookies))
+	}
+	if cookies[0].MaxAge >= 0 {
+		t.Errorf("MaxAge deveria ser negativo (apaga o cookie), obtido %d", cookies[0].MaxAge)
 	}
 }
 

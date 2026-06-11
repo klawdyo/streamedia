@@ -38,6 +38,15 @@ type Config struct {
 	Port                 int
 	RateLimitPerMin      int
 	Environment          string // ambiente de execução (ENV): "production", "development", etc. Exposto em GET /api.
+	// SessionTTL (env SESSION_TTL, segundos) é a validade do cookie de sessão
+	// de navegador (streamedia_session), emitido por POST /admin/session.
+	// Padrão 43200 (12h).
+	SessionTTL time.Duration
+	// SessionCookieSecure (env SESSION_COOKIE_SECURE) define o atributo
+	// Secure do cookie de sessão. Padrão: true quando Environment !=
+	// "development" (produção atrás de HTTPS); false em desenvolvimento
+	// local, onde um cookie Secure nunca voltaria ao servidor por HTTP puro.
+	SessionCookieSecure bool
 }
 
 // Load lê a configuração das variáveis de ambiente, aplicando valores
@@ -104,6 +113,16 @@ func Load() (*Config, error) {
 	if err != nil {
 		return nil, err
 	}
+	// SESSION_TTL: validade do cookie de sessão de navegador (padrão 43200 = 12h).
+	sessionTTLSeconds, err := getEnvInt("SESSION_TTL", 43200)
+	if err != nil {
+		return nil, err
+	}
+
+	environment := getEnvStr("ENV", "development")
+	// SESSION_COOKIE_SECURE: por padrão, exige HTTPS (Secure) fora de
+	// desenvolvimento. Pode ser sobrescrito explicitamente via env.
+	sessionCookieSecure := getEnvBool("SESSION_COOKIE_SECURE", environment != "development")
 
 	cfg := &Config{
 		RootToken:            rootToken,
@@ -128,7 +147,9 @@ func Load() (*Config, error) {
 		// "development": se a variável não estiver setada, assumimos o ambiente
 		// mais conservador (não declarar "production" por engano). Em produção
 		// o operador deve definir ENV=production explicitamente.
-		Environment: getEnvStr("ENV", "development"),
+		Environment:         environment,
+		SessionTTL:          time.Second * time.Duration(sessionTTLSeconds),
+		SessionCookieSecure: sessionCookieSecure,
 	}
 
 	return cfg, nil

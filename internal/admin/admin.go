@@ -37,29 +37,66 @@ func NewAdminHandler(cfg *config.Config, db *sql.DB, queue interface{ Len() int 
 	}
 }
 
-// RootAuth é o middleware que valida o ROOT_TOKEN no header
-// Authorization: Bearer {token}. Usa comparação em tempo constante para
-// prevenir timing attacks. Retorna 401 se o token estiver ausente ou incorreto.
+// RootAuth é o middleware que valida o acesso de gestão. Aceita DUAS formas
+// de autenticação:
 //
-// É a ÚNICA porta de autenticação de gestão do sistema: protege /api/upload/init,
-// /api/play/init, /api/status e todas as rotas /admin/*.
+//  1. Authorization: Bearer <ROOT_TOKEN> — uso backend-to-backend (igual ao
+//     modelo original). Comparação em tempo constante via auth.SecureCompare.
+//  2. Cookie streamedia_session — sessão de navegador emitida por
+//     POST /admin/session (ver internal/admin/session.go), validada por
+//     auth.ValidateSessionToken. Como o cookie pode ser enviado
+//     automaticamente pelo navegador em requisições cross-site, métodos não
+//     seguros (POST/PUT/PATCH/DELETE) autenticados via cookie exigem também o
+//     header X-Streamedia-Csrf — defesa em profundidade além do
+//     SameSite=Strict do cookie. Requisições autenticadas via Bearer não
+//     precisam desse header (não são suscetíveis a CSRF).
+//
+// Retorna 401 se nenhuma das duas autenticações for válida, e 403 se a
+// sessão via cookie for válida mas faltar o header CSRF em método não seguro.
+//
+// É a ÚNICA porta de autenticação de gestão do sistema: protege
+// /api/upload/init, /api/play/init, /api/status, /docs, /metrics e todas as
+// rotas /admin/*.
 func RootAuth(rootToken string) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			const bearerPrefix = "Bearer "
-			authHeader := r.Header.Get("Authorization")
-			if !strings.HasPrefix(authHeader, bearerPrefix) {
+			if validBearer(r, rootToken) {
+				next.ServeHTTP(w, r)
+				return
+			}
+
+			cookie, err := r.Cookie(SessionCookieName)
+			if err != nil || rootToken == "" || !auth.ValidateSessionToken(rootToken, cookie.Value) {
 				apiresponse.Error(w, http.StatusUnauthorized, "Não autorizado.")
 				return
 			}
-			token := authHeader[len(bearerPrefix):]
-			if rootToken == "" || !auth.SecureCompare(token, rootToken) {
-				apiresponse.Error(w, http.StatusUnauthorized, "Não autorizado.")
+
+			if !isSafeMethod(r.Method) && r.Header.Get(CSRFHeaderName) != csrfHeaderValue {
+				apiresponse.Error(w, http.StatusForbidden, "Requisição bloqueada: cabeçalho CSRF ausente.")
 				return
 			}
+
 			next.ServeHTTP(w, r)
 		})
 	}
+}
+
+// validBearer confere o header Authorization: Bearer <ROOT_TOKEN> em tempo
+// constante. Compartilhado por RootAuth e HandleSessionLogin.
+func validBearer(r *http.Request, rootToken string) bool {
+	const bearerPrefix = "Bearer "
+	authHeader := r.Header.Get("Authorization")
+	if !strings.HasPrefix(authHeader, bearerPrefix) {
+		return false
+	}
+	token := authHeader[len(bearerPrefix):]
+	return rootToken != "" && auth.SecureCompare(token, rootToken)
+}
+
+// isSafeMethod indica se o método HTTP não tem efeitos colaterais (não exige
+// o header X-Streamedia-Csrf quando autenticado via cookie de sessão).
+func isSafeMethod(method string) bool {
+	return method == http.MethodGet || method == http.MethodHead || method == http.MethodOptions
 }
 
 // videosResponse é a estrutura de resposta para a rota de vídeos.
