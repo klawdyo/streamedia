@@ -6,6 +6,7 @@ import (
 	"io"
 	"log"
 	"net/http"
+	"net/url"
 	"strings"
 	"time"
 
@@ -16,14 +17,44 @@ import (
 	"github.com/klawdyo/streamedia/internal/models"
 )
 
+// maxWebhookURLLen é o tamanho máximo aceito para a webhook_url customizada
+// (issue #20). Limita o que será persistido na coluna videos.webhook_url.
+const maxWebhookURLLen = 2048
+
 // initRequest representa o corpo JSON esperado em POST /api/upload/init.
 //   - tag: namespace organizacional do vídeo (obrigatório); normalizado por Slugify.
 //   - video_id: opcional; se informado deve ser um UUID bem-formado; se omitido,
 //     o servidor gera um UUID v7.
+//   - webhook_url: opcional; URL HTTPS de destino dos webhooks deste vídeo
+//     (issue #20). Omitido/vazio → usa a WEBHOOK_URL global. Quando informado,
+//     deve ser uma URL HTTPS válida de no máximo 2048 caracteres.
 type initRequest struct {
 	Tag               string `json:"tag"`
 	VideoID           string `json:"video_id"`
 	DeclaredSizeBytes int64  `json:"declared_size_bytes"`
+	WebhookURL        string `json:"webhook_url"`
+}
+
+// validateWebhookURL valida a URL de webhook customizada informada no
+// upload/init (issue #20). Regras: HTTPS, formato de URL absoluta válido e no
+// máximo maxWebhookURLLen caracteres. Espaços nas bordas são removidos. Retorna
+// a URL normalizada e ok=true quando válida; ok=false indica que o valor
+// informado é inválido (o chamador responde 400). String vazia NÃO chega aqui:
+// o chamador trata "omitido" como "usar a URL global" antes de validar.
+func validateWebhookURL(raw string) (string, bool) {
+	raw = strings.TrimSpace(raw)
+	if len(raw) > maxWebhookURLLen {
+		return "", false
+	}
+	u, err := url.Parse(raw)
+	if err != nil {
+		return "", false
+	}
+	// Exige HTTPS e um host — descarta esquemas não-HTTPS e URLs relativas.
+	if u.Scheme != "https" || u.Host == "" {
+		return "", false
+	}
+	return raw, true
 }
 
 // InitHandler trata a rota de inicialização de upload (POST /api/upload/init).
@@ -88,8 +119,22 @@ func (h *InitHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// 6. Insere o vídeo no namespace (tag).
-	if err := models.InsertVideoWithTag(h.db, videoID, req.DeclaredSizeBytes, tag); err != nil {
+	// 5.1 Resolve webhook_url customizado (issue #20). Omitido/vazio → fica ""
+	// (o vídeo usará a WEBHOOK_URL global). Informado mas inválido → 400: é mais
+	// seguro avisar o chamador do que silenciosamente enviar os eventos deste
+	// vídeo para o destino global (vazamento entre tenants em cenário multi-tenant).
+	webhookURL := ""
+	if strings.TrimSpace(req.WebhookURL) != "" {
+		normalized, ok := validateWebhookURL(req.WebhookURL)
+		if !ok {
+			apiresponse.Error(w, http.StatusBadRequest, "webhook_url inválido: deve ser uma URL HTTPS válida de até 2048 caracteres.")
+			return
+		}
+		webhookURL = normalized
+	}
+
+	// 6. Insere o vídeo no namespace (tag), com a webhook_url customizada (ou "").
+	if err := models.InsertVideoWithTagAndWebhook(h.db, videoID, req.DeclaredSizeBytes, tag, webhookURL); err != nil {
 		if strings.Contains(err.Error(), "UNIQUE") {
 			apiresponse.Error(w, http.StatusConflict, "video_id já existe.")
 			return

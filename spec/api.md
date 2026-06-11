@@ -7,11 +7,14 @@ Detalhe completo (schemas, parâmetros) em OpenAPI: `GET /docs/openapi.json`
 
 ### `POST /api/upload/init` — Bearer ROOT_TOKEN
 Registra o vídeo no namespace (`tag`) e emite um token de upload efêmero.
-Corpo: `{ "tag": "...", "video_id"?: "<uuid>", "declared_size_bytes": N }`.
-`video_id` é opcional (UUID; gerado como v7 se omitido).
+Corpo: `{ "tag": "...", "video_id"?: "<uuid>", "declared_size_bytes": N, "webhook_url"?: "https://..." }`.
+`video_id` é opcional (UUID; gerado como v7 se omitido). `webhook_url` é
+opcional: quando informado (URL **HTTPS** válida, ≤ 2048 caracteres), os
+webhooks **deste vídeo** vão para essa URL em vez da `WEBHOOK_URL` global;
+omitido usa a global. A assinatura HMAC (`WEBHOOK_SECRET`) é a mesma em ambos.
 Resposta `200`: `{ video_id, tag, upload_url, token }`.
-Erros: `400` (tag ausente / video_id inválido), `401`, `409` (já existe),
-`413` (acima do limite).
+Erros: `400` (tag ausente / video_id inválido / `webhook_url` inválida), `401`,
+`409` (já existe), `413` (acima do limite).
 
 ### TUS `/files` e `/files/{video_id}`
 Protocolo TUS resumível (tusd). Autenticado pelo `Upload-Token` (o `token` do

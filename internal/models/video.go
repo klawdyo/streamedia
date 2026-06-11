@@ -36,9 +36,14 @@ type Video struct {
 	// Tag é o namespace (slug) do vídeo: define o diretório de armazenamento
 	// (<MEDIA_DIR>/<tag>/<video_id>/...) e agrupa vídeos para consultas. Não
 	// é credencial — toda autenticação é feita com o ROOT_TOKEN único.
-	Tag       string
-	CreatedAt time.Time
-	UpdatedAt time.Time
+	Tag string
+	// WebhookURL é a URL de webhook customizada deste vídeo (issue #20).
+	// Quando preenchida (HTTPS, informada no upload/init), os webhooks deste
+	// vídeo vão para ela em vez da WEBHOOK_URL global. Vazia ("") = usar a
+	// URL global (comportamento histórico).
+	WebhookURL string
+	CreatedAt  time.Time
+	UpdatedAt  time.Time
 }
 
 // validTransitions define as transições permitidas por estado.
@@ -70,7 +75,7 @@ func isValidTransition(from, to VideoStatus) bool {
 // todas as queries retornam as mesmas colunas na mesma ordem.
 const SelectVideoColumns = `video_id, status, declared_size_bytes, actual_size_bytes,
 	duration_s, resolutions, transcode_attempts, last_chunk_at,
-	error_message, tag, created_at, updated_at`
+	error_message, tag, created_at, updated_at, webhook_url`
 
 // ScanVideoRow lê uma linha de Video do banco, tratando campos nullable.
 // Aceita qualquer função que implemente a assinatura de Scan (sql.Row e
@@ -84,6 +89,7 @@ func ScanVideoRow(scan func(dest ...any) error) (*Video, error) {
 		resolutions  sql.NullString
 		lastChunkAt  sql.NullTime
 		errorMessage sql.NullString
+		webhookURL   sql.NullString
 	)
 
 	err := scan(
@@ -99,6 +105,7 @@ func ScanVideoRow(scan func(dest ...any) error) (*Video, error) {
 		&v.Tag,
 		&v.CreatedAt,
 		&v.UpdatedAt,
+		&webhookURL,
 	)
 	if err != nil {
 		return nil, err
@@ -108,6 +115,7 @@ func ScanVideoRow(scan func(dest ...any) error) (*Video, error) {
 	v.ActualSizeBytes = actualSize.Int64
 	v.DurationS = int(durationS.Int64)
 	v.ErrorMessage = errorMessage.String
+	v.WebhookURL = webhookURL.String
 
 	if lastChunkAt.Valid {
 		t := lastChunkAt.Time
@@ -135,10 +143,20 @@ func InsertVideo(db *sql.DB, videoID string, declaredSize int64) error {
 
 // InsertVideoWithTag cria um novo registro de vídeo no namespace (tag)
 // informado. A tag deve vir já normalizada pelo chamador (models.Slugify).
+// O webhook_url nasce vazio (usa a WEBHOOK_URL global); para definir uma URL
+// customizada por vídeo (issue #20) use InsertVideoWithTagAndWebhook.
 func InsertVideoWithTag(db *sql.DB, videoID string, declaredSize int64, tag string) error {
+	return InsertVideoWithTagAndWebhook(db, videoID, declaredSize, tag, "")
+}
+
+// InsertVideoWithTagAndWebhook cria um novo registro de vídeo no namespace
+// (tag) informado, com uma URL de webhook customizada (issue #20). A tag deve
+// vir já normalizada pelo chamador (models.Slugify) e webhookURL já validada
+// (HTTPS, formato e tamanho) — passe "" para usar a WEBHOOK_URL global.
+func InsertVideoWithTagAndWebhook(db *sql.DB, videoID string, declaredSize int64, tag, webhookURL string) error {
 	_, err := db.Exec(
-		"INSERT INTO videos (video_id, declared_size_bytes, tag) VALUES (?, ?, ?)",
-		videoID, declaredSize, tag,
+		"INSERT INTO videos (video_id, declared_size_bytes, tag, webhook_url) VALUES (?, ?, ?, ?)",
+		videoID, declaredSize, tag, webhookURL,
 	)
 	if err != nil {
 		return fmt.Errorf("erro ao inserir vídeo: %w", err)
