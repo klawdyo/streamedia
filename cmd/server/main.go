@@ -16,6 +16,7 @@ import (
 
 	"github.com/klawdyo/streamedia/internal/config"
 	"github.com/klawdyo/streamedia/internal/db"
+	"github.com/klawdyo/streamedia/internal/discord"
 	"github.com/klawdyo/streamedia/internal/jobs"
 	"github.com/klawdyo/streamedia/internal/notify"
 	"github.com/klawdyo/streamedia/internal/server"
@@ -58,10 +59,18 @@ func main() {
 	notifier := notify.New(database, webhookClient, sseHub)
 	sendWebhook := notifier.Notify
 
+	// Alerter operacional do Discord (issue #21): canal de alerta interno para
+	// falhas que comprometem o serviço (transcode falho/travado, fila cheia,
+	// falhas consecutivas). Opcional — NewAlerter devolve nil sem
+	// DISCORD_WEBHOOK_URL, e os métodos são no-op em receptor nil.
+	alerter := discord.NewAlerter(cfg.DiscordWebhookURL)
+
 	// Worker e fila de transcodificação. A fila é criada com a função do
 	// worker e iniciada aqui; o roteador a recebe pronta.
 	worker := transcode.NewWorker(cfg, database, sendWebhook)
+	worker.SetAlerter(alerter)
 	queue := transcode.NewQueue(cfg, database, worker.Transcode)
+	queue.SetAlerter(alerter)
 
 	// Recupera vídeos em estado inconsistente após crash.
 	if err := transcode.RunStartupRecovery(database, cfg, queue.Enqueue, sendWebhook); err != nil {
@@ -78,6 +87,7 @@ func main() {
 
 	// Job que reenfileira transcodificações travadas.
 	requeueJob := jobs.NewTranscodeRequeueJob(cfg, database, queue.Enqueue, sendWebhook)
+	requeueJob.SetAlerter(alerter)
 	requeueJob.Start()
 	defer requeueJob.Stop()
 

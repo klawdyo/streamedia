@@ -6,6 +6,7 @@ import (
 	"sync"
 
 	"github.com/klawdyo/streamedia/internal/config"
+	"github.com/klawdyo/streamedia/internal/discord"
 	"github.com/klawdyo/streamedia/internal/models"
 )
 
@@ -19,9 +20,16 @@ type Queue struct {
 	cfg    *config.Config    // configuração (tamanho da fila, número de workers)
 	db     *sql.DB           // conexão com o banco para atualizar status
 	worker TranscodeFunc     // função executada por worker para cada vídeo
-	wg     sync.WaitGroup    // aguarda término de todos os workers
-	stopCh chan struct{}     // sinaliza encerramento dos workers
-	once   sync.Once         // garante que stopCh seja fechado apenas uma vez
+	wg      sync.WaitGroup   // aguarda término de todos os workers
+	stopCh  chan struct{}    // sinaliza encerramento dos workers
+	once    sync.Once        // garante que stopCh seja fechado apenas uma vez
+	alerter *discord.Alerter // alerta operacional (fila cheia) — opcional, nil-safe
+}
+
+// SetAlerter conecta um alerter do Discord à fila (issue #21). Pode ser nil
+// (canal desabilitado). Usado pelo main para alertar quando a fila enche.
+func (q *Queue) SetAlerter(a *discord.Alerter) {
+	q.alerter = a
 }
 
 // NewQueue cria uma nova fila com canal bufferizado de tamanho cfg.QueueMaxSize.
@@ -98,6 +106,8 @@ func (q *Queue) Enqueue(videoID string) error {
 	case q.ch <- videoID:
 		return nil
 	default:
+		// Fila cheia: alerta operacional no Discord (issue #21) — nil-safe.
+		q.alerter.AlertQueueFull(videoID)
 		return fmt.Errorf("Fila de transcodificação está cheia.")
 	}
 }

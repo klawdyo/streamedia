@@ -38,25 +38,34 @@ type Client struct {
 	db   *sql.DB
 	http *http.Client
 	// resolveURL devolve a URL de destino do webhook para um vídeo e se há
-	// destino (ok). Hoje sempre devolve a URL global da config; foi extraído
-	// para um ponto único para, no futuro, suportar URL por vídeo (sobrescrita
-	// da padrão) sem tocar no envio. Quando ok=false, nenhum webhook é enviado.
+	// destino (ok). Quando ok=false, nenhum webhook é enviado. A URL por vídeo
+	// (videos.webhook_url, issue #20) tem prioridade sobre a WEBHOOK_URL global;
+	// se o vídeo não tiver URL própria, cai na global.
 	resolveURL func(videoID string) (url string, ok bool)
 }
 
-// NewClient cria um novo cliente de webhook. Sem WEBHOOK_URL configurada, o
-// resolvedor devolve ok=false e nenhum webhook é enviado.
+// NewClient cria um novo cliente de webhook. A URL de destino é resolvida por
+// vídeo: se o vídeo tiver uma webhook_url própria (issue #20), ela é usada; do
+// contrário, usa a WEBHOOK_URL global. Sem nenhuma das duas, o resolvedor
+// devolve ok=false e nenhum webhook é enviado.
 func NewClient(cfg *config.Config, db *sql.DB) *Client {
-	return &Client{
+	c := &Client{
 		cfg: cfg,
 		db:  db,
 		// Sem Timeout no client: o timeout por tentativa é controlado pelo
 		// context.WithTimeout de 10s em sendAttempt — evita redundância.
 		http: &http.Client{},
-		resolveURL: func(string) (string, bool) {
-			return cfg.WebhookURL, cfg.WebhookURL != ""
-		},
 	}
+	c.resolveURL = func(videoID string) (string, bool) {
+		// Override por vídeo: a webhook_url do próprio vídeo tem prioridade.
+		// Falha de lookup (vídeo inexistente, erro de banco) não é fatal aqui —
+		// apenas caímos no destino global, preservando o comportamento anterior.
+		if v, err := models.GetVideo(db, videoID); err == nil && v.WebhookURL != "" {
+			return v.WebhookURL, true
+		}
+		return cfg.WebhookURL, cfg.WebhookURL != ""
+	}
+	return c
 }
 
 // Deliver implementa notify.Sink: envia a notificação via webhook se houver

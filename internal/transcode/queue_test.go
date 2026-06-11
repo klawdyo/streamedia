@@ -3,8 +3,11 @@ package transcode
 import (
 	"database/sql"
 	"fmt"
+	"net/http"
+	"net/http/httptest"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -12,6 +15,7 @@ import (
 
 	"github.com/klawdyo/streamedia/internal/config"
 	"github.com/klawdyo/streamedia/internal/db"
+	"github.com/klawdyo/streamedia/internal/discord"
 )
 
 // insertQueueTestVideo insere um vídeo no banco com status upload_complete
@@ -243,6 +247,58 @@ func TestQueue_FullQueueReturnsError(t *testing.T) {
 	// Desbloqueia o worker para limpeza
 	close(unblockCh)
 	queue.Stop()
+}
+
+// TestQueue_FullQueueAlertsDiscord garante que, com um alerter conectado
+// (issue #21), encher a fila dispara o alerta operacional do Discord.
+func TestQueue_FullQueueAlertsDiscord(t *testing.T) {
+	database, err := db.Open(":memory:")
+	if err != nil {
+		t.Fatalf("erro ao abrir banco: %v", err)
+	}
+	defer database.Close()
+
+	// Conta os alertas recebidos pelo "Discord".
+	var alertHits int32
+	discordSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		atomic.AddInt32(&alertHits, 1)
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	defer discordSrv.Close()
+
+	cfg := &config.Config{QueueMaxSize: 1, TranscodeWorkers: 1}
+	unblockCh := make(chan struct{})
+	transcodeFunc := func(videoID string) error {
+		<-unblockCh
+		return nil
+	}
+
+	queue := NewQueue(cfg, database, transcodeFunc)
+	queue.SetAlerter(discord.NewAlerter(discordSrv.URL))
+	queue.Start()
+
+	insertQueueTestVideo(t, database, "v1")
+	insertQueueTestVideo(t, database, "v2")
+	insertQueueTestVideo(t, database, "v3")
+
+	if err := queue.Enqueue("v1"); err != nil {
+		t.Fatalf("Enqueue(v1) falhou: %v", err)
+	}
+	time.Sleep(10 * time.Millisecond) // worker pega v1
+	if err := queue.Enqueue("v2"); err != nil {
+		t.Fatalf("Enqueue(v2) falhou: %v", err)
+	}
+	// v3 não cabe (buffer=1) → fila cheia → alerta no Discord.
+	if err := queue.Enqueue("v3"); err == nil {
+		t.Fatal("esperava erro de fila cheia")
+	}
+
+	close(unblockCh)
+	queue.Stop()
+
+	if got := atomic.LoadInt32(&alertHits); got != 1 {
+		t.Errorf("esperava 1 alerta de fila cheia no Discord, obteve %d", got)
+	}
 }
 
 // TestQueue_LenReturnsCurrentSize verifica que Len() retorna o número de itens

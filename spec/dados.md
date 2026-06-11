@@ -19,6 +19,7 @@ Registro central de cada vídeo.
 | `last_chunk_at` | DATETIME | último chunk recebido (usado pelo killer). |
 | `error_message` | TEXT | motivo da última falha. |
 | `tag` | TEXT NOT NULL DEFAULT `'default'` | namespace; define o diretório no disco. |
+| `webhook_url` | TEXT NOT NULL DEFAULT `''` | destino de webhook customizado deste vídeo (issue #20); `''` = usa a `WEBHOOK_URL` global. |
 | `created_at` / `updated_at` | DATETIME | `updated_at` mantido por trigger. |
 
 Índices: `status`, `last_chunk_at`, `tag`.

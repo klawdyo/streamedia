@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -78,6 +79,104 @@ func TestUploadInit_Success(t *testing.T) {
 	}
 	if tag, _ := data["tag"].(string); tag != "minha-tag" {
 		t.Errorf("tag na resposta: esperado %q, obtido %q", "minha-tag", tag)
+	}
+}
+
+// TestValidateWebhookURL cobre a validação da webhook_url customizada (issue
+// #20): HTTPS obrigatório, formato válido e limite de 2048 caracteres.
+func TestValidateWebhookURL(t *testing.T) {
+	longHost := "https://e.com/" + strings.Repeat("a", maxWebhookURLLen) // > 2048
+
+	casos := []struct {
+		nome   string
+		in     string
+		wantOK bool
+	}{
+		{"https válido", "https://hooks.example.com/abc", true},
+		{"https com espaços nas bordas", "  https://e.com/x  ", true},
+		{"http rejeitado", "http://e.com/x", false},
+		{"sem esquema rejeitado", "e.com/x", false},
+		{"relativo rejeitado", "/somente/path", false},
+		{"esquema esquisito rejeitado", "ftp://e.com", false},
+		{"acima de 2048 rejeitado", longHost, false},
+		{"lixo rejeitado", "ht!tp://%%%", false},
+	}
+	for _, c := range casos {
+		t.Run(c.nome, func(t *testing.T) {
+			got, ok := validateWebhookURL(c.in)
+			if ok != c.wantOK {
+				t.Fatalf("validateWebhookURL(%q): ok=%v, esperava %v", c.in, ok, c.wantOK)
+			}
+			// Quando válida, a URL deve voltar sem espaços nas bordas.
+			if ok && got != strings.TrimSpace(c.in) {
+				t.Errorf("URL normalizada = %q, esperava %q", got, strings.TrimSpace(c.in))
+			}
+		})
+	}
+}
+
+// TestUploadInit_CustomWebhookURL_Persisted garante que uma webhook_url HTTPS
+// válida é aceita e persistida em videos.webhook_url (issue #20).
+func TestUploadInit_CustomWebhookURL_Persisted(t *testing.T) {
+	cfg := configInit(t)
+	database := abreDBInit(t)
+	handler := NewInitHandler(cfg, database)
+
+	videoID := "550e8400-e29b-41d4-a716-446655440099"
+	body := []byte(`{"tag":"t","video_id":"` + videoID + `","declared_size_bytes":1024,"webhook_url":"https://hooks.example.com/v1"}`)
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, fazRequestInit(t, body))
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("esperava 200, obteve %d: %s", rec.Code, rec.Body.String())
+	}
+
+	v, err := models.GetVideo(database, videoID)
+	if err != nil {
+		t.Fatalf("erro ao buscar vídeo: %v", err)
+	}
+	if v.WebhookURL != "https://hooks.example.com/v1" {
+		t.Errorf("webhook_url persistido = %q, esperava %q", v.WebhookURL, "https://hooks.example.com/v1")
+	}
+}
+
+// TestUploadInit_InvalidWebhookURL_Rejected garante que uma webhook_url
+// informada mas inválida (não-HTTPS) é rejeitada com 400 (issue #20).
+func TestUploadInit_InvalidWebhookURL_Rejected(t *testing.T) {
+	cfg := configInit(t)
+	database := abreDBInit(t)
+	handler := NewInitHandler(cfg, database)
+
+	body := []byte(`{"tag":"t","video_id":"550e8400-e29b-41d4-a716-446655440098","declared_size_bytes":1024,"webhook_url":"http://inseguro.example.com"}`)
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, fazRequestInit(t, body))
+
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("esperava 400 para webhook_url inválida, obteve %d: %s", rec.Code, rec.Body.String())
+	}
+}
+
+// TestUploadInit_OmittedWebhookURL_Empty garante que omitir webhook_url deixa
+// a coluna vazia (o vídeo usará a WEBHOOK_URL global) — sem erro (issue #20).
+func TestUploadInit_OmittedWebhookURL_Empty(t *testing.T) {
+	cfg := configInit(t)
+	database := abreDBInit(t)
+	handler := NewInitHandler(cfg, database)
+
+	videoID := "550e8400-e29b-41d4-a716-446655440097"
+	body := []byte(`{"tag":"t","video_id":"` + videoID + `","declared_size_bytes":1024}`)
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, fazRequestInit(t, body))
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("esperava 200, obteve %d: %s", rec.Code, rec.Body.String())
+	}
+	v, err := models.GetVideo(database, videoID)
+	if err != nil {
+		t.Fatalf("erro ao buscar vídeo: %v", err)
+	}
+	if v.WebhookURL != "" {
+		t.Errorf("webhook_url deveria ser vazio, obteve %q", v.WebhookURL)
 	}
 }
 

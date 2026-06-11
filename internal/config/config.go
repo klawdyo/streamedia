@@ -16,9 +16,13 @@ type Config struct {
 	// vídeos (upload-init), emitir URLs de play, consultar status, listar e
 	// apagar. Sem vínculo com nenhum dado — pode ser trocada a qualquer
 	// momento (basta mudar o env e reiniciar).
-	RootToken            string
-	WebhookURL           string
-	WebhookSecret        string
+	RootToken     string
+	WebhookURL    string
+	WebhookSecret string
+	// DiscordWebhookURL (env DISCORD_WEBHOOK_URL) é o webhook do Discord para
+	// alertas operacionais internos (issue #21). Opcional — vazio desabilita o
+	// canal (nenhum envio é tentado).
+	DiscordWebhookURL    string
 	MaxUploadSizeBytes   int64 // convertido de MB para bytes
 	MediaDir             string
 	UploadTmpDir         string
@@ -105,6 +109,7 @@ func Load() (*Config, error) {
 		RootToken:            rootToken,
 		WebhookURL:           webhookURL,
 		WebhookSecret:        webhookSecret,
+		DiscordWebhookURL:    os.Getenv("DISCORD_WEBHOOK_URL"),
 		MaxUploadSizeBytes:   int64(maxUploadSizeMB) * 1024 * 1024,
 		MediaDir:             getEnvStr("MEDIA_DIR", "/media"),
 		UploadTmpDir:         getEnvStr("UPLOAD_TMP_DIR", "/media/.uploads"),
