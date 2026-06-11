@@ -121,7 +121,19 @@ func NewRouter(
 		r.Get("/admin/queue", adminHandler.HandleQueue)
 		r.Get("/admin/stats", adminHandler.HandleStats)
 		r.Delete("/admin/videos/{videoID}", adminHandler.HandleDeleteVideo)
+
+		// Login de sessão de navegador: troca o Bearer ROOT_TOKEN por um
+		// cookie streamedia_session (ver internal/admin/session.go), que
+		// passa a valer como autenticação alternativa em RootAuth — permite
+		// navegar para /docs, /metrics e /dashboard/* sem reenviar o header
+		// Authorization.
+		r.Post("/admin/session", admin.HandleSessionLogin(cfg))
 	})
+
+	// Logout de sessão de navegador: apaga o cookie streamedia_session.
+	// Pública e idempotente (não exige RootAuth) — encerrar uma sessão
+	// inexistente ou já expirada não é um erro.
+	r.Delete("/admin/session", admin.HandleSessionLogout(cfg))
 
 	// --- Stream de eventos (SSE) em /api/events ---
 	// Entrega ao vivo as notificações do pipeline (as mesmas do webhook),
@@ -196,8 +208,11 @@ func NewRouter(
 	// HTML não fazem nada de útil sem o ROOT_TOKEN — todo dado vem das rotas
 	// protegidas (/admin/*, /api/status, /api/play/init), que continuam exigindo
 	// o token. O usuário cola o ROOT_TOKEN uma vez (guardado no sessionStorage)
-	// e o JS o envia em Authorization: Bearer. O rate limiter global continua
-	// valendo. StripSlashMiddleware (global) normaliza /dashboard/ → /dashboard.
+	// e o JS o envia em Authorization: Bearer; o mesmo JS também chama
+	// POST /admin/session para estabelecer o cookie streamedia_session, que
+	// libera a navegação normal (sem JS) para /docs e /metrics. O rate
+	// limiter global continua valendo. StripSlashMiddleware (global)
+	// normaliza /dashboard/ → /dashboard.
 	dashboardHandler := dashboard.NewHandler()
 	r.Get("/dashboard", dashboardHandler.ServeOverview)
 	r.Get("/dashboard/videos", dashboardHandler.ServeVideos)
@@ -205,14 +220,16 @@ func NewRouter(
 	r.Get("/dashboard/assets/{file}", dashboardHandler.ServeAsset)
 
 	// --- Observabilidade e documentação (protegidas pelo ROOT_TOKEN) ---
-	// /metrics (OpenTelemetry/Prometheus) e /docs (Scalar UI) exigem o mesmo
-	// ROOT_TOKEN das rotas /admin/*: /metrics expõe detalhes operacionais
-	// internos (tamanho da fila, uploads em andamento, contadores de eventos) e
-	// /docs descreve toda a superfície da API — informação valiosa para
-	// reconhecimento por scanners/bots. Protegê-las reduz a superfície exposta
-	// sem remover as rotas; o scraper Prometheus deve enviar
-	// `Authorization: Bearer <ROOT_TOKEN>`. StripSlashMiddleware (global)
-	// normaliza /docs/ → /docs, sem redirect.
+	// /metrics (OpenTelemetry/Prometheus) e /docs (Scalar UI) exigem a mesma
+	// autenticação das rotas /admin/* (RootAuth: Bearer ROOT_TOKEN OU cookie
+	// streamedia_session — ver internal/admin/admin.go e session.go):
+	// /metrics expõe detalhes operacionais internos (tamanho da fila, uploads
+	// em andamento, contadores de eventos) e /docs descreve toda a superfície
+	// da API — informação valiosa para reconhecimento por scanners/bots.
+	// Protegê-las reduz a superfície exposta sem remover as rotas; o scraper
+	// Prometheus deve enviar `Authorization: Bearer <ROOT_TOKEN>`, enquanto a
+	// navegação normal a partir do /dashboard usa o cookie de sessão.
+	// StripSlashMiddleware (global) normaliza /docs/ → /docs, sem redirect.
 	r.Group(func(r chi.Router) {
 		r.Use(admin.RootAuth(cfg.RootToken))
 
