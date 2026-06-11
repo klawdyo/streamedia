@@ -143,6 +143,7 @@ func TestSchema_IndicesCreated(t *testing.T) {
 		"idx_playback_events_video",
 		"idx_playback_events_occurred",
 		"idx_video_renditions_video",
+		"idx_videos_created_at",
 	}
 
 	for _, indexName := range expectedIndices {

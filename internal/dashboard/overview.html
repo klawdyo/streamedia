@@ -1,0 +1,175 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Streamedia — Dashboard</title>
+<link rel="stylesheet" href="/dashboard/assets/theme.css">
+<!-- Chart.js via CDN: mesma decisão de carregamento externo do /playground
+     (hls.js) e do /docs (Scalar). Gráficos do dashboard. -->
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4"></script>
+<script src="/dashboard/assets/app.js"></script>
+</head>
+<body>
+<header class="top">
+  <h1>Streamedia</h1>
+  <span class="tagline">Dashboard — visão geral</span>
+  <nav>
+    <a href="/dashboard">Visão geral</a>
+    <a href="/dashboard/videos">Vídeos</a>
+    <a href="/playground">Playground</a>
+    <a href="/docs">Docs</a>
+  </nav>
+</header>
+
+<div class="wrap">
+  <!-- Barra de token: o ROOT_TOKEN é colado uma vez e guardado na aba. -->
+  <div class="tokenbar">
+    <label for="rootToken">ROOT_TOKEN</label>
+    <input type="password" id="rootToken" placeholder="root-token-...">
+    <button id="saveToken">Carregar</button>
+  </div>
+  <div id="tokenStatus" class="note"></div>
+
+  <div id="content" class="hidden">
+    <!-- Cartões de métrica -->
+    <div class="cards" id="cards"></div>
+
+    <!-- Gráficos de uploads -->
+    <div class="panel">
+      <h2>Uploads — quando os vídeos são enviados</h2>
+      <div class="chart-grid">
+        <div class="chart-box"><h3>Por data</h3><canvas id="upByDate"></canvas></div>
+        <div class="chart-box"><h3>Por dia da semana</h3><canvas id="upByDow"></canvas></div>
+        <div class="chart-box"><h3>Por hora do dia</h3><canvas id="upByHour"></canvas></div>
+      </div>
+    </div>
+
+    <!-- Gráficos de reproduções -->
+    <div class="panel">
+      <h2>Reproduções — quando os vídeos são assistidos</h2>
+      <div class="chart-grid">
+        <div class="chart-box"><h3>Por data</h3><canvas id="pbByDate"></canvas></div>
+        <div class="chart-box"><h3>Por dia da semana</h3><canvas id="pbByDow"></canvas></div>
+        <div class="chart-box"><h3>Por hora do dia</h3><canvas id="pbByHour"></canvas></div>
+        <div class="chart-box"><h3>Por resolução</h3><canvas id="pbByRes"></canvas></div>
+        <div class="chart-box"><h3>Por sistema operacional</h3><canvas id="pbByOS"></canvas></div>
+      </div>
+    </div>
+
+    <!-- Últimos vídeos -->
+    <div class="panel">
+      <div class="panel-head">
+        <h2>Últimos vídeos enviados</h2>
+        <span class="spacer"></span>
+        <a class="btn ghost small" href="/dashboard/videos">Ver todos →</a>
+      </div>
+      <table>
+        <thead><tr><th></th><th>Vídeo</th><th>Status</th><th>Tag</th><th class="num">Duração</th><th>Enviado em</th></tr></thead>
+        <tbody id="latestBody"></tbody>
+      </table>
+    </div>
+  </div>
+
+  <div id="error" class="note err hidden"></div>
+</div>
+
+<script>
+(function () {
+  var D = window.Dash;
+  D.applyChartTheme();
+
+  function showError(msg) {
+    var e = document.getElementById("error");
+    e.textContent = msg;
+    e.classList.remove("hidden");
+    document.getElementById("content").classList.add("hidden");
+  }
+  function hideError() { document.getElementById("error").classList.add("hidden"); }
+
+  function card(k, v, sub) {
+    return '<div class="card"><div class="k">' + D.escapeHtml(k) + '</div>' +
+      '<div class="v">' + D.escapeHtml(v) + '</div>' +
+      (sub ? '<div class="sub">' + D.escapeHtml(sub) + '</div>' : '') + '</div>';
+  }
+
+  function renderCards(s) {
+    var st = s.storage || {};
+    var byStatus = st.videos_by_status || {};
+    var processing = (byStatus.transcoding || 0) + (byStatus.upload_complete || 0) + (byStatus.uploading || 0) + (byStatus.pending_upload || 0);
+    var failed = (byStatus.failed_transcode || 0) + (byStatus.failed_upload || 0);
+    var totals = s.totals || {};
+    var html = "";
+    html += card("Total de vídeos", String((s.uploads && s.uploads.total) || 0));
+    html += card("Prontos", String(byStatus.ready || 0), "disponíveis para play");
+    html += card("Em processamento", String(processing), "upload/transcode na fila");
+    html += card("Com falha", String(failed));
+    html += card("Espaço usado", D.fmtBytes(st.total_bytes), "originais + variantes HLS");
+    html += card("Duração total", D.fmtDuration(st.total_duration_seconds), "de conteúdo armazenado");
+    html += card("Fila de transcode", String(st.queue_pending || 0), (st.workers || 0) + " worker(s)");
+    html += card("Reproduções", String(totals.playback || 0), (totals.download_segment || 0) + " segmentos servidos");
+    document.getElementById("cards").innerHTML = html;
+  }
+
+  function renderCharts(s) {
+    var up = s.uploads || {};
+    D.barChart("upByDate", D.dateSeries(up.by_date), "Uploads", "#6ea8fe");
+    D.barChart("upByDow", D.weekdaySeries(up.by_day_of_week), "Uploads", "#6ea8fe");
+    D.barChart("upByHour", D.hourSeries(up.by_hour), "Uploads", "#6ea8fe");
+
+    D.barChart("pbByDate", D.dateSeries(s.by_date), "Reproduções", "#4ade80");
+    D.barChart("pbByDow", D.weekdaySeries(s.by_day_of_week), "Reproduções", "#4ade80");
+    D.barChart("pbByHour", D.hourSeries(s.by_hour), "Reproduções", "#4ade80");
+
+    var res = s.by_resolution || {};
+    var resKeys = Object.keys(res).sort(function (a, b) { return a - b; });
+    D.doughnutChart("pbByRes", resKeys.map(function (r) { return r + "p"; }), resKeys.map(function (r) { return res[r]; }));
+
+    var os = s.by_os || {};
+    var osKeys = Object.keys(os);
+    D.doughnutChart("pbByOS", osKeys, osKeys.map(function (k) { return os[k]; }));
+  }
+
+  // thumbURL monta a URL pública do poster da menor resolução disponível.
+  function thumbURL(v) {
+    var res = (v.Resolutions || []).slice().sort(function (a, b) { return a - b; });
+    if (!res.length) return "";
+    return "/video/" + encodeURIComponent(v.Tag) + "/" + encodeURIComponent(v.VideoID) + "/thumb_" + res[0] + ".jpg";
+  }
+
+  function renderLatest(videos) {
+    var rows = videos.map(function (v) {
+      var t = thumbURL(v);
+      var thumb = t ? '<img class="thumb" src="' + t + '" alt="" loading="lazy">' : '<div class="thumb"></div>';
+      var link = "/dashboard/videos/" + encodeURIComponent(v.VideoID);
+      return '<tr>' +
+        '<td><a href="' + link + '">' + thumb + '</a></td>' +
+        '<td><a href="' + link + '" class="mono-id">' + D.escapeHtml(v.VideoID) + '</a></td>' +
+        '<td><span class="chip ' + D.escapeHtml(v.Status) + '">' + D.escapeHtml(D.statusLabel(v.Status)) + '</span></td>' +
+        '<td>' + D.escapeHtml(v.Tag) + '</td>' +
+        '<td class="num">' + D.fmtDuration(v.DurationS) + '</td>' +
+        '<td>' + D.escapeHtml(D.fmtDateTime(v.CreatedAt)) + '</td>' +
+        '</tr>';
+    }).join("");
+    document.getElementById("latestBody").innerHTML = rows || '<tr><td colspan="6" class="note">Nenhum vídeo ainda.</td></tr>';
+  }
+
+  async function load() {
+    hideError();
+    try {
+      var stats = await D.apiFetch("/admin/stats");
+      renderCards(stats);
+      renderCharts(stats);
+      var vids = await D.apiFetch("/admin/videos?limit=8&sort=created_at&order=desc");
+      renderLatest((vids && vids.videos) || []);
+      document.getElementById("content").classList.remove("hidden");
+    } catch (e) {
+      showError(e.message || "Falha ao carregar o dashboard.");
+    }
+  }
+
+  D.setupToken(load);
+})();
+</script>
+</body>
+</html>

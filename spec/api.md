@@ -85,9 +85,9 @@ está definida, `WEBHOOK_SECRET` passa a ser obrigatório.
 | Rota | Descrição |
 |---|---|
 | `GET /api/status/{video_id}` | Estado do vídeo + metadados (inclui `has_thumbnails` e `thumbnails`, mapa resolução→URL pública do poster). |
-| `GET /admin/videos` | Lista paginada; filtros `status`, `tag`, `limit`, `offset`. |
+| `GET /admin/videos` | Lista paginada; filtros `status`, `tag`, `limit`, `offset`; ordenação `sort` (`created_at`/`updated_at`/`status`/`actual_size_bytes`/`duration_s`, whitelist) + `order` (`asc`/`desc`). |
 | `GET /admin/queue` | Tamanho da fila + nº de workers. |
-| `GET /admin/stats` | Estatísticas agregadas (e armazenamento/fila na visão global). |
+| `GET /admin/stats` | Estatísticas agregadas de reprodução (totais, `by_resolution`, `by_os`, `by_day_of_week`, `by_hour`, `by_date`). Visão global (sem `?video_id=`) inclui `storage` (bytes, duração, vídeos por status, fila, `workers`) e `uploads` (envios por data/dia/hora). Com `?video_id=`, inclui `video_storage` (variantes HLS + peso do vídeo). |
 | `DELETE /admin/videos/{video_id}` | Apaga linhas do banco + arquivos no disco. |
 
 ## Rotas públicas
@@ -99,6 +99,7 @@ está definida, `WEBHOOK_SECRET` passa a ser obrigatório.
 | `GET /metrics` | Métricas Prometheus. |
 | `GET /docs`, `GET /docs/openapi.json` | Documentação (Scalar UI + OpenAPI). |
 | `GET /playground` | Playground interativo do pipeline (auth → upload → play). |
+| `GET /dashboard`, `GET /dashboard/videos`, `GET /dashboard/videos/{id}`, `GET /dashboard/assets/{file}` | Dashboard administrativo (páginas HTML). |
 
 ### Playground da API (`GET /playground`) — issue #18
 
@@ -109,6 +110,29 @@ por chunk e unificada, timeout/cancelar/retry), acompanha-se o status e os
 **eventos ao vivo via SSE** (`/api/events`), emite-se o link de play e geram-se
 players HLS para as resoluções disponíveis, cada um com ▶ Play individual.
 Rota pública (a página só age com o `ROOT_TOKEN` colado pelo usuário).
+
+### Dashboard administrativo (`GET /dashboard`)
+
+Área visual de administração, no mesmo tema escuro "inspirado no Scalar" do
+playground, em três páginas HTML autocontidas (Chart.js e hls.js via CDN):
+
+- **`/dashboard`** — visão geral: cartões (total de vídeos, prontos, em
+  processamento, com falha, espaço usado, duração total, fila + workers,
+  reproduções) + gráficos de **uploads** e **reproduções** por data, dia da
+  semana e hora + tabela dos últimos vídeos enviados, com link para "ver todos",
+  `/playground` e `/docs`.
+- **`/dashboard/videos`** — biblioteca completa com paginação, filtros
+  (`status`, `tag`) e ordenação (`sort`/`order`), sobre `GET /admin/videos`.
+- **`/dashboard/videos/{id}`** — player HLS (estilo YouTube) e as estatísticas
+  do vídeo na mesma página (reproduções por data/dia/hora/resolução/SO e ficha
+  de armazenamento), sobre `GET /api/status/{id}`, `GET /admin/stats?video_id=`
+  e `POST /api/play/init`.
+
+**Autenticação (mesmo padrão do playground):** as páginas são **públicas** — não
+fazem nada de útil sem o `ROOT_TOKEN`. O token é colado uma vez, guardado no
+`sessionStorage` do navegador e enviado em `Authorization: Bearer` a cada
+chamada das rotas de dados (`/admin/*`, `/api/status`, `/api/play/init`), que
+continuam exigindo o `ROOT_TOKEN` no servidor. Nenhum dado é acessível sem ele.
 
 ## Envelope de resposta
 

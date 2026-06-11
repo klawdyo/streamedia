@@ -173,6 +173,38 @@ func TestAllRoutesRegistered(t *testing.T) {
 	}
 }
 
+// TestDashboardRoutesPublic confirma que as páginas e assets do dashboard são
+// servidos publicamente (200, HTML/CSS/JS) — o padrão do /playground. A
+// proteção real fica nas rotas de dados (/admin/*, /api/status), exercidas em
+// TestAllRoutesRegistered.
+func TestDashboardRoutesPublic(t *testing.T) {
+	router, _ := newTestRouter(t, newTestConfig(t))
+
+	cases := []struct {
+		path    string
+		ctParts string
+	}{
+		{"/dashboard", "text/html"},
+		{"/dashboard/videos", "text/html"},
+		{"/dashboard/videos/550e8400-e29b-4100-8716-446655440000", "text/html"},
+		{"/dashboard/assets/theme.css", "text/css"},
+		{"/dashboard/assets/app.js", "application/javascript"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.path, func(t *testing.T) {
+			req := httptest.NewRequest(http.MethodGet, tc.path, nil)
+			rec := httptest.NewRecorder()
+			router.ServeHTTP(rec, req)
+			if rec.Code != http.StatusOK {
+				t.Fatalf("%s: esperado 200, obtido %d", tc.path, rec.Code)
+			}
+			if ct := rec.Header().Get("Content-Type"); !strings.HasPrefix(ct, tc.ctParts) {
+				t.Errorf("%s: Content-Type %q, esperava prefixo %q", tc.path, ct, tc.ctParts)
+			}
+		})
+	}
+}
+
 // TestUploadInitE2E faz um POST /api/upload/init completo com ROOT_TOKEN válido
 // e verifica que a resposta 200 traz upload_url e token.
 func TestUploadInitE2E(t *testing.T) {
