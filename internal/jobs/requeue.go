@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/klawdyo/streamedia/internal/config"
+	"github.com/klawdyo/streamedia/internal/discord"
 	"github.com/klawdyo/streamedia/internal/models"
 )
 
@@ -25,6 +26,14 @@ type TranscodeRequeueJob struct {
 	ticker    *time.Ticker
 	stopCh    chan struct{}
 	wg        sync.WaitGroup
+	alerter   *discord.Alerter // alerta operacional (travado/falha terminal) — opcional, nil-safe
+}
+
+// SetAlerter conecta um alerter do Discord ao job (issue #21). Pode ser nil
+// (canal desabilitado). Usado pelo main para alertar transcodes travados
+// detectados pela varredura e falhas terminais por esgotamento de tentativas.
+func (j *TranscodeRequeueJob) SetAlerter(a *discord.Alerter) {
+	j.alerter = a
 }
 
 // NewTranscodeRequeueJob cria uma nova instância do job de reenfileiramento
@@ -115,6 +124,10 @@ func (j *TranscodeRequeueJob) runOnce() error {
 
 	// Processa cada transcodificação travada encontrada.
 	for _, tc := range transcodes {
+		// Alerta operacional no Discord (issue #21): a varredura detectou um
+		// transcode travado (TRANSCODE_STUCK). Nil-safe quando o canal está off.
+		j.alerter.AlertTranscodeStuck(tc.videoID, tc.attempts)
+
 		if tc.attempts < j.cfg.MaxTranscodeAttempts {
 			// Ainda há tentativas: reenfileira.
 
@@ -169,6 +182,10 @@ func (j *TranscodeRequeueJob) runOnce() error {
 			if j.onWebhook != nil {
 				j.onWebhook(tc.videoID, "failed", errMsg)
 			}
+
+			// Alerta operacional no Discord (issue #21): falha terminal por
+			// esgotamento de tentativas. Nil-safe quando o canal está off.
+			j.alerter.AlertTranscodeFailure(tc.videoID, string(models.StatusFailedTranscode), errMsg)
 		}
 	}
 

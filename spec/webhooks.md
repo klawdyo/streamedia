@@ -1,7 +1,22 @@
 # Webhooks
 
 O Streamedia notifica o backend principal (`WEBHOOK_URL`) a cada transição
-relevante. É a única comunicação de saída e usa o único segredo compartilhado.
+relevante. É a comunicação de negócio de saída e usa o único segredo
+compartilhado.
+
+> **Alertas operacionais ≠ webhooks de negócio.** Este documento trata dos
+> webhooks de **negócio** (ciclo de vida do vídeo). Há também um canal opcional
+> de **alerta operacional** no Discord (`DISCORD_WEBHOOK_URL`) para falhas
+> internas do serviço — descrito em `operacao.md`.
+
+## Destino por vídeo (override)
+
+O destino padrão é a `WEBHOOK_URL` global. Cada vídeo pode, opcionalmente,
+sobrescrevê-lo: informe `webhook_url` (URL **HTTPS** válida, ≤ 2048 caracteres)
+no corpo de `POST /api/upload/init`. Quando presente, os webhooks daquele vídeo
+vão para ela em vez da global; quando ausente/inválida-vazia, usa a global. A
+URL é persistida (`videos.webhook_url`), então sobrevive a reinício/crash. A
+assinatura HMAC (`WEBHOOK_SECRET`) é a mesma, qualquer que seja o destino.
 
 ## Eventos
 
