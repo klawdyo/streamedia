@@ -220,6 +220,7 @@
   // Exporta no escopo global um único namespace para as páginas usarem.
   window.Dash = {
     getToken: getToken, setToken: setToken, setupToken: setupToken, logout: logout,
+    startSession: startSession,
     apiFetch: apiFetch,
     fmtBytes: fmtBytes, fmtDuration: fmtDuration, fmtDateTime: fmtDateTime,
     statusLabel: statusLabel, escapeHtml: escapeHtml, WEEKDAYS: WEEKDAYS,
