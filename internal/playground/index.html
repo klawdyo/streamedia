@@ -7,6 +7,11 @@
 <!-- hls.js via CDN: navegadores (exceto Safari) não tocam HLS nativamente.
      Coerente com a página /docs, que também carrega componentes via CDN. -->
 <script src="https://cdn.jsdelivr.net/npm/hls.js@1"></script>
+<!-- app.js do dashboard: utilidades de token/sessão compartilhadas (mesma
+     chave de sessionStorage e o cookie streamedia_session) — é o que permite
+     ao Playground reaproveitar o ROOT_TOKEN colado na Visão geral/Vídeos e
+     liberar /docs sem pedir o token de novo. -->
+<script src="/dashboard/assets/app.js"></script>
 <style>
   /* ---------------------------------------------------------------
      Visual inspirado no Scalar UI: tema escuro, tipografia mono,
@@ -48,6 +53,7 @@
   }
   header.top h1 { font-size: 18px; margin: 0; letter-spacing: 0.5px; }
   header.top .tagline { color: var(--text-dim); font-size: 13px; }
+  header.top nav { margin-left: auto; display: flex; gap: 16px; font-size: 13px; }
   .wrap { max-width: 920px; margin: 0 auto; padding: 24px 16px 80px; }
 
   .step {
@@ -182,6 +188,12 @@
 <header class="top">
   <h1>▶ Streamedia</h1>
   <span class="tagline">Playground da API — upload → transcodificação → reprodução</span>
+  <nav>
+    <a href="/dashboard">Visão geral</a>
+    <a href="/dashboard/videos">Vídeos</a>
+    <a href="/docs">Docs</a>
+    <a href="#" id="logoutLink" title="Encerra a sessão de navegador (cookie e token salvos)">Sair</a>
+  </nav>
 </header>
 
 <div class="wrap">
@@ -452,8 +464,13 @@ $("btnToggleToken").onclick = () => {
   const inp = $("rootToken");
   inp.type = inp.type === "password" ? "text" : "password";
 };
-$("btnAuth").onclick = async () => {
-  const token = $("rootToken").value.trim();
+
+// authenticate valida o ROOT_TOKEN e, em caso de sucesso, salva no
+// sessionStorage e abre a sessão de cookie (streamedia_session) pelo mesmo
+// mecanismo do /dashboard (window.Dash, de /dashboard/assets/app.js) — assim
+// o Playground passa a compartilhar a autenticação com a Visão geral, Vídeos
+// e /docs nesta aba.
+async function authenticate(token) {
   if (!token) { setMeta("authMeta", "err", "Informe o ROOT_TOKEN."); return; }
   setMeta("authMeta", "load", "validando…");
   // Valida o token contra uma rota protegida leve (GET /admin/stats).
@@ -471,13 +488,29 @@ $("btnAuth").onclick = async () => {
       return;
     }
     state.rootToken = token;
+    Dash.setToken(token);
+    Dash.startSession(token);
     setMeta("authMeta", "ok", "autenticado · " + r.ms.toFixed(0) + " ms");
     markDone("step1");
     unlock("step2");
   } catch (e) {
     setMeta("authMeta", "err", "Falha de conexão: " + e.message);
   }
-};
+}
+$("btnAuth").onclick = () => authenticate($("rootToken").value.trim());
+
+// Link "Sair" do nav: encerra a sessão de navegador (cookie streamedia_session
+// e o ROOT_TOKEN salvo nesta aba, compartilhado com /dashboard e /docs).
+$("logoutLink").onclick = (e) => { e.preventDefault(); Dash.logout(); };
+
+// Se já há um ROOT_TOKEN salvo nesta aba (colado na Visão geral/Vídeos),
+// reaproveita: preenche o campo e valida automaticamente, liberando a etapa 1
+// sem pedir o token de novo.
+const savedToken = Dash.getToken();
+if (savedToken) {
+  $("rootToken").value = savedToken;
+  authenticate(savedToken);
+}
 
 // =====================================================================
 // ETAPA 2 — Solicitar link de upload (POST /api/upload/init)

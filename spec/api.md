@@ -111,6 +111,15 @@ por chunk e unificada, timeout/cancelar/retry), acompanha-se o status e os
 players HLS para as resoluções disponíveis, cada um com ▶ Play individual.
 Rota pública (a página só age com o `ROOT_TOKEN` colado pelo usuário).
 
+**Sessão compartilhada com o dashboard:** a etapa de autenticação reaproveita
+`window.Dash` (`/dashboard/assets/app.js`) — se já houver um `ROOT_TOKEN`
+salvo no `sessionStorage` (colado na Visão geral ou em Vídeos), o playground
+preenche o campo e valida automaticamente; ao validar um token aqui, ele é
+salvo no `sessionStorage` e a sessão de cookie `streamedia_session` é aberta
+(`POST /admin/session`), liberando `/dashboard` e `/docs` sem repetir o
+token. O nav do playground tem links para Visão geral, Vídeos, Docs e Sair
+(encerra a sessão).
+
 ### Dashboard administrativo (`GET /dashboard`)
 
 Área visual de administração, no mesmo tema escuro "inspirado no Scalar" do
