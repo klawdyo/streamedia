@@ -4,9 +4,11 @@
     <div class="w-full max-w-sm space-y-6">
       <!-- Logo / título -->
       <div class="text-center space-y-2">
-        <div class="mx-auto flex h-14 w-14 items-center justify-center rounded-xl bg-primary text-primary-foreground text-2xl font-bold">
-          S
-        </div>
+        <img
+          src="/app/logo.png"
+          alt="Streamedia"
+          class="mx-auto h-16 w-16 rounded-xl object-cover"
+        />
         <h1 class="text-2xl font-bold tracking-tight text-foreground">
           Streamedia Admin
         </h1>

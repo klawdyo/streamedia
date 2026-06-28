@@ -2,9 +2,11 @@
   <!-- Sidebar lateral com menu agrupado — usa shadcn Sidebar + phosphor-icons -->
   <Sidebar collapsible="icon">
     <SidebarHeader class="flex items-center gap-2 px-4 py-3">
-      <div class="flex h-8 w-8 items-center justify-center rounded-md bg-primary text-primary-foreground font-bold text-sm">
-        S
-      </div>
+      <img
+        src="/app/logo.png"
+        alt="Streamedia"
+        class="h-8 w-8 rounded-md object-cover"
+      />
       <span class="text-sm font-semibold group-data-[collapsible=icon]:hidden">
         Streamedia
       </span>
