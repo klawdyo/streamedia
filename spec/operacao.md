@@ -31,6 +31,20 @@ configuradas no painel (o `docker-compose.yml` usa `${VAR:-default}`).
 > ¹ `WEBHOOK_SECRET` é obrigatório **quando** `WEBHOOK_URL` está definida (ou
 > quando se usa `webhook_url` por vídeo): é o segredo que assina todos os
 > webhooks de negócio, independentemente do destino.
+>
+> ### Variáveis migradas para o banco (Admin Unificado)
+>
+> As variáveis abaixo **não são mais lidas do ambiente** — foram movidas para
+> a tabela `configurations` e são gerenciadas via `GET /app/config` (Admin
+> Unificado) ou `GET/PUT /admin/config` (API, Bearer ROOT_TOKEN):
+>
+> `MAX_UPLOAD_SIZE_MB`, `QUEUE_MAX_SIZE`, `TRANSCODE_WORKERS`, `UPLOAD_TOKEN_TTL`,
+> `PLAY_TOKEN_TTL`, `UPLOAD_IDLE_TIMEOUT`, `TRANSCODE_STUCK`, `MAX_TRANSCODE_ATTEMPTS`,
+> `KEEP_ORIGINAL`, `RATE_LIMIT_PER_MIN`, `WEBHOOK_URL`, `DISCORD_WEBHOOK_URL`.
+>
+> As que **permanecem como variáveis de ambiente** (obrigatórias no boot):
+> `ROOT_TOKEN`, `WEBHOOK_SECRET`, `PORT`, `SQLITE_PATH`, `MEDIA_DIR`, `UPLOAD_TMP_DIR`.
+> Ver `.tasks/77-config-manager-dbconfig.md` para detalhes do gerenciador de configurações.
 
 ## Deploy
 
@@ -49,10 +63,10 @@ configuradas no painel (o `docker-compose.yml` usa `${VAR:-default}`).
 - `GET /admin/stats` — estatísticas agregadas de uso e armazenamento
   (Bearer ROOT_TOKEN). Inclui séries temporais de uploads e reproduções
   (por data/dia/hora) que alimentam os gráficos do dashboard.
-- `GET /dashboard` — área visual de administração (visão geral com gráficos,
-  biblioteca de vídeos e página por vídeo com player). Páginas públicas que só
-  agem com o `ROOT_TOKEN` colado pelo usuário; consomem as rotas protegidas via
-  `Authorization: Bearer`. Ver [api.md](api.md#dashboard-administrativo-get-dashboard).
+- `GET /app` — Admin Unificado: SPA Vue 3 de administração com Google OAuth
+  e controle de acesso por roles. Substitui o dashboard legado (`/dashboard`),
+  o playground (`/playground`) e a documentação (`/docs`). Ver
+  `.tasks/82-server-spa-wire.md` para detalhes da implementação.
 
 ## Alertas operacionais no Discord (opcional)
 
