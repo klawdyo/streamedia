@@ -18,6 +18,7 @@ import (
 	"github.com/klawdyo/streamedia/internal/apiresponse"
 	"github.com/klawdyo/streamedia/internal/auth"
 	"github.com/klawdyo/streamedia/internal/config"
+	"github.com/klawdyo/streamedia/internal/httputil"
 	"github.com/klawdyo/streamedia/internal/models"
 )
 
@@ -231,6 +232,24 @@ func (h *AdminHandler) HandleVideos(w http.ResponseWriter, r *http.Request) {
 	}
 	if videos == nil {
 		videos = []*models.Video{}
+	}
+
+	// Popula HasThumbnails e ThumbnailURL para cada vídeo na lista, verificando
+	// o disco em <MEDIA_DIR>/<tag>/<video_id>/thumb_*.jpg. Para a lista, usamos
+	// o menor thumbnail disponível (primeiro encontrado na ordem das resolutions)
+	// como preview; se não houver nenhum, ThumbnailURL fica vazio e o frontend
+	// mostra um placeholder.
+	for _, v := range videos {
+		basePath := filepath.Join(h.cfg.MediaDir, models.Slugify(v.Tag), v.VideoID)
+		// Itera as resolutions do vídeo (se houver) e procura o primeiro thumbnail existente.
+		for _, res := range v.Resolutions {
+			thumbPath := filepath.Join(basePath, models.ThumbnailFileName(res))
+			if info, err := os.Stat(thumbPath); err == nil && !info.IsDir() {
+				v.HasThumbnails = true
+				v.ThumbnailURL = httputil.PublicThumbnailURL(r, v.Tag, v.VideoID, res)
+				break
+			}
+		}
 	}
 
 	apiresponse.Success(w, http.StatusOK, videosResponse{Videos: videos, Total: total})

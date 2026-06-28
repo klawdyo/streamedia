@@ -19,6 +19,7 @@ import (
 type StatusResponse struct {
 	VideoID           string    `json:"video_id"`
 	Status            string    `json:"status"`
+	Tag               string    `json:"tag"`
 	DurationS         *int      `json:"duration_s"`
 	Resolutions       []int     `json:"resolutions"`
 	TranscodeAttempts int       `json:"transcode_attempts"`
@@ -107,6 +108,7 @@ func (h *StatusHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	resp := StatusResponse{
 		VideoID:           video.VideoID,
 		Status:            string(video.Status),
+		Tag:               video.Tag,
 		DurationS:         durationS,
 		Resolutions:       resolutions,
 		TranscodeAttempts: video.TranscodeAttempts,

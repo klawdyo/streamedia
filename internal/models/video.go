@@ -23,27 +23,34 @@ const (
 )
 
 // Video representa um registro da tabela videos.
+// Os json tags usam snake_case para compatibilidade com o frontend Vue.
 type Video struct {
-	VideoID           string
-	Status            VideoStatus
-	DeclaredSizeBytes int64
-	ActualSizeBytes   int64
-	DurationS         int
-	Resolutions       []int // armazenado como JSON no banco
-	TranscodeAttempts int
-	LastChunkAt       *time.Time
-	ErrorMessage      string
+	VideoID           string      `json:"video_id"`
+	Status            VideoStatus `json:"status"`
+	DeclaredSizeBytes int64       `json:"declared_size_bytes"`
+	ActualSizeBytes   int64       `json:"actual_size_bytes"`
+	DurationS         int         `json:"duration_s"`
+	Resolutions       []int       `json:"resolutions"` // armazenado como JSON no banco
+	TranscodeAttempts int         `json:"transcode_attempts"`
+	LastChunkAt       *time.Time  `json:"last_chunk_at,omitempty"`
+	ErrorMessage      string      `json:"error_message,omitempty"`
 	// Tag é o namespace (slug) do vídeo: define o diretório de armazenamento
 	// (<MEDIA_DIR>/<tag>/<video_id>/...) e agrupa vídeos para consultas. Não
 	// é credencial — toda autenticação é feita com o ROOT_TOKEN único.
-	Tag string
+	Tag string `json:"tag"`
 	// WebhookURL é a URL de webhook customizada deste vídeo (issue #20).
 	// Quando preenchida (HTTPS, informada no upload/init), os webhooks deste
 	// vídeo vão para ela em vez da WEBHOOK_URL global. Vazia ("") = usar a
 	// URL global (comportamento histórico).
-	WebhookURL string
-	CreatedAt  time.Time
-	UpdatedAt  time.Time
+	WebhookURL string    `json:"webhook_url,omitempty"`
+	CreatedAt  time.Time `json:"created_at"`
+	UpdatedAt  time.Time `json:"updated_at"`
+	// HasThumbnails indica se há thumbnails (posters) no disco para este vídeo.
+	// Preenchido pelo handler da lista, não pelo banco — sempre false após ScanVideoRow.
+	HasThumbnails bool `json:"has_thumbnails"`
+	// ThumbnailURL é a URL pública do menor thumbnail disponível para preview na lista.
+	// Preenchido pelo handler da lista, não pelo banco — sempre vazio após ScanVideoRow.
+	ThumbnailURL string `json:"thumbnail_url,omitempty"`
 }
 
 // validTransitions define as transições permitidas por estado.
