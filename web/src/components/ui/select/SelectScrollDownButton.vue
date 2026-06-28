@@ -4,7 +4,7 @@ import type { SelectScrollDownButtonProps } from "reka-ui"
 
 import type { HTMLAttributes } from "vue"
 
-import { ChevronDownIcon } from '@radix-icons/vue'
+import { PhCaretDown } from '@phosphor-icons/vue'
 
 import { reactiveOmit } from "@vueuse/core"
 
@@ -42,7 +42,7 @@ const forwardedProps = useForwardProps(delegatedProps)
 
   <slot>
 
-    <ChevronDownIcon class="size-4" />
+    <PhCaretDown class="size-4" />
 
   </slot>
 

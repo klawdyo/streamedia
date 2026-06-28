@@ -4,7 +4,7 @@ import type { DialogContentEmits, DialogContentProps } from "reka-ui"
 
 import type { HTMLAttributes } from "vue"
 
-import { Cross2Icon } from '@radix-icons/vue'
+import { PhX } from '@phosphor-icons/vue'
 
 import { reactiveOmit } from "@vueuse/core"
 
@@ -110,7 +110,7 @@ const forwarded = useForwardPropsEmits(delegatedProps, emits)
 
     >
 
-    <Cross2Icon class="size-4" />
+    <PhX class="size-4" />
 
     <span class="sr-only">Close</span>
 

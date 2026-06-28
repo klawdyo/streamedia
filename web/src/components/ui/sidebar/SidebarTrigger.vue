@@ -2,7 +2,7 @@
 
 import type { HTMLAttributes } from "vue"
 
-import { ViewVerticalIcon } from '@radix-icons/vue'
+import { PhList } from '@phosphor-icons/vue'
 
 import { cn } from "@/lib/utils"
 
@@ -44,7 +44,7 @@ const { toggleSidebar } = useSidebar()
 
   >
 
-  <ViewVerticalIcon />
+  <PhList />
 
   <span class="sr-only">Toggle Sidebar</span>
 

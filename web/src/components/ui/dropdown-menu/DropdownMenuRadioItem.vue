@@ -4,7 +4,7 @@ import type { DropdownMenuRadioItemEmits, DropdownMenuRadioItemProps } from "rek
 
 import type { HTMLAttributes } from "vue"
 
-import { DotFilledIcon } from '@radix-icons/vue'
+import { PhDot } from '@phosphor-icons/vue'
 
 import { reactiveOmit } from "@vueuse/core"
 
@@ -64,7 +64,7 @@ const forwarded = useForwardPropsEmits(delegatedProps, emits)
 
     <slot name="indicator-icon">
 
-      <DotFilledIcon class="size-2 fill-current" />
+      <PhDot class="size-2 fill-current" weight="fill" />
 
     </slot>
 

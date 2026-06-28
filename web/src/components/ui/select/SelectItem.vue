@@ -4,7 +4,7 @@ import type { SelectItemProps } from "reka-ui"
 
 import type { HTMLAttributes } from "vue"
 
-import { CheckIcon } from '@radix-icons/vue'
+import { PhCheck } from '@phosphor-icons/vue'
 
 import { reactiveOmit } from "@vueuse/core"
 
@@ -66,7 +66,7 @@ const forwardedProps = useForwardProps(delegatedProps)
 
     <slot name="indicator-icon">
 
-      <CheckIcon class="size-4" />
+      <PhCheck class="size-4" />
 
     </slot>
 

@@ -4,7 +4,7 @@ import type { DropdownMenuCheckboxItemEmits, DropdownMenuCheckboxItemProps } fro
 
 import type { HTMLAttributes } from "vue"
 
-import { CheckIcon } from '@radix-icons/vue'
+import { PhCheck } from '@phosphor-icons/vue'
 
 import { reactiveOmit } from "@vueuse/core"
 
@@ -62,7 +62,7 @@ const forwarded = useForwardPropsEmits(delegatedProps, emits)
 
     <slot name="indicator-icon">
 
-      <CheckIcon class="size-4" />
+      <PhCheck class="size-4" />
 
     </slot>
 

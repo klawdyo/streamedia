@@ -4,7 +4,7 @@ import type { SelectScrollUpButtonProps } from "reka-ui"
 
 import type { HTMLAttributes } from "vue"
 
-import { ChevronUpIcon } from '@radix-icons/vue'
+import { PhCaretUp } from '@phosphor-icons/vue'
 
 import { reactiveOmit } from "@vueuse/core"
 
@@ -42,7 +42,7 @@ const forwardedProps = useForwardProps(delegatedProps)
 
   <slot>
 
-    <ChevronUpIcon class="size-4" />
+    <PhCaretUp class="size-4" />
 
   </slot>
 
