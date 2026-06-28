@@ -31,8 +31,9 @@ considere todos os commits.
 
 ## Regras de incremento (Conventional Commits + SemVer)
 
-Percorra os commits do mais antigo para o mais novo, a partir da última tag.
-Comece com a versão da última tag (ou `0.0.0` se não houver nenhuma) e aplique,
+Percorra os commits do mais antigo para o mais novo, a partir do último
+commit `release:` (checkpoint). Comece com a versão extraída desse commit
+(ou `0.0.0` se não houver nenhum `release:`) e aplique,
 para cada commit, a primeira regra que casar:
 
 | Prefixo do commit | Efeito |
@@ -120,9 +121,24 @@ Se o usuário confirmar a criação da release:
    automaticamente para injetar no binário via `-ldflags`, sem necessidade
    de `--build-arg` manual. A rota `GET /api` expõe esse valor.
 
-2. **Crie o commit de release** incluindo o `VERSION` atualizado:
+2. **Atualize o `"version"` no `web/package.json`** (módulo Vue/Vite) com a
+   mesma versão calculada, mantendo-a sincronizada com o `VERSION`:
    ```bash
-   git add VERSION
+   # Exemplo: versão calculada = 1.11.2
+   # No PowerShell, use o objeto convertido de/para JSON:
+   $pkg = Get-Content web/package.json | ConvertFrom-Json
+   $pkg.version = "1.11.2"
+   $pkg | ConvertTo-Json | Set-Content web/package.json
+   ```
+   Ou com `jq` (se disponível):
+   ```bash
+   jq '.version = "1.11.2"' web/package.json > web/package.json.tmp && mv web/package.json.tmp web/package.json
+   ```
+   Este arquivo é incluído no **mesmo** commit `release:` que o `VERSION`.
+
+3. **Crie o commit de release** incluindo `VERSION` e `web/package.json`:
+   ```bash
+   git add VERSION web/package.json
    git commit -m "release: vX.Y.Z - resumo curto das mudanças desta versão"
    git push origin <branch>
    ```
@@ -143,7 +159,7 @@ A versão calculada por este agente é consumida pelo build via `-ldflags`:
 - **Pacote**: `internal/version` (criado na T55)
 - **Variáveis**: `Version`, `Commit`, `BuildTime` — declaradas com defaults
   (`"0.0.0-dev"`, `"unknown"`, `"unknown"`) e sobrescritas no `go build`
-- **Rota**: `GET /api/version` expõe esses valores em JSON no envelope padrão
+- **Rota**: `GET /api` expõe esses valores em JSON no envelope padrão
 
 ### Fluxo completo
 
@@ -173,4 +189,14 @@ Sem `--build-arg` manual — o arquivo `VERSION` é a única fonte de verdade.
 - [ ] Apenas os commits posteriores ao checkpoint foram analisados
 - [ ] Regras de incremento aplicadas na ordem cronológica correta
 - [ ] Versão final reportada com justificativa (lista de commits que motivaram cada incremento)
+- [ ] `VERSION` atualizado com a nova versão
+- [ ] `web/package.json` → campo `"version"` sincronizado com o mesmo valor
 - [ ] Commit `release: vX.Y.Z - resumo` criado SOMENTE mediante confirmação explícita do usuário
+
+## Nota: atualização de spec
+
+Quando tarefas que alteram a arquitetura ou design forem concluídas, atualize
+os arquivos em `spec/` para refletir o estado real do código implementado.
+Quando houver divergência entre spec e código, o código é a fonte de verdade
+última (conforme `CLAUDE.md`).
+Esta atualização é feita no commit da própria tarefa, não no commit de release.

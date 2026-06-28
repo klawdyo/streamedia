@@ -1,0 +1,21 @@
+{
+  "$schema": "https://opencode.ai/config.json",
+  "instructions": [
+    "CLAUDE.md",
+    ".agents/cto.md",
+    ".agents/dev.md",
+    ".agents/qa.md",
+    ".agents/versioner.md",
+    ".agents/security-specialist.md"
+  ],
+  "references": {
+    "spec": {
+      "path": "spec",
+      "description": "Especificação técnica do Streamedia (arquitetura, autenticação, API, dados, pipeline, webhooks, operação)"
+    },
+    "tasks": {
+      "path": ".tasks",
+      "description": "Manifest de tarefas e arquivos de tarefa individuais"
+    }
+  }
+}

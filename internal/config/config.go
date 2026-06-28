@@ -47,6 +47,20 @@ type Config struct {
 	// "development" (produção atrás de HTTPS); false em desenvolvimento
 	// local, onde um cookie Secure nunca voltaria ao servidor por HTTP puro.
 	SessionCookieSecure bool
+	// GoogleClientID (env GOOGLE_CLIENT_ID) é o client_id da aplicação
+	// registrada no Google Cloud Console para OAuth 2.0.
+	GoogleClientID string
+	// GoogleClientSecret (env GOOGLE_CLIENT_SECRET) é o segredo do cliente
+	// OAuth 2.0 — nunca exposto ao frontend.
+	GoogleClientSecret string
+	// GoogleRedirectURL (env GOOGLE_REDIRECT_URL) é a URL de callback
+	// registrada no Google Cloud Console para onde o usuário é redirecionado
+	// após autorizar o acesso (ex: https://streamedia.com/api/auth/google/callback).
+	GoogleRedirectURL string
+	// SPADir (env SPA_DIR) é o caminho para o diretório de build da SPA Vue.js
+	// (web/dist/). Em produção, o Dockerfile copia esse diretório para dentro
+	// da imagem. Default: ./web/dist (desenvolvimento local).
+	SPADir string
 }
 
 // Load lê a configuração das variáveis de ambiente, aplicando valores
@@ -64,6 +78,20 @@ func Load() (*Config, error) {
 	webhookSecret := os.Getenv("WEBHOOK_SECRET")
 	if webhookURL != "" && webhookSecret == "" {
 		return nil, fmt.Errorf("WEBHOOK_SECRET é obrigatório quando WEBHOOK_URL está definida")
+	}
+
+	// Google OAuth (obrigatórias para autenticação de usuários).
+	googleClientID := os.Getenv("GOOGLE_CLIENT_ID")
+	if googleClientID == "" {
+		return nil, fmt.Errorf("variável de ambiente GOOGLE_CLIENT_ID é obrigatória")
+	}
+	googleClientSecret := os.Getenv("GOOGLE_CLIENT_SECRET")
+	if googleClientSecret == "" {
+		return nil, fmt.Errorf("variável de ambiente GOOGLE_CLIENT_SECRET é obrigatória")
+	}
+	googleRedirectURL := os.Getenv("GOOGLE_REDIRECT_URL")
+	if googleRedirectURL == "" {
+		return nil, fmt.Errorf("variável de ambiente GOOGLE_REDIRECT_URL é obrigatória")
 	}
 
 	// Variáveis inteiras opcionais.
@@ -143,13 +171,13 @@ func Load() (*Config, error) {
 		KeepOriginal:         getEnvBool("KEEP_ORIGINAL", false),
 		Port:                 port,
 		RateLimitPerMin:      rateLimitPerMin,
-		// ENV identifica o ambiente de execução, exposto em GET /api. Default
-		// "development": se a variável não estiver setada, assumimos o ambiente
-		// mais conservador (não declarar "production" por engano). Em produção
-		// o operador deve definir ENV=production explicitamente.
-		Environment:         environment,
-		SessionTTL:          time.Second * time.Duration(sessionTTLSeconds),
-		SessionCookieSecure: sessionCookieSecure,
+		Environment:          environment,
+		SessionTTL:           time.Second * time.Duration(sessionTTLSeconds),
+		SessionCookieSecure:  sessionCookieSecure,
+		GoogleClientID:       googleClientID,
+		GoogleClientSecret:   googleClientSecret,
+		GoogleRedirectURL:    googleRedirectURL,
+		SPADir:               getEnvStr("SPA_DIR", "./web/dist"),
 	}
 
 	return cfg, nil

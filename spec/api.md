@@ -1,7 +1,10 @@
 # Rotas da API
 
-Detalhe completo (schemas, parâmetros) em OpenAPI: `GET /docs/openapi.json`
-(UI em `GET /docs`). Abaixo, o resumo por rota.
+A documentação interativa da API (OpenAPI + playground) e o painel de
+administração foram unificados em uma SPA Vue 3 com Google OAuth, acessível
+em `GET /app/*`. Ver `.tasks/82-server-spa-wire.md` para detalhes da
+implementação.
+Abaixo, o resumo por rota.
 
 ## Upload
 
@@ -97,51 +100,7 @@ está definida, `WEBHOOK_SECRET` passa a ser obrigatório.
 | `GET /healthz` | Healthcheck. |
 | `GET /api` | Nome, versão e status (rate limit 10/min). |
 | `GET /metrics` | Métricas Prometheus. |
-| `GET /docs`, `GET /docs/openapi.json` | Documentação (Scalar UI + OpenAPI). |
-| `GET /playground` | Playground interativo do pipeline (auth → upload → play). |
-| `GET /dashboard`, `GET /dashboard/videos`, `GET /dashboard/videos/{id}`, `GET /dashboard/assets/{file}` | Dashboard administrativo (páginas HTML). |
-
-### Playground da API (`GET /playground`) — issue #18
-
-Página HTML autocontida (sem build step) que exercita o ciclo de vida completo
-de um vídeo na mesma página: cola-se o `ROOT_TOKEN`, escolhe-se o arquivo e
-solicita-se o link de upload, envia-se em chunks via TUS (com barra de progresso
-por chunk e unificada, timeout/cancelar/retry), acompanha-se o status e os
-**eventos ao vivo via SSE** (`/api/events`), emite-se o link de play e geram-se
-players HLS para as resoluções disponíveis, cada um com ▶ Play individual.
-Rota pública (a página só age com o `ROOT_TOKEN` colado pelo usuário).
-
-**Sessão compartilhada com o dashboard:** a etapa de autenticação reaproveita
-`window.Dash` (`/dashboard/assets/app.js`) — se já houver um `ROOT_TOKEN`
-salvo no `sessionStorage` (colado na Visão geral ou em Vídeos), o playground
-preenche o campo e valida automaticamente; ao validar um token aqui, ele é
-salvo no `sessionStorage` e a sessão de cookie `streamedia_session` é aberta
-(`POST /admin/session`), liberando `/dashboard` e `/docs` sem repetir o
-token. O nav do playground tem links para Visão geral, Vídeos, Docs e Sair
-(encerra a sessão).
-
-### Dashboard administrativo (`GET /dashboard`)
-
-Área visual de administração, no mesmo tema escuro "inspirado no Scalar" do
-playground, em três páginas HTML autocontidas (Chart.js e hls.js via CDN):
-
-- **`/dashboard`** — visão geral: cartões (total de vídeos, prontos, em
-  processamento, com falha, espaço usado, duração total, fila + workers,
-  reproduções) + gráficos de **uploads** e **reproduções** por data, dia da
-  semana e hora + tabela dos últimos vídeos enviados, com link para "ver todos",
-  `/playground` e `/docs`.
-- **`/dashboard/videos`** — biblioteca completa com paginação, filtros
-  (`status`, `tag`) e ordenação (`sort`/`order`), sobre `GET /admin/videos`.
-- **`/dashboard/videos/{id}`** — player HLS (estilo YouTube) e as estatísticas
-  do vídeo na mesma página (reproduções por data/dia/hora/resolução/SO e ficha
-  de armazenamento), sobre `GET /api/status/{id}`, `GET /admin/stats?video_id=`
-  e `POST /api/play/init`.
-
-**Autenticação (mesmo padrão do playground):** as páginas são **públicas** — não
-fazem nada de útil sem o `ROOT_TOKEN`. O token é colado uma vez, guardado no
-`sessionStorage` do navegador e enviado em `Authorization: Bearer` a cada
-chamada das rotas de dados (`/admin/*`, `/api/status`, `/api/play/init`), que
-continuam exigindo o `ROOT_TOKEN` no servidor. Nenhum dado é acessível sem ele.
+| `GET /app` e `GET /app/*` | Admin Unificado: SPA Vue 3 de administração (Google OAuth + roles). Documentação interativa da API (playground) acessível em `/app/playground`. |
 
 ## Envelope de resposta
 

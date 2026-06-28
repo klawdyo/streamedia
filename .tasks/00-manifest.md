@@ -6,8 +6,8 @@ Status possíveis: `pending` | `in-progress` | `done` | `blocked`
 ## Progresso geral
 
 ```
-Total: 74 tarefas
-Done:  74
+Total: 90 tarefas
+Done:  90
 Pending: 0
 ```
 
@@ -115,8 +115,30 @@ Spec dividida em `spec/` (índice + arquivos temáticos) — ver T70.
 | T72 | `.tasks/72-thumbnails-por-resolucao.md` | Gerar thumbnails (poster) por resolução ao final da transcodificação | done | issue #19 — geração JPEG por resolução (frame a 1s, proporção preservada), rota pública `/video/<tag>/<id>/thumb_<res>.jpg`, `has_thumbnails`+`thumbnails` no status — fecha issue #19 |
 | T73 | `.tasks/73-webhook-url-por-video.md` | URL de webhook customizada por vídeo no POST /api/upload/init | done | issue #20 — coluna `videos.webhook_url` (migration 0002), validação HTTPS/≤2048 no init, `webhook.Client.resolveURL` prioriza URL do vídeo sobre a global — fecha issue #20 |
 | T74 | `.tasks/74-discord-alertas-operacionais.md` | Webhook do Discord para notificação de erros operacionais | done | issue #21 — pacote `internal/discord` (Alerter nil-safe), `DISCORD_WEBHOOK_URL`, alertas de failed_transcode/fila cheia/transcode travado/falhas consecutivas injetados via SetAlerter em worker/queue/requeue — fecha issue #21 |
+| T75 | `.tasks/75-users-roles-config-migration.md` | Migration SQL: tabelas users, user_roles, configurations | done | — |
+| T76 | `.tasks/76-user-role-config-models.md` | Modelos Go: User, UserRole, Configuration + queries | done | depende T75 |
+| T77 | `.tasks/77-config-manager-dbconfig.md` | Pacote config/dbconfig — gerenciador de configs com fallback para defaults | done | depende T75 |
+| T78 | `.tasks/78-google-oauth-session.md` | Google OAuth2 — fluxo login/callback + session cookie com user_id e roles | done | depende T76 |
+| T79 | `.tasks/79-role-auth-middleware.md` | Middleware RoleAuth — autorização por roles explícitas em cada endpoint | done | depende T76 |
+| T80 | `.tasks/80-admin-users-crud-reprocess.md` | CRUD /admin/users com regra de nível + POST /api/videos/{id}/reprocess | done | depende T76, T79 |
+| T81 | `.tasks/81-admin-config-api.md` | Config API: GET/PUT/DELETE /admin/config com validação e agrupamento | done | depende T77, T79 |
+| T82 | `.tasks/82-server-spa-wire.md` | Wire completo server.go: SPA /app, auth Google, RoleAuth, remoção legado | done | depende T78, T79, T80, T81 |
+| T83 | `.tasks/83-vue-vite-scaffold.md` | Scaffold web/: Vite + Vue 3 + TS + Tailwind + shadcn-vue + phosphor-icons | done | — |
+| T84 | `.tasks/84-router-stores-guards-menu.md` | Router meta, Pinia stores, navigation guards, menu composable, api client | done | depende T83 |
+| T85 | `.tasks/85-views-login-overview-videos-playground.md` | Views: Login, Overview, Videos, Video, Playground | done | depende T84 |
+| T86 | `.tasks/86-views-users-config-components.md` | Views: Users, Config + RolesSelect + ConfigEditor | done | depende T84 |
+| T87 | `.tasks/87-docker-multistage-coolify.md` | Dockerfile multi-stage + docker-compose Coolify final | done | depende T82, T85 |
+| T88 | `.tasks/88-testes-backend-frontend.md` | Testes Go (auth, roles, users, config) + Vitest (stores, guards, menu) | done | depende T82, T86 |
+| T89 | `.tasks/89-remocao-legado.md` | Remoção de legacy: dashboard, playground, docs, POST /admin/session | done | depende T82 |
+| T90 | `.tasks/90-atualizar-spec-versioner.md` | Atualizar spec/ + .agents/versioner.md (sync package.json) | done | depende T89 |
 
-## Próxima onda — correções da análise de código (T56-T68)
+## Ondas concluídas
+
+### Admin Unificado Vue.js + Google OAuth (T75-T90)
+
+Ordem de execução: T75 → T76 → T77 (paralelo) | T78 → T79 → T80+T81 (paralelo) → T82 → T83 → T84 → T85+T86 (paralelo) → T87 → T88 → T89 → T90.
+
+> **Correções T56-T68 (onda anterior, já concluída)**
 
 Ordem de prioridade por severidade e dependências:
 

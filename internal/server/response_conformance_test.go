@@ -378,40 +378,16 @@ func TestNonAPIRoutes_NotForcedIntoEnvelope(t *testing.T) {
 	cfg := newTestConfig(t)
 	router, _ := newTestRouter(t, cfg)
 
-	// --- /docs/ (Scalar UI — HTML) ---
-	// /docs agora exige token de admin (endurecimento de segurança): manda o
-	// Authorization Bearer para validar que, autenticado, o conteúdo é HTML
-	// cru (não forçado ao envelope JSON da API).
-	t.Run("GET /docs/ retorna HTML", func(t *testing.T) {
+	// /docs foi removido no admin unificado (T82).
+	// O playground Vue em /app/playground substitui a documentação.
+	t.Run("GET /docs retorna 404 (rota removida)", func(t *testing.T) {
 		req := httptest.NewRequest(http.MethodGet, "/docs/", nil)
 		req.Header.Set("Authorization", "Bearer "+cfg.RootToken)
 		rec := httptest.NewRecorder()
 		router.ServeHTTP(rec, req)
 
-		if rec.Code != http.StatusOK {
-			t.Fatalf("esperado 200, obtido %d", rec.Code)
-		}
-
-		ct := rec.Header().Get("Content-Type")
-		if !strings.Contains(ct, "text/html") {
-			t.Errorf("esperado Content-Type text/html, obtido %q", ct)
-		}
-	})
-
-	// --- /docs/openapi.json (spec OpenAPI) ---
-	t.Run("GET /docs/openapi.json retorna spec", func(t *testing.T) {
-		req := httptest.NewRequest(http.MethodGet, "/docs/openapi.json", nil)
-		req.Header.Set("Authorization", "Bearer "+cfg.RootToken)
-		rec := httptest.NewRecorder()
-		router.ServeHTTP(rec, req)
-
-		if rec.Code != http.StatusOK {
-			t.Fatalf("esperado 200, obtido %d", rec.Code)
-		}
-
-		ct := rec.Header().Get("Content-Type")
-		if !strings.Contains(ct, "application/json") {
-			t.Errorf("esperado Content-Type application/json, obtido %q", ct)
+		if rec.Code != http.StatusNotFound {
+			t.Fatalf("/docs: esperado 404 (rota removida), obtido %d", rec.Code)
 		}
 	})
 

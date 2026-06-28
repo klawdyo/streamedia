@@ -438,33 +438,10 @@ o tamanho da fila relativo àquele vídeo específico).
 
 ## Documentação interativa da API (Scalar)
 
-A API tem documentação interativa no padrão OpenAPI, acessível pelo
-navegador:
-
-- `GET /docs/` — UI interativa do [Scalar](https://scalar.com/) (carrega o
-  componente `@scalar/api-reference` via CDN), consumindo a spec abaixo
-- `GET /docs/openapi.json` — especificação OpenAPI 3.0 em JSON, consumida
-  pela UI acima e por outras ferramentas (geração de clients, importação no
-  Postman/Insomnia, etc.)
-
-> Nota: a UI já foi servida com Swagger UI (T30/issue #3). Trocamos para o
-> Scalar a pedido da issue #12 — o autor considerou o Swagger UI pouco
-> agradável visualmente. A spec OpenAPI continua a mesma; só a página HTML
-> de `/docs/` mudou.
-
-```bash
-# abrir no navegador
-xdg-open http://localhost:8080/docs/
-
-# ou consultar a spec bruta
-curl http://localhost:8080/docs/openapi.json | jq .
-```
-
-Não requer autenticação — mesma decisão tomada para `/metrics`: é material
-de referência sobre os contratos da API (inclusive das rotas
-administrativas, que continuam protegidas por `ROOT_TOKEN`/HMAC nas rotas
-reais; a spec apenas as descreve). O rate limiter da aplicação também se
-aplica a essas rotas.
+A documentação interativa da API (OpenAPI + Scalar UI) faz parte do Admin
+Unificado — uma SPA Vue 3 com Google OAuth, acessível em `GET /app/*`.
+A especificação OpenAPI continua disponível para consumo programático.
+Ver `.tasks/` (T75-T90) para o registro completo da implementação.
 
 ## Token de Reprodução
 

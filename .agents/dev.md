@@ -101,6 +101,23 @@ internal/
 - Sempre use `context.WithTimeout` em chamadas ao FFmpeg
 - Sempre desabilite directory listing no file server
 
+## Proibições absolutas
+
+- **NUNCA crie worktrees** (`git worktree add`) — quem cria worktrees é o CTO.
+  Você trabalha **dentro** do worktree/diretório que o CTO preparou para você.
+- **NUNCA abra pull requests** — a entrega é sempre um merge local em `dev`
+  feito pelo CTO ao final da onda de tarefas.
+- **NUNCA empurre** (`git push`) nenhuma branch para o remoto — nem a branch
+  de feature, nem `dev`, nem qualquer outra. Push é decisão exclusiva do
+  autor do projeto.
+- **NUNCA faça squash** de commits (`git merge --squash`, `git rebase` com
+  squash, ou equivalente) — o histórico completo de commits deve ser
+  preservado. O autor do projeto quer rastreabilidade total; squash esconde
+  trabalho e impossibilita bisect, blame e auditoria.
+- **NUNCA use** ferramentas que empurram código diretamente ao GitHub
+  (create_or_update_file, push_files ou equivalentes) — todo o trabalho é
+  local.
+
 ## Quando terminar
 
 Reporte:
