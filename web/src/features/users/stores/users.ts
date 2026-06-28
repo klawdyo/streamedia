@@ -2,49 +2,57 @@
 
 import { defineStore } from 'pinia'
 import { ref } from 'vue'
-import type { UserWithRoles } from '@/types'
-import type { PaginatedResponse } from '@/types'
+import type { UserWithRoles, UserRole } from '@/types'
 import { api } from '@/api/client'
+
+interface UsersListResponse {
+  users: UserWithRoles[]
+  total: number
+}
+
+function computeEffectiveLevel(roles: UserRole[]): number {
+  if (!roles.length) return 999
+  return Math.min(...roles.map((r) => r.level_num))
+}
 
 export const useUsersStore = defineStore('users', () => {
   const users = ref<UserWithRoles[]>([])
   const total = ref(0)
   const page = ref(1)
-  const totalPages = ref(0)
   const loading = ref(false)
   const error = ref<string | null>(null)
 
-  async function fetchUsers(params?: { page?: number; per_page?: number; search?: string }) {
+  async function fetchUsers() {
     loading.value = true
     error.value = null
 
-    const qs = new URLSearchParams()
-    if (params?.page) qs.set('page', String(params.page))
-    if (params?.per_page) qs.set('per_page', String(params.per_page))
-    if (params?.search) qs.set('search', params.search)
-
-    const res = await api.get<PaginatedResponse<UserWithRoles>>(`/admin/users?${qs.toString()}`)
+    const res = await api.get<UsersListResponse>('/admin/users')
     if (res.error) {
       error.value = res.error
-    } else {
-      users.value = res.data as unknown as UserWithRoles[]
-      if (res.meta) {
-        total.value = res.meta.total
-        page.value = res.meta.page
-        totalPages.value = res.meta.total_pages
-      }
+      loading.value = false
+      return
     }
+
+    const list = res.data?.users ?? []
+    users.value = list.map((u) => ({
+      ...u,
+      effective_level: computeEffectiveLevel(u.roles),
+    }))
+
+    total.value = res.data?.total ?? list.length
     loading.value = false
   }
 
-  async function createUser(email: string, name: string): Promise<UserWithRoles | null> {
-    const res = await api.post<UserWithRoles>('/admin/users', { email, name })
+  async function createUser(email: string): Promise<UserWithRoles | null> {
+    const res = await api.post<UserWithRoles>('/admin/users', { email })
     if (res.error) {
       error.value = res.error
       return null
     }
-    users.value.unshift(res.data)
-    return res.data
+    const user = res.data
+    user.effective_level = computeEffectiveLevel(user.roles)
+    users.value.unshift(user)
+    return user
   }
 
   async function deleteUser(userId: number) {
@@ -63,19 +71,19 @@ export const useUsersStore = defineStore('users', () => {
       error.value = res.error
       return null
     }
-    // Atualiza local
+    const user = res.data
+    user.effective_level = computeEffectiveLevel(user.roles)
     const idx = users.value.findIndex((u) => u.id === userId)
     if (idx >= 0) {
-      users.value[idx] = res.data
+      users.value[idx] = user
     }
-    return res.data
+    return user
   }
 
   function reset() {
     users.value = []
     total.value = 0
     page.value = 1
-    totalPages.value = 0
     loading.value = false
     error.value = null
   }
@@ -84,7 +92,6 @@ export const useUsersStore = defineStore('users', () => {
     users,
     total,
     page,
-    totalPages,
     loading,
     error,
     fetchUsers,

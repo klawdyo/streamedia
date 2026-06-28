@@ -19,12 +19,13 @@ import (
 
 // userResponse é a estrutura de resposta JSON para um usuário com suas roles.
 type userResponse struct {
-	ID        int64      `json:"id"`
-	Email     string     `json:"email"`
-	Name      string     `json:"name"`
-	Picture   string     `json:"picture"`
-	CreatedAt time.Time  `json:"created_at"`
-	Roles     []roleItem `json:"roles"`
+	ID             int64      `json:"id"`
+	Email          string     `json:"email"`
+	Name           string     `json:"name"`
+	Picture        string     `json:"picture"`
+	CreatedAt      time.Time  `json:"created_at"`
+	Roles          []roleItem `json:"roles"`
+	EffectiveLevel int        `json:"effective_level"`
 }
 
 // roleItem representa uma role na resposta JSON.
@@ -87,6 +88,7 @@ func (h *AdminHandler) HandleListUsers(w http.ResponseWriter, r *http.Request) {
 					LevelNum: r.LevelNum,
 				})
 			}
+			ur.EffectiveLevel = models.EffectiveLevel(roles)
 		}
 		result = append(result, ur)
 	}
@@ -104,8 +106,8 @@ func (h *AdminHandler) HandleListUsers(w http.ResponseWriter, r *http.Request) {
 //
 //	{
 //	  "email": "usuario@exemplo.com",   // obrigatório
-//	  "name": "Nome do Usuário",        // opcional
-//	  "picture": "https://...",         // opcional
+//	  "name": "Nome do Usuário",        // opcional — será atualizado no login
+//	  "picture": "https://...",         // opcional — será atualizado no login
 //	  "roles": ["admin", "manager"]     // opcional
 //	}
 //
@@ -124,6 +126,17 @@ func (h *AdminHandler) HandleCreateUser(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
+	// Verifica se o email já existe antes de tentar inserir
+	existing, err := models.GetUserByEmail(h.db, body.Email)
+	if err != nil && err != sql.ErrNoRows {
+		apiresponse.Error(w, http.StatusInternalServerError, "Erro ao verificar email.")
+		return
+	}
+	if existing != nil {
+		apiresponse.Error(w, http.StatusConflict, "Já existe um usuário com este email.")
+		return
+	}
+
 	// Se houver roles no body, valida a regra de nível para cada uma
 	if len(body.Roles) > 0 {
 		if err := h.validateRoleGrants(r, body.Roles); err != nil {
@@ -135,7 +148,7 @@ func (h *AdminHandler) HandleCreateUser(w http.ResponseWriter, r *http.Request) 
 	// Cria o usuário
 	userID, err := models.InsertUser(h.db, body.Email, body.Name, body.Picture)
 	if err != nil {
-		apiresponse.Error(w, http.StatusInternalServerError, "Erro ao criar usuário.")
+		apiresponse.Error(w, http.StatusInternalServerError, fmt.Sprintf("Erro ao criar usuário: %v", err))
 		return
 	}
 
@@ -143,7 +156,7 @@ func (h *AdminHandler) HandleCreateUser(w http.ResponseWriter, r *http.Request) 
 	granteeUserID, _ := auth.GetUserIDFromContext(r.Context())
 	for _, role := range body.Roles {
 		if err := models.InsertUserRole(h.db, userID, role, granteeUserID); err != nil {
-			apiresponse.Error(w, http.StatusInternalServerError, "Erro ao conceder role ao usuário.")
+			apiresponse.Error(w, http.StatusInternalServerError, fmt.Sprintf("Erro ao conceder role %s ao usuário: %v", role, err))
 			return
 		}
 	}
@@ -309,12 +322,13 @@ func (h *AdminHandler) validateRoleGrants(r *http.Request, roles []string) error
 // e sua lista de roles.
 func (h *AdminHandler) buildUserResponse(user *models.User, roles []models.UserRole) userResponse {
 	ur := userResponse{
-		ID:        user.ID,
-		Email:     user.Email,
-		Name:      user.Name,
-		Picture:   user.Picture,
-		CreatedAt: user.CreatedAt,
-		Roles:     make([]roleItem, 0, len(roles)),
+		ID:             user.ID,
+		Email:          user.Email,
+		Name:           user.Name,
+		Picture:        user.Picture,
+		CreatedAt:      user.CreatedAt,
+		Roles:          make([]roleItem, 0, len(roles)),
+		EffectiveLevel: models.EffectiveLevel(roles),
 	}
 	for _, r := range roles {
 		ur.Roles = append(ur.Roles, roleItem{

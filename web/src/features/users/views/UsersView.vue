@@ -22,33 +22,9 @@
       @delete="handleDelete"
     />
 
-    <!-- Paginação -->
-    <div v-if="store.totalPages > 1" class="flex items-center justify-between">
-      <span class="text-sm text-muted-foreground">
-        {{ store.total }} usuários no total
-      </span>
-      <div class="flex items-center gap-2">
-        <Button
-          variant="outline"
-          size="sm"
-          :disabled="store.page <= 1"
-          @click="goToPage(store.page - 1)"
-        >
-          Anterior
-        </Button>
-        <span class="text-sm text-muted-foreground">
-          Página {{ store.page }} de {{ store.totalPages }}
-        </span>
-        <Button
-          variant="outline"
-          size="sm"
-          :disabled="store.page >= store.totalPages"
-          @click="goToPage(store.page + 1)"
-        >
-          Próxima
-        </Button>
-      </div>
-    </div>
+    <span v-if="store.total > 0" class="text-sm text-muted-foreground">
+      {{ store.total }} usuários no total
+    </span>
 
     <!-- Dialog criar usuário -->
     <Dialog v-model:open="showCreateDialog">
@@ -64,10 +40,9 @@
             <label class="text-xs font-medium text-muted-foreground mb-1 block">Email</label>
             <Input v-model="newUserEmail" placeholder="usuario@exemplo.com" />
           </div>
-          <div>
-            <label class="text-xs font-medium text-muted-foreground mb-1 block">Nome</label>
-            <Input v-model="newUserName" placeholder="Nome do usuário" />
-          </div>
+          <p class="text-xs text-muted-foreground">
+            O nome e a foto serão atualizados automaticamente quando o usuário fizer login.
+          </p>
         </div>
         <DialogFooter>
           <Button variant="outline" @click="showCreateDialog = false">
@@ -133,6 +108,7 @@ import { useAuthStore } from '@/stores/auth'
 import type { UserWithRoles, UserRole } from '@/types'
 import UsersTable from '../components/UsersTable.vue'
 import RolesSelect from '../components/RolesSelect.vue'
+import { toast } from '@/composables/useToast'
 
 const store = useUsersStore()
 const auth = useAuthStore()
@@ -140,7 +116,6 @@ const auth = useAuthStore()
 // Dialog criar usuário
 const showCreateDialog = ref(false)
 const newUserEmail = ref('')
-const newUserName = ref('')
 
 // Dialog roles
 const showRolesDialog = ref(false)
@@ -155,10 +130,6 @@ const availableRoles: UserRole[] = [
   { role: 'user', level_num: 10 },
 ]
 
-function goToPage(p: number) {
-  store.fetchUsers({ page: p })
-}
-
 function openRolesDialog(user: UserWithRoles) {
   selectedUser.value = user
   editingRoles.value = user.roles.map((r) => r.role)
@@ -166,11 +137,13 @@ function openRolesDialog(user: UserWithRoles) {
 }
 
 async function handleCreate() {
-  const user = await store.createUser(newUserEmail.value.trim(), newUserName.value.trim())
+  const user = await store.createUser(newUserEmail.value.trim())
   if (user) {
+    toast.success('Usuário criado com sucesso.')
     showCreateDialog.value = false
     newUserEmail.value = ''
-    newUserName.value = ''
+  } else {
+    toast.error(store.error || 'Erro ao criar usuário.')
   }
 }
 
@@ -178,13 +151,21 @@ async function handleSaveRoles() {
   if (!selectedUser.value) return
   const updated = await store.updateRoles(selectedUser.value.id, editingRoles.value)
   if (updated) {
+    toast.success('Permissões atualizadas com sucesso.')
     showRolesDialog.value = false
+  } else {
+    toast.error(store.error || 'Erro ao atualizar permissões.')
   }
 }
 
 async function handleDelete(userId: number) {
   if (!confirm('Tem certeza que deseja deletar este usuário?')) return
-  await store.deleteUser(userId)
+  const ok = await store.deleteUser(userId)
+  if (ok) {
+    toast.success('Usuário deletado com sucesso.')
+  } else {
+    toast.error(store.error || 'Erro ao deletar usuário.')
+  }
 }
 
 onMounted(() => {
