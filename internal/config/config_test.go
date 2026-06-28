@@ -22,10 +22,8 @@ func TestLoad_RequiredVarsMissing(t *testing.T) {
 
 func TestLoad_RequiredVarsPresent(t *testing.T) {
 	t.Setenv("ROOT_TOKEN", "secret-upload")
-	t.Setenv("WEBHOOK_SECRET", "secret-webhook")
 	t.Setenv("GOOGLE_CLIENT_ID", "test-client-id")
 	t.Setenv("GOOGLE_CLIENT_SECRET", "test-client-secret")
-	t.Setenv("GOOGLE_REDIRECT_URL", "http://localhost/callback")
 
 	cfg, err := Load()
 	if err != nil {
@@ -34,17 +32,18 @@ func TestLoad_RequiredVarsPresent(t *testing.T) {
 	if cfg.RootToken != "secret-upload" {
 		t.Errorf("RootToken: esperado %q, obtido %q", "secret-upload", cfg.RootToken)
 	}
-	if cfg.WebhookSecret != "secret-webhook" {
-		t.Errorf("WebhookSecret: esperado %q, obtido %q", "secret-webhook", cfg.WebhookSecret)
+	if cfg.GoogleClientID != "test-client-id" {
+		t.Errorf("GoogleClientID: esperado %q, obtido %q", "test-client-id", cfg.GoogleClientID)
 	}
-	// WEBHOOK_URL vem do banco — default é ""
-	if cfg.WebhookURL != "" {
-		t.Errorf("WebhookURL: esperado \"\" (default), obtido %q", cfg.WebhookURL)
+	if cfg.GoogleClientSecret != "test-client-secret" {
+		t.Errorf("GoogleClientSecret: esperado %q, obtido %q", "test-client-secret", cfg.GoogleClientSecret)
 	}
 }
 
 func TestLoad_Defaults(t *testing.T) {
 	t.Setenv("ROOT_TOKEN", "s")
+	t.Setenv("GOOGLE_CLIENT_ID", "test-id")
+	t.Setenv("GOOGLE_CLIENT_SECRET", "test-secret")
 	t.Setenv("ENV", "")
 
 	cfg, err := Load()
@@ -90,6 +89,8 @@ func TestLoad_Defaults(t *testing.T) {
 
 func TestLoad_EnvOverrides(t *testing.T) {
 	t.Setenv("ROOT_TOKEN", "s")
+	t.Setenv("GOOGLE_CLIENT_ID", "test-id")
+	t.Setenv("GOOGLE_CLIENT_SECRET", "test-secret")
 	t.Setenv("PORT", "8080")
 	t.Setenv("ENV", "production")
 	t.Setenv("SQLITE_PATH", "/custom/path.db")
@@ -120,6 +121,8 @@ func TestLoad_EnvOverrides(t *testing.T) {
 
 func TestLoad_InvalidInt(t *testing.T) {
 	t.Setenv("ROOT_TOKEN", "s")
+	t.Setenv("GOOGLE_CLIENT_ID", "test-id")
+	t.Setenv("GOOGLE_CLIENT_SECRET", "test-secret")
 	t.Setenv("PORT", "nao_e_numero")
 
 	_, err := Load()
@@ -140,8 +143,40 @@ func TestLoad_MissingRootToken(t *testing.T) {
 	}
 }
 
+func TestLoad_MissingGoogleOAuth(t *testing.T) {
+	// GOOGLE_CLIENT_ID e GOOGLE_CLIENT_SECRET sao obrigatorios.
+	t.Setenv("ROOT_TOKEN", "s")
+
+	_, err := Load()
+	if err == nil {
+		t.Fatal("esperava erro quando Google OAuth esta ausente, mas Load() retornou nil")
+	}
+	errStr := err.Error()
+	if !strings.Contains(errStr, "GOOGLE_CLIENT_ID") {
+		t.Errorf("erro deve mencionar GOOGLE_CLIENT_ID, mas foi: %v", err)
+	}
+	if !strings.Contains(errStr, "GOOGLE_CLIENT_SECRET") {
+		t.Errorf("erro deve mencionar GOOGLE_CLIENT_SECRET, mas foi: %v", err)
+	}
+}
+
+func TestLoad_MissingGoogleClientSecretOnly(t *testing.T) {
+	t.Setenv("ROOT_TOKEN", "s")
+	t.Setenv("GOOGLE_CLIENT_ID", "test-id")
+
+	_, err := Load()
+	if err == nil {
+		t.Fatal("esperava erro quando GOOGLE_CLIENT_SECRET esta ausente, mas Load() retornou nil")
+	}
+	if !strings.Contains(err.Error(), "GOOGLE_CLIENT_SECRET") {
+		t.Errorf("erro deve mencionar GOOGLE_CLIENT_SECRET, mas foi: %v", err)
+	}
+}
+
 func TestLoad_SessionCookieSecureEnv(t *testing.T) {
 	t.Setenv("ROOT_TOKEN", "s")
+	t.Setenv("GOOGLE_CLIENT_ID", "test-id")
+	t.Setenv("GOOGLE_CLIENT_SECRET", "test-secret")
 
 	// Default: false em development
 	t.Setenv("ENV", "development")
@@ -170,6 +205,8 @@ func TestLoad_WebhookSecretOptional(t *testing.T) {
 	// WEBHOOK_URL agora vem do banco — não há mais validação no Load().
 	// WEBHOOK_SECRET é sempre opcional.
 	t.Setenv("ROOT_TOKEN", "s")
+	t.Setenv("GOOGLE_CLIENT_ID", "test-id")
+	t.Setenv("GOOGLE_CLIENT_SECRET", "test-secret")
 	t.Setenv("WEBHOOK_SECRET", "")
 
 	cfg, err := Load()
@@ -185,6 +222,8 @@ func TestLoad_TimeDefaults(t *testing.T) {
 	// Valores de tempo agora são defaults hardcoded (vindos do código),
 	// não do env. O banco sobrescreve via ApplyFromDB.
 	t.Setenv("ROOT_TOKEN", "s")
+	t.Setenv("GOOGLE_CLIENT_ID", "test-id")
+	t.Setenv("GOOGLE_CLIENT_SECRET", "test-secret")
 
 	cfg, err := Load()
 	if err != nil {

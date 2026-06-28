@@ -9,6 +9,7 @@ import (
 	"log"
 	"os"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/klawdyo/streamedia/internal/config/dbconfig"
@@ -19,7 +20,7 @@ import (
 // como "db" recebem defaults do código e são sobrescritos pelo banco
 // via ApplyFromDB() após db.Open().
 type Config struct {
-	// --- Env: credenciais e segredos (8 variáveis no .env.example) ---
+	// --- Env: credenciais e segredos (7 variáveis no .env.example) ---
 
 	// RootToken é a ÚNICA credencial durável de gestão (env ROOT_TOKEN):
 	// o backend principal a apresenta em Authorization: Bearer para criar
@@ -35,15 +36,13 @@ type Config struct {
 
 	// GoogleClientID (env GOOGLE_CLIENT_ID) é o client_id da aplicação
 	// registrada no Google Cloud Console para OAuth 2.0.
-	GoogleClientID string // env GOOGLE_CLIENT_ID — opcional
+	// OBRIGATÓRIO — sem ele o login no painel admin não funciona.
+	GoogleClientID string // env GOOGLE_CLIENT_ID — obrigatório
 
 	// GoogleClientSecret (env GOOGLE_CLIENT_SECRET) é o segredo do cliente
 	// OAuth 2.0 — nunca exposto ao frontend.
-	GoogleClientSecret string // env GOOGLE_CLIENT_SECRET — opcional
-
-	// GoogleRedirectURL (env GOOGLE_REDIRECT_URL) é a URL de callback
-	// registrada no Google Cloud Console.
-	GoogleRedirectURL string // env GOOGLE_REDIRECT_URL — opcional
+	// OBRIGATÓRIO — sem ele o login no painel admin não funciona.
+	GoogleClientSecret string // env GOOGLE_CLIENT_SECRET — obrigatório
 
 	// --- Env: infraestrutura ---
 
@@ -141,11 +140,29 @@ func Load() (*Config, error) {
 		return nil, fmt.Errorf("variável de ambiente ROOT_TOKEN é obrigatória")
 	}
 
-	// --- Env opcionais: segredos e credenciais ---
+	// --- Env opcionais: segredos ---
 	webhookSecret := os.Getenv("WEBHOOK_SECRET")
+
+	// --- Env obrigatórias: Google OAuth ---
+	// Sem elas, ninguém consegue fazer login no painel admin.
 	googleClientID := os.Getenv("GOOGLE_CLIENT_ID")
 	googleClientSecret := os.Getenv("GOOGLE_CLIENT_SECRET")
-	googleRedirectURL := os.Getenv("GOOGLE_REDIRECT_URL")
+	var missing []string
+	if googleClientID == "" {
+		missing = append(missing, "GOOGLE_CLIENT_ID")
+	}
+	if googleClientSecret == "" {
+		missing = append(missing, "GOOGLE_CLIENT_SECRET")
+	}
+	if len(missing) > 0 {
+		return nil, fmt.Errorf(
+			"variáveis de ambiente obrigatórias ausentes: %s\n"+
+				"  → Cadastre um OAuth 2.0 Client ID em https://console.cloud.google.com/apis/credentials\n"+
+				"  → Preencha GOOGLE_CLIENT_ID e GOOGLE_CLIENT_SECRET no .env\n"+
+				"  → Cadastre a URL de redirect: https://SEU_DOMINIO/api/auth/google/callback",
+			strings.Join(missing, ", "),
+		)
+	}
 
 	// --- Env opcionais: infraestrutura ---
 	sqlitePath := getEnvStr("SQLITE_PATH", "/data/media.db")
@@ -166,7 +183,6 @@ func Load() (*Config, error) {
 		WebhookSecret:       webhookSecret,
 		GoogleClientID:      googleClientID,
 		GoogleClientSecret:  googleClientSecret,
-		GoogleRedirectURL:   googleRedirectURL,
 		SQLitePath:          sqlitePath,
 		Port:                port,
 		Environment:         environment,
@@ -221,11 +237,12 @@ func (c *Config) ApplyFromDB(db *sql.DB) {
 	log.Printf("config: %d valores carregados do banco", 13)
 }
 
-// IsGoogleOAuthConfigured retorna true quando as três variáveis do Google
-// OAuth estão definidas. Usado pelos handlers para decidir se o login via
-// Google está disponível.
+// IsGoogleOAuthConfigured retorna true quando as credenciais do Google
+// OAuth estão definidas (GOOGLE_CLIENT_ID e GOOGLE_CLIENT_SECRET).
+// A URL de redirect é construída dinamicamente a partir dos headers
+// da requisição (X-Forwarded-Proto + Host) — não é configurável.
 func (c *Config) IsGoogleOAuthConfigured() bool {
-	return c.GoogleClientID != "" && c.GoogleClientSecret != "" && c.GoogleRedirectURL != ""
+	return c.GoogleClientID != "" && c.GoogleClientSecret != ""
 }
 
 // --- helpers ---

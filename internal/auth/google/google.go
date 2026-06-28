@@ -110,7 +110,10 @@ func (h *GoogleHandler) getUserInfoURL() string {
 //
 // Parâmetros da URL:
 //   - client_id: GOOGLE_CLIENT_ID
-//   - redirect_uri: GOOGLE_REDIRECT_URL
+//   - redirect_uri: construído a partir dos headers da requisição
+//     (X-Forwarded-Proto + Host) + /api/auth/google/callback.
+//     A API define a rota — cabe ao operador cadastrar
+//     https://<domínio>/api/auth/google/callback no Google Console.
 //   - response_type: code
 //   - scope: openid profile email
 //   - state: string aleatória (32 bytes hex) armazenada em cookie para
@@ -121,9 +124,11 @@ func (h *GoogleHandler) getUserInfoURL() string {
 // que o navegador o envie no redirecionamento de volta do Google).
 func (h *GoogleHandler) HandleLogin(w http.ResponseWriter, r *http.Request) {
 	if !h.cfg.IsGoogleOAuthConfigured() {
-		apiresponse.Error(w, http.StatusServiceUnavailable, "Login via Google não configurado (GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET, GOOGLE_REDIRECT_URL).")
+		apiresponse.Error(w, http.StatusServiceUnavailable, "Login via Google não configurado (GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET).")
 		return
 	}
+
+	redirectURI := h.buildRedirectURL(r)
 
 	// Gera state aleatório para prevenção de CSRF.
 	stateBytes := make([]byte, 32)
@@ -149,7 +154,7 @@ func (h *GoogleHandler) HandleLogin(w http.ResponseWriter, r *http.Request) {
 	authURL, _ := url.Parse(googleAuthURL)
 	q := authURL.Query()
 	q.Set("client_id", h.cfg.GoogleClientID)
-	q.Set("redirect_uri", h.cfg.GoogleRedirectURL)
+	q.Set("redirect_uri", redirectURI)
 	q.Set("response_type", "code")
 	q.Set("scope", "openid profile email")
 	q.Set("state", state)
@@ -174,9 +179,11 @@ func (h *GoogleHandler) HandleLogin(w http.ResponseWriter, r *http.Request) {
 //     /app.
 func (h *GoogleHandler) HandleCallback(w http.ResponseWriter, r *http.Request) {
 	if !h.cfg.IsGoogleOAuthConfigured() {
-		apiresponse.Error(w, http.StatusServiceUnavailable, "Login via Google não configurado (GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET, GOOGLE_REDIRECT_URL).")
+		apiresponse.Error(w, http.StatusServiceUnavailable, "Login via Google não configurado (GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET).")
 		return
 	}
+
+	redirectURI := h.buildRedirectURL(r)
 
 	// 1. Validação do state anti-CSRF.
 	stateCookie, err := r.Cookie(stateCookieName)
@@ -208,7 +215,7 @@ func (h *GoogleHandler) HandleCallback(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	accessToken, err := h.exchangeCodeForToken(code)
+	accessToken, err := h.exchangeCodeForToken(code, redirectURI)
 	if err != nil {
 		apiresponse.Error(w, http.StatusBadGateway, "Falha ao trocar código por token com o Google.")
 		return
@@ -389,11 +396,11 @@ type googleUserInfo struct {
 
 // exchangeCodeForToken troca o authorization code por um token de acesso
 // junto ao Google (POST no token endpoint configurado).
-func (h *GoogleHandler) exchangeCodeForToken(code string) (string, error) {
+func (h *GoogleHandler) exchangeCodeForToken(code, redirectURI string) (string, error) {
 	data := url.Values{}
 	data.Set("client_id", h.cfg.GoogleClientID)
 	data.Set("client_secret", h.cfg.GoogleClientSecret)
-	data.Set("redirect_uri", h.cfg.GoogleRedirectURL)
+	data.Set("redirect_uri", redirectURI)
 	data.Set("code", code)
 	data.Set("grant_type", "authorization_code")
 
@@ -424,7 +431,29 @@ func (h *GoogleHandler) exchangeCodeForToken(code string) (string, error) {
 	return tokenResp.AccessToken, nil
 }
 
-// fetchGoogleUserInfo busca os dados do usuário autenticado no Google
+// buildRedirectURL constrói a URL de callback OAuth a partir dos headers da
+// requisição. Usa X-Forwarded-Proto (definido pelo proxy reverso — Traefik no
+// Coolify, Nginx, etc.) para determinar o scheme e X-Forwarded-Host/Host para
+// o domínio. O path é fixo: /api/auth/google/callback.
+//
+// Exemplo: https://stream.example.com/api/auth/google/callback
+//
+// O operador deve cadastrar exatamente essa URL no Google Cloud Console
+// (Authorized redirect URIs) para que o OAuth funcione.
+func (h *GoogleHandler) buildRedirectURL(r *http.Request) string {
+	scheme := "http"
+	if r.TLS != nil {
+		scheme = "https"
+	}
+	if proto := r.Header.Get("X-Forwarded-Proto"); proto != "" {
+		scheme = proto
+	}
+	host := r.Host
+	if fwdHost := r.Header.Get("X-Forwarded-Host"); fwdHost != "" {
+		host = fwdHost
+	}
+	return scheme + "://" + host + "/api/auth/google/callback"
+}
 // (GET no userinfo endpoint configurado).
 func (h *GoogleHandler) fetchGoogleUserInfo(accessToken string) (*googleUserInfo, error) {
 	req, err := http.NewRequest(http.MethodGet, h.getUserInfoURL(), nil)

@@ -23,9 +23,6 @@ services:
       # Obtidas em https://console.cloud.google.com/apis/credentials.
       - GOOGLE_CLIENT_ID=${GOOGLE_CLIENT_ID}
       - GOOGLE_CLIENT_SECRET=${GOOGLE_CLIENT_SECRET}
-      # URL de callback registrada no Google — deve ser a URL pública do serviço
-      # seguida de /api/auth/google/callback (ex.: https://stream.example.com/api/auth/google/callback).
-      - GOOGLE_REDIRECT_URL=${GOOGLE_REDIRECT_URL}
 
       # -- Storage --
       - SQLITE_PATH=${SQLITE_PATH:-/data/media.db}

@@ -43,7 +43,6 @@ func TestEnvExampleHasAllVars(t *testing.T) {
 		"WEBHOOK_SECRET",
 		"GOOGLE_CLIENT_ID",
 		"GOOGLE_CLIENT_SECRET",
-		"GOOGLE_REDIRECT_URL",
 		"SQLITE_PATH",
 		"PORT",
 		"ENV",

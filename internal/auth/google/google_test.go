@@ -26,9 +26,8 @@ func googleTestConfig() *config.Config {
 		RootToken:           "test-root-token",
 		SessionTTL:          time.Hour,
 		SessionCookieSecure: false,
-		GoogleClientID:      "test-client-id",
-		GoogleClientSecret:  "test-client-secret",
-		GoogleRedirectURL:   "http://localhost:3000/api/auth/google/callback",
+		GoogleClientID:     "test-client-id",
+		GoogleClientSecret: "test-client-secret",
 	}
 }
 
@@ -148,7 +147,7 @@ func TestHandleLogin_URLConstruction(t *testing.T) {
 	// Verifica parâmetros obrigatórios na URL.
 	requiredParams := []string{
 		"client_id=test-client-id",
-		"redirect_uri=http%3A%2F%2Flocalhost%3A3000%2Fapi%2Fauth%2Fgoogle%2Fcallback",
+		"redirect_uri=http%3A%2F%2Fexample.com%2Fapi%2Fauth%2Fgoogle%2Fcallback",
 		"response_type=code",
 		"scope=openid+profile+email",
 		"state=",

@@ -102,8 +102,11 @@ func (c *Client) send(n notify.Notification, url string) error {
 		return fmt.Errorf("erro ao serializar payload: %w", err)
 	}
 
-	// Assina a requisição
-	signature := auth.SignWebhook(c.cfg.WebhookSecret, payloadBytes)
+	// Assina a requisição (apenas se WEBHOOK_SECRET estiver definido)
+	var signature string
+	if c.cfg.WebhookSecret != "" {
+		signature = auth.SignWebhook(c.cfg.WebhookSecret, payloadBytes)
+	}
 
 	// Realiza até 3 tentativas com backoff exponencial
 	backoffs := []time.Duration{1 * time.Second, 2 * time.Second, 4 * time.Second}
@@ -148,7 +151,9 @@ func (c *Client) sendAttempt(url string, payloadBytes []byte, signature string) 
 
 	// Define headers
 	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("X-Signature", fmt.Sprintf("sha256=%s", signature))
+	if signature != "" {
+		req.Header.Set("X-Signature", fmt.Sprintf("sha256=%s", signature))
+	}
 
 	// Envia a requisição
 	resp, err := c.http.Do(req)
