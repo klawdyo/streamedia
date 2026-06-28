@@ -46,9 +46,11 @@ async function request<T>(
 
   if (!response.ok) {
     const body = await response.json().catch(() => ({}))
+    // body.error é boolean (true) no envelope da API; body.message é a string descritiva
+    const msg = (typeof body.error === 'string' ? body.error : body.message) || `Erro HTTP ${response.status}`
     return {
       data: null as unknown as T,
-      error: body.error || body.message || `Erro HTTP ${response.status}`,
+      error: msg,
     }
   }
 
