@@ -11,6 +11,7 @@
 package auth
 
 import (
+	"context"
 	"crypto/hmac"
 	"crypto/rand"
 	"crypto/sha256"
@@ -21,6 +22,21 @@ import (
 	"strings"
 	"time"
 )
+
+// contextKey é um tipo privado para chaves de contexto — evita colisão com
+// chaves de outros pacotes.
+type contextKey string
+
+// UserIDContextKey é a chave de contexto onde o middleware RootAuth armazena
+// o user_id extraído do cookie de sessão (formato novo com user).
+const UserIDContextKey contextKey = "user_id"
+
+// GetUserIDFromContext extrai o userID do contexto da requisição.
+// Retorna zero value e false se não estiver presente.
+func GetUserIDFromContext(ctx context.Context) (int64, bool) {
+	id, ok := ctx.Value(UserIDContextKey).(int64)
+	return id, ok
+}
 
 // GenerateToken gera um token opaco aleatório (32 bytes, hex = 64 chars).
 // Usado para os tokens efêmeros de upload e de play: o valor não carrega
@@ -86,4 +102,58 @@ func SignWebhook(secret string, body []byte) string {
 	mac := hmac.New(sha256.New, []byte(secret))
 	mac.Write(body)
 	return hex.EncodeToString(mac.Sum(nil))
+}
+
+// IssueSessionTokenWithUser gera um cookie de sessão de navegador com
+// informações do usuário autenticado via Google OAuth.
+//
+// Formato: <exp_unix>.<user_id>.<roles_csv>.<hmac_hex>
+//
+// O HMAC-SHA256 cobre a string "<exp_unix>:<user_id>:<roles_csv>", usando
+// o ROOT_TOKEN como chave — mesma estratégia stateless do IssueSessionToken
+// original, agora incluindo a identidade do usuário no payload.
+//
+// Emitido por HandleCallback (internal/auth/google) após autenticação bem-
+// sucedida via Google OAuth.
+func IssueSessionTokenWithUser(rootToken string, userID int64, roles []string, ttl time.Duration) (value string, expiresAt time.Time) {
+	expiresAt = time.Now().Add(ttl)
+	exp := strconv.FormatInt(expiresAt.Unix(), 10)
+	uid := strconv.FormatInt(userID, 10)
+	rolesCSV := strings.Join(roles, ",")
+	payload := exp + ":" + uid + ":" + rolesCSV
+	mac := sessionTokenMAC(rootToken, payload)
+	return exp + "." + uid + "." + rolesCSV + "." + mac, expiresAt
+}
+
+// ValidateSessionTokenWithUser valida um cookie de sessão no formato novo
+// (com user_id e roles). Retorna os campos extraídos e ok=true se o token
+// for íntegro e não expirado.
+//
+// Se o valor tiver o formato antigo (2 partes, sem user_id), retorna
+// ok=false — o chamador deve tentar ValidateSessionToken como fallback.
+func ValidateSessionTokenWithUser(rootToken, value string) (expUnix int64, userID int64, rolesCSV string, ok bool) {
+	parts := strings.SplitN(value, ".", 4)
+	if len(parts) != 4 {
+		return 0, 0, "", false
+	}
+	exp, uid, csv, mac := parts[0], parts[1], parts[2], parts[3]
+	if exp == "" || uid == "" || csv == "" || mac == "" {
+		return 0, 0, "", false
+	}
+	payload := exp + ":" + uid + ":" + csv
+	if !SecureCompare(mac, sessionTokenMAC(rootToken, payload)) {
+		return 0, 0, "", false
+	}
+	expUnix, err := strconv.ParseInt(exp, 10, 64)
+	if err != nil {
+		return 0, 0, "", false
+	}
+	userID, err = strconv.ParseInt(uid, 10, 64)
+	if err != nil {
+		return 0, 0, "", false
+	}
+	if time.Now().Unix() > expUnix {
+		return 0, 0, "", false
+	}
+	return expUnix, userID, csv, true
 }

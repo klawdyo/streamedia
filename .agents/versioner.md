@@ -73,6 +73,29 @@ Versão final: **0.2.1**
 
 ## Como trabalhar
 
+## Passo 4a: Atualizar version do package.json (NOVO)
+
+Se existir o arquivo `web/package.json` na raiz, atualize o campo `"version"`
+com a nova versão calculada (mesmo valor do arquivo `VERSION`):
+
+```bash
+# Exemplo: versão calculada = 0.2.1
+jq '.version = "0.2.1"' web/package.json > web/package.json.tmp && mv web/package.json.tmp web/package.json
+git add web/package.json
+```
+
+Este arquivo é incluído no MESMO commit `release:` que já contém o `VERSION`.
+
+---
+
+## Passo 5: Atualizar spec/ (admin-unificado)
+
+Quando tarefas do admin unificado (T75-T90) forem concluídas, atualize
+`spec/admin-unificado.md` para refletir o estado real do código implementado.
+A spec é a fonte de verdade do design; o código é a implementação.
+
+---
+
 ### Passo 1: Encontrar o commit-checkpoint (`release:`) mais recente
 
 ```bash

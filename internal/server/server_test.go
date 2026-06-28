@@ -11,6 +11,7 @@ import (
 
 	"github.com/klawdyo/streamedia/internal/admin"
 	"github.com/klawdyo/streamedia/internal/apiresponse"
+	"github.com/klawdyo/streamedia/internal/auth"
 	"github.com/klawdyo/streamedia/internal/config"
 	"github.com/klawdyo/streamedia/internal/db"
 	"github.com/klawdyo/streamedia/internal/middleware"
@@ -181,30 +182,57 @@ func TestAllRoutesRegistered(t *testing.T) {
 // proteção real fica nas rotas de dados (/admin/*, /api/status), exercidas em
 // TestAllRoutesRegistered.
 func TestDashboardRoutesPublic(t *testing.T) {
+	// As antigas rotas /dashboard foram removidas no admin unificado (T82).
+	// Agora a interface é servida em /app/* via SPA.
 	router, _ := newTestRouter(t, newTestConfig(t))
 
 	cases := []struct {
-		path    string
-		ctParts string
+		path string
 	}{
-		{"/dashboard", "text/html"},
-		{"/dashboard/videos", "text/html"},
-		{"/dashboard/videos/550e8400-e29b-4100-8716-446655440000", "text/html"},
-		{"/dashboard/assets/theme.css", "text/css"},
-		{"/dashboard/assets/app.js", "application/javascript"},
+		{"/dashboard"},
+		{"/dashboard/videos"},
+		{"/dashboard/videos/550e8400-e29b-4100-8716-446655440000"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.path, func(t *testing.T) {
 			req := httptest.NewRequest(http.MethodGet, tc.path, nil)
 			rec := httptest.NewRecorder()
 			router.ServeHTTP(rec, req)
-			if rec.Code != http.StatusOK {
-				t.Fatalf("%s: esperado 200, obtido %d", tc.path, rec.Code)
-			}
-			if ct := rec.Header().Get("Content-Type"); !strings.HasPrefix(ct, tc.ctParts) {
-				t.Errorf("%s: Content-Type %q, esperava prefixo %q", tc.path, ct, tc.ctParts)
+			if rec.Code != http.StatusNotFound {
+				t.Fatalf("%s: esperado 404 (rota removida), obtido %d", tc.path, rec.Code)
 			}
 		})
+	}
+}
+
+// TestAppServeSPA verifica que a rota /app serve a SPA.
+func TestAppServeSPA(t *testing.T) {
+	router, _ := newTestRouter(t, newTestConfig(t))
+
+	req := httptest.NewRequest(http.MethodGet, "/app", nil)
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	// Se o SPA_DIR não existe, retorna 503.
+	// Se existe, retorna 200 com text/html.
+	if rec.Code != http.StatusOK && rec.Code != http.StatusServiceUnavailable {
+		t.Errorf("/app: esperado 200 ou 503, obtido %d", rec.Code)
+	}
+}
+
+// TestAdminSessionRemoved verifica que POST /admin/session foi removido.
+func TestAdminSessionRemoved(t *testing.T) {
+	cfg := newTestConfig(t)
+	router, _ := newTestRouter(t, cfg)
+
+	req := httptest.NewRequest(http.MethodPost, "/admin/session", nil)
+	req.Header.Set("Authorization", "Bearer "+cfg.RootToken)
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	// Rota removida — retorna 404.
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("POST /admin/session: esperado 404 (rota removida), obtido %d", rec.Code)
 	}
 }
 
@@ -247,79 +275,62 @@ func TestUploadInitE2E(t *testing.T) {
 	}
 }
 
-// TestSessionLogin_UnlocksDocsViaCookie cobre o fluxo completo da sessão de
-// navegador: POST /admin/session com Bearer válido emite o cookie
-// streamedia_session, e esse cookie sozinho (sem Authorization) passa a
-// autenticar GET /docs — que antes só aceitava Bearer e por isso não podia
-// ser acessado por navegação normal do navegador.
-func TestSessionLogin_UnlocksDocsViaCookie(t *testing.T) {
-	cfg := newTestConfig(t)
-	router, _ := newTestRouter(t, cfg)
+// TestDocsRemoved verifica que /docs foi removido (substituído pelo Playground Vue).
+func TestDocsRemoved(t *testing.T) {
+	router, _ := newTestRouter(t, newTestConfig(t))
 
-	// Sem autenticação, /docs retorna 401.
-	reqDocs := httptest.NewRequest(http.MethodGet, "/docs", nil)
-	recDocs := httptest.NewRecorder()
-	router.ServeHTTP(recDocs, reqDocs)
-	if recDocs.Code != http.StatusUnauthorized {
-		t.Fatalf("/docs sem auth: esperado 401, obtido %d", recDocs.Code)
-	}
-
-	// POST /admin/session com Bearer válido emite o cookie de sessão.
-	reqLogin := httptest.NewRequest(http.MethodPost, "/admin/session", nil)
-	reqLogin.Header.Set("Authorization", "Bearer "+cfg.RootToken)
-	recLogin := httptest.NewRecorder()
-	router.ServeHTTP(recLogin, reqLogin)
-	if recLogin.Code != http.StatusOK {
-		t.Fatalf("POST /admin/session: esperado 200, obtido %d (corpo: %s)", recLogin.Code, recLogin.Body.String())
-	}
-	cookies := recLogin.Result().Cookies()
-	if len(cookies) != 1 {
-		t.Fatalf("POST /admin/session: esperado 1 cookie, obtido %d", len(cookies))
-	}
-	sessionCookie := cookies[0]
-	if sessionCookie.Name != admin.SessionCookieName {
-		t.Fatalf("nome do cookie esperado %q, obtido %q", admin.SessionCookieName, sessionCookie.Name)
-	}
-
-	// Com o cookie (sem Authorization), /docs responde 200.
-	reqDocsWithCookie := httptest.NewRequest(http.MethodGet, "/docs", nil)
-	reqDocsWithCookie.AddCookie(sessionCookie)
-	recDocsWithCookie := httptest.NewRecorder()
-	router.ServeHTTP(recDocsWithCookie, reqDocsWithCookie)
-	if recDocsWithCookie.Code != http.StatusOK {
-		t.Fatalf("/docs com cookie de sessão: esperado 200, obtido %d", recDocsWithCookie.Code)
-	}
-}
-
-// TestSessionLogin_RequiresValidBearer verifica que POST /admin/session exige
-// um Bearer ROOT_TOKEN válido — não pode ser chamado a partir de uma sessão
-// de cookie já existente nem sem autenticação.
-func TestSessionLogin_RequiresValidBearer(t *testing.T) {
-	cfg := newTestConfig(t)
-	router, _ := newTestRouter(t, cfg)
-
-	req := httptest.NewRequest(http.MethodPost, "/admin/session", nil)
+	req := httptest.NewRequest(http.MethodGet, "/docs", nil)
 	rec := httptest.NewRecorder()
 	router.ServeHTTP(rec, req)
 
-	if rec.Code != http.StatusUnauthorized {
-		t.Fatalf("esperado 401, obtido %d", rec.Code)
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("/docs: esperado 404 (rota removida), obtido %d", rec.Code)
+	}
+}
+
+// TestSessionLogout_ClearsCookieAndRevokesAccess verifica que DELETE
+// /api/auth/session é pública, limpa o cookie de sessão.
+func TestSessionLogout_ClearsCookieAndRevokesAccess(t *testing.T) {
+	cfg := newTestConfig(t)
+	router, _ := newTestRouter(t, cfg)
+
+	req := httptest.NewRequest(http.MethodDelete, "/api/auth/session", nil)
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("DELETE /api/auth/session: esperado 200, obtido %d", rec.Code)
+	}
+
+	// Verifica que o cookie foi limpo (MaxAge=-1).
+	cookies := rec.Result().Cookies()
+	found := false
+	for _, c := range cookies {
+		if c.Name == admin.SessionCookieName && c.MaxAge < 0 {
+			found = true
+		}
+	}
+	if !found {
+		t.Error("DELETE /api/auth/session deveria limpar o cookie de sessão")
 	}
 }
 
 // TestSessionCookie_RequiresCSRFHeaderForUnsafeMethods verifica que uma
-// requisição autenticada apenas pelo cookie de sessão precisa do header
-// X-Streamedia-Csrf para métodos não seguros (DELETE), enquanto GET continua
-// funcionando sem ele.
+// requisição autenticada pelo cookie de sessão com formato novo (user_id)
+// precisa do header X-Streamedia-Csrf para métodos não seguros.
 func TestSessionCookie_RequiresCSRFHeaderForUnsafeMethods(t *testing.T) {
 	cfg := newTestConfig(t)
 	router, _ := newTestRouter(t, cfg)
 
-	reqLogin := httptest.NewRequest(http.MethodPost, "/admin/session", nil)
-	reqLogin.Header.Set("Authorization", "Bearer "+cfg.RootToken)
-	recLogin := httptest.NewRecorder()
-	router.ServeHTTP(recLogin, reqLogin)
-	sessionCookie := recLogin.Result().Cookies()[0]
+	// Cria um cookie de sessão no formato novo (com user_id e roles).
+	// O formato é <exp>.<user_id>.<roles>.<hmac>.
+	sessionValue, _ := auth.IssueSessionTokenWithUser(
+		cfg.RootToken, 1, []string{"admin"}, cfg.SessionTTL,
+	)
+	sessionCookie := &http.Cookie{
+		Name:  admin.SessionCookieName,
+		Value: sessionValue,
+	}
 
 	const validUUID = "550e8400-e29b-4100-8716-446655440000"
 
@@ -349,29 +360,6 @@ func TestSessionCookie_RequiresCSRFHeaderForUnsafeMethods(t *testing.T) {
 	router.ServeHTTP(recGet, reqGet)
 	if recGet.Code != http.StatusOK {
 		t.Errorf("GET com cookie de sessão: esperado 200, obtido %d", recGet.Code)
-	}
-}
-
-// TestSessionLogout_ClearsCookieAndRevokesAccess verifica que DELETE
-// /admin/session é pública, limpa o cookie de sessão e que o cookie expirado
-// devolvido não autentica mais requisições subsequentes.
-func TestSessionLogout_ClearsCookieAndRevokesAccess(t *testing.T) {
-	cfg := newTestConfig(t)
-	router, _ := newTestRouter(t, cfg)
-
-	req := httptest.NewRequest(http.MethodDelete, "/admin/session", nil)
-	rec := httptest.NewRecorder()
-	router.ServeHTTP(rec, req)
-
-	if rec.Code != http.StatusOK {
-		t.Fatalf("DELETE /admin/session: esperado 200, obtido %d", rec.Code)
-	}
-	cookies := rec.Result().Cookies()
-	if len(cookies) != 1 {
-		t.Fatalf("esperado 1 cookie, obtido %d", len(cookies))
-	}
-	if cookies[0].MaxAge >= 0 {
-		t.Errorf("MaxAge deveria ser negativo (apaga o cookie), obtido %d", cookies[0].MaxAge)
 	}
 }
 
