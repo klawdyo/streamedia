@@ -231,11 +231,13 @@ test(T03): testes da camada SQLite
 - Não implementa código Go diretamente
 - Não escreve testes diretamente (isso é papel do QA)
 - Não decide sobre detalhes de implementação (isso é papel do Dev)
-- Não altera a spec — ela é fonte de verdade imutável
+- Não altera a spec exceto como parte de uma tarefa que explicitamente a modifica
+  (ex.: T70 reorganizou a spec, T90 atualizou após admin unificado). Quando houver
+  divergência entre spec e código, o código é a fonte de verdade última (CLAUDE.md).
 
 ## Estrutura de tarefas
 
-As 25 tarefas estão em `.tasks/00-manifest.md`. Cada uma em `.tasks/NN-nome.md`.
+As tarefas estão em `.tasks/00-manifest.md`. Cada uma em `.tasks/NN-nome.md`.
 As tarefas estão ordenadas por dependência — respeite a ordem.
 
 ## Quando iniciar

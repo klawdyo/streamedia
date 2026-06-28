@@ -13,6 +13,7 @@ Este repositório usa um sistema multi-agente estruturado:
 | Dev | claude-opus-4-8 | Sênior Go/media/streaming, implementa |
 | QA | claude-haiku-4-5 | Test-first, escreve testes antes e verifica |
 | Versioner | claude-haiku-4-5 | Calcula a próxima versão semântica a partir dos commits |
+| Security Specialist | claude-fable-5 | Pentest, auditoria de segurança ofensiva/defensiva (sob demanda) |
 
 ## Fluxo de branches (Git Flow simplificado)
 
@@ -62,22 +63,15 @@ explícito do usuário.
 - `.agents/dev.md` — Instruções do agente Dev
 - `.agents/qa.md` — Instruções do agente QA
 - `.agents/versioner.md` — Instruções do agente Versioner (versionamento semântico)
+- `.agents/security-specialist.md` — Instruções do agente Security Specialist (sob demanda)
 - `.tasks/00-manifest.md` — Lista de tarefas e status de cada uma
 - `.tasks/NN-*.md` — Arquivos de tarefa individuais (autocontidos)
 
 ## Versionamento semântico
 
 A versão do projeto segue `MAJOR.MINOR.PATCH` derivada dos commits semânticos
-(Conventional Commits). Ver `.agents/versioner.md` para o algoritmo completo.
-Resumo das regras, aplicadas em ordem cronológica desde a última tag:
-
-- `feat:` → incrementa `MINOR` e zera `PATCH` (cada feature inicia um novo ciclo)
-- `fix:` → incrementa `PATCH`
-- `BREAKING CHANGE:` / `feat!:` / `fix!:` → incrementa `MAJOR`, zera `MINOR` e `PATCH`
-- `chore:`, `docs:`, `refactor:`, `test:`, etc. → não alteram a versão
-
-Exemplo: `fix, fix, feat, fix` a partir de `0.0.0` → `0.0.1` → `0.0.2` → `0.1.0` → `0.1.1`.
-Se vier outro `feat` em seguida, o ciclo reinicia: `feat, fix` → `0.2.0` → `0.2.1`.
+(Conventional Commits). O algoritmo completo — regras de incremento, exemplos
+e procedimento de release — está em `.agents/versioner.md`.
 
 ### Regra obrigatória de prefixo nos commits
 
@@ -85,17 +79,6 @@ Se vier outro `feat` em seguida, o ciclo reinicia: `feat, fix` → `0.2.0` → `
 O Versioner classifica commits exclusivamente pelo prefixo — commits sem ele
 (como `"T33: chaves de API..."`) **não são reconhecidos** e a versão não
 avança, mesmo que o conteúdo seja uma feature completa.
-
-Ao commitar, escolha o prefixo conforme o tipo de mudança:
-
-| Tipo de tarefa | Prefixo | Exemplo |
-|---------------|---------|---------|
-| Nova funcionalidade | `feat:` | `feat(T33): chaves de API escopadas por projeto` |
-| Correção de bug | `fix:` | `fix(T53): adiciona project_id na query de ListByStatus` |
-| Refatoração (sem mudança de comportamento) | `refactor:` | `refactor(T47): centraliza regex HLS` |
-| Testes (sem mudança de produção) | `test:` | `test(T38): fecha lacunas de cobertura na camada de dados` |
-| Documentação | `docs:` | `docs: atualiza especificação com novo padrão de resposta` |
-| Tarefa administrativa/gerencial | `chore:` | `chore: gera micro-tarefas a partir das issues` |
 
 **Sem exceção**: o prefixo é obrigatório em todo commit. A numeração da task
 (`T33`) pode vir em seguida, entre parênteses ou após o escopo — o que importa

@@ -127,3 +127,20 @@ Reporte:
 1. Resultado de `go test ./... -v` (resumido)
 2. Confirmação: todos os testes passam
 3. Confirmação: nenhuma regressão
+
+## Importante: comentários no GitHub saem com a conta do autor do projeto
+
+As credenciais do GitHub configuradas neste ambiente são as do autor do
+projeto. Qualquer comentário postado em uma issue/PR aparece publicamente
+como se tivesse sido escrito por ele.
+
+- **Nunca** redija comentários como "OK final para merge", "pode seguir com
+  o merge" ou qualquer frase que pareça uma autorização/decisão do autor do
+  projeto. A decisão de mergear é dele, não sua.
+- Reporte seu veredito técnico (aprovado / problemas encontrados, com
+  evidências), mas deixe a decisão de merge explicitamente para o autor —
+  ex.: "Veredito técnico: aprovado. Decisão de merge cabe ao autor do
+  projeto."
+- Sempre que possível, assine o comentário deixando claro que foi gerado por
+  um agente de IA (ex.: rodapé "🤖 Revisão automática via agente QA
+  (Claude)"), para que não seja confundido com uma manifestação humana.
