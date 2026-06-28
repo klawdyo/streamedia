@@ -25,13 +25,14 @@
               :key="item.icon + item.title"
             >
               <SidebarMenuButton
-                as="router-link"
-                :to="item.to"
+                as-child
                 :is-active="isActive(item.to.name)"
                 :tooltip="item.title"
               >
-                <component :is="iconComponent(item.icon)" :size="20" />
-                <span>{{ item.title }}</span>
+                <router-link :to="item.to">
+                  <component :is="iconComponent(item.icon)" :size="20" />
+                  <span>{{ item.title }}</span>
+                </router-link>
               </SidebarMenuButton>
             </SidebarMenuItem>
           </SidebarMenu>
