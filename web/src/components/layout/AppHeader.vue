@@ -69,6 +69,6 @@ const initials = computed(() => {
 
 function handleLogout() {
   auth.logout()
-  router.push('/app/auth')
+  router.push('/auth')
 }
 </script>

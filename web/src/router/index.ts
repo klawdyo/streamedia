@@ -20,7 +20,7 @@ declare module 'vue-router' {
 const protectedRoutes: RouteRecordRaw[] = [
   {
     path: '',
-    redirect: '/app/overview',
+    redirect: '/overview',
   },
   {
     path: 'overview',
@@ -100,12 +100,12 @@ const protectedRoutes: RouteRecordRaw[] = [
 
 const routes: RouteRecordRaw[] = [
   {
-    path: '/app',
+    path: '/',
     component: () => import('@/components/layout/AppLayout.vue'),
     children: protectedRoutes,
   },
   {
-    path: '/app/auth',
+    path: '/auth',
     name: 'login',
     component: () => import('@/features/auth/views/LoginView.vue'),
     meta: {
@@ -115,10 +115,6 @@ const routes: RouteRecordRaw[] = [
       icon: '',
       order: 0,
     },
-  },
-  {
-    path: '/',
-    redirect: '/app',
   },
 ]
 

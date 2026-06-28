@@ -3,7 +3,7 @@
   <Sidebar collapsible="icon">
     <SidebarHeader class="flex items-center gap-2 px-4 py-3">
       <img
-        src="/app/logo.png"
+        :src="logoUrl"
         alt="Streamedia"
         class="h-8 w-8 rounded-md object-cover"
       />
@@ -62,6 +62,7 @@ import {
   SidebarRail,
 } from '@/components/ui/sidebar'
 import { useMenu } from '@/composables/useMenu'
+import logoUrl from '@/assets/logo.png'
 
 const { menu } = useMenu()
 const route = useRoute()

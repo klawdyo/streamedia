@@ -5,7 +5,7 @@
       <!-- Logo / título -->
       <div class="text-center space-y-2">
         <img
-          src="/app/logo.png"
+          :src="logoUrl"
           alt="Streamedia"
           class="mx-auto h-16 w-16 rounded-xl object-cover"
         />
@@ -41,6 +41,7 @@ import { ref } from 'vue'
 import { useRoute } from 'vue-router'
 import { Button } from '@/components/ui/button'
 import { PhGoogleLogo } from '@phosphor-icons/vue'
+import logoUrl from '@/assets/logo.png'
 
 const route = useRoute()
 const error = ref<string | null>(null)
