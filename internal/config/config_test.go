@@ -23,6 +23,9 @@ func TestLoad_RequiredVarsPresent(t *testing.T) {
 	t.Setenv("ROOT_TOKEN", "secret-upload")
 	t.Setenv("WEBHOOK_URL", "https://backend.exemplo.com/webhooks")
 	t.Setenv("WEBHOOK_SECRET", "secret-webhook")
+	t.Setenv("GOOGLE_CLIENT_ID", "test-client-id")
+	t.Setenv("GOOGLE_CLIENT_SECRET", "test-client-secret")
+	t.Setenv("GOOGLE_REDIRECT_URL", "http://localhost/callback")
 
 	cfg, err := Load()
 	if err != nil {
@@ -41,6 +44,9 @@ func TestLoad_Defaults(t *testing.T) {
 	t.Setenv("ROOT_TOKEN", "s")
 	t.Setenv("WEBHOOK_URL", "https://x.com")
 	t.Setenv("WEBHOOK_SECRET", "s2")
+	t.Setenv("GOOGLE_CLIENT_ID", "test-id")
+	t.Setenv("GOOGLE_CLIENT_SECRET", "test-secret")
+	t.Setenv("GOOGLE_REDIRECT_URL", "http://localhost/cb")
 	// Garante que variáveis opcionais não estão setadas
 	t.Setenv("MAX_UPLOAD_SIZE_MB", "")
 	t.Setenv("QUEUE_MAX_SIZE", "")
@@ -80,6 +86,9 @@ func TestLoad_OverrideDefaults(t *testing.T) {
 	t.Setenv("ROOT_TOKEN", "s")
 	t.Setenv("WEBHOOK_URL", "https://x.com")
 	t.Setenv("WEBHOOK_SECRET", "s2")
+	t.Setenv("GOOGLE_CLIENT_ID", "test-id")
+	t.Setenv("GOOGLE_CLIENT_SECRET", "test-secret")
+	t.Setenv("GOOGLE_REDIRECT_URL", "http://localhost/cb")
 	t.Setenv("MAX_UPLOAD_SIZE_MB", "500")
 	t.Setenv("TRANSCODE_WORKERS", "4")
 	t.Setenv("ENV", "production")
@@ -118,6 +127,9 @@ func TestLoad_TimeVarsDefaults(t *testing.T) {
 	t.Setenv("ROOT_TOKEN", "s")
 	t.Setenv("WEBHOOK_URL", "https://x.com")
 	t.Setenv("WEBHOOK_SECRET", "s2")
+	t.Setenv("GOOGLE_CLIENT_ID", "test-id")
+	t.Setenv("GOOGLE_CLIENT_SECRET", "test-secret")
+	t.Setenv("GOOGLE_REDIRECT_URL", "http://localhost/cb")
 	t.Setenv("UPLOAD_TOKEN_TTL", "")
 	t.Setenv("PLAY_TOKEN_TTL", "")
 	t.Setenv("UPLOAD_IDLE_TIMEOUT", "")
@@ -151,6 +163,9 @@ func TestLoad_TimeVarsReadInSeconds(t *testing.T) {
 	t.Setenv("ROOT_TOKEN", "s")
 	t.Setenv("WEBHOOK_URL", "https://x.com")
 	t.Setenv("WEBHOOK_SECRET", "s2")
+	t.Setenv("GOOGLE_CLIENT_ID", "test-id")
+	t.Setenv("GOOGLE_CLIENT_SECRET", "test-secret")
+	t.Setenv("GOOGLE_REDIRECT_URL", "http://localhost/cb")
 	t.Setenv("UPLOAD_TOKEN_TTL", "900")
 	t.Setenv("PLAY_TOKEN_TTL", "1200")
 	t.Setenv("UPLOAD_IDLE_TIMEOUT", "120")
@@ -454,9 +469,12 @@ func TestLoad_AllVarsDefinedInvalidCombos(t *testing.T) {
 		{
 			name: "all_required_present",
 			setupEnv: map[string]string{
-				"ROOT_TOKEN":     "secret",
-				"WEBHOOK_URL":    "https://example.com",
-				"WEBHOOK_SECRET": "whsecret",
+				"ROOT_TOKEN":           "secret",
+				"WEBHOOK_URL":          "https://example.com",
+				"WEBHOOK_SECRET":       "whsecret",
+				"GOOGLE_CLIENT_ID":     "test-id",
+				"GOOGLE_CLIENT_SECRET": "test-secret",
+				"GOOGLE_REDIRECT_URL":  "http://localhost/cb",
 			},
 			shouldErr: false,
 			desc:      "com todas as obrigatórias, Load deve suceder",
@@ -464,9 +482,12 @@ func TestLoad_AllVarsDefinedInvalidCombos(t *testing.T) {
 		{
 			name: "webhook_disabled",
 			setupEnv: map[string]string{
-				"ROOT_TOKEN":     "secret",
-				"WEBHOOK_URL":    "",
-				"WEBHOOK_SECRET": "",
+				"ROOT_TOKEN":           "secret",
+				"WEBHOOK_URL":          "",
+				"WEBHOOK_SECRET":       "",
+				"GOOGLE_CLIENT_ID":     "test-id",
+				"GOOGLE_CLIENT_SECRET": "test-secret",
+				"GOOGLE_REDIRECT_URL":  "http://localhost/cb",
 			},
 			shouldErr: false,
 			desc:      "sem WEBHOOK_URL, webhook fica desabilitado (sucesso; só SSE)",
@@ -474,9 +495,12 @@ func TestLoad_AllVarsDefinedInvalidCombos(t *testing.T) {
 		{
 			name: "missing_webhook_secret_with_url",
 			setupEnv: map[string]string{
-				"ROOT_TOKEN":     "secret",
-				"WEBHOOK_URL":    "https://example.com",
-				"WEBHOOK_SECRET": "",
+				"ROOT_TOKEN":           "secret",
+				"WEBHOOK_URL":          "https://example.com",
+				"WEBHOOK_SECRET":       "",
+				"GOOGLE_CLIENT_ID":     "test-id",
+				"GOOGLE_CLIENT_SECRET": "test-secret",
+				"GOOGLE_REDIRECT_URL":  "http://localhost/cb",
 			},
 			shouldErr:    true,
 			errorPattern: "WEBHOOK_SECRET",
@@ -485,10 +509,13 @@ func TestLoad_AllVarsDefinedInvalidCombos(t *testing.T) {
 		{
 			name: "zero_port",
 			setupEnv: map[string]string{
-				"ROOT_TOKEN":     "secret",
-				"WEBHOOK_URL":    "https://example.com",
-				"WEBHOOK_SECRET": "whsecret",
-				"PORT":           "0",
+				"ROOT_TOKEN":           "secret",
+				"WEBHOOK_URL":          "https://example.com",
+				"WEBHOOK_SECRET":       "whsecret",
+				"GOOGLE_CLIENT_ID":     "test-id",
+				"GOOGLE_CLIENT_SECRET": "test-secret",
+				"GOOGLE_REDIRECT_URL":  "http://localhost/cb",
+				"PORT":                 "0",
 			},
 			shouldErr: false,
 			desc:      "PORT=0 é aceitável (bind em porta aleatória ou default)",
@@ -496,10 +523,13 @@ func TestLoad_AllVarsDefinedInvalidCombos(t *testing.T) {
 		{
 			name: "negative_max_size",
 			setupEnv: map[string]string{
-				"ROOT_TOKEN":         "secret",
-				"WEBHOOK_URL":        "https://example.com",
-				"WEBHOOK_SECRET":     "whsecret",
-				"MAX_UPLOAD_SIZE_MB": "-10",
+				"ROOT_TOKEN":           "secret",
+				"WEBHOOK_URL":          "https://example.com",
+				"WEBHOOK_SECRET":       "whsecret",
+				"GOOGLE_CLIENT_ID":     "test-id",
+				"GOOGLE_CLIENT_SECRET": "test-secret",
+				"GOOGLE_REDIRECT_URL":  "http://localhost/cb",
+				"MAX_UPLOAD_SIZE_MB":   "-10",
 			},
 			shouldErr: false,
 			desc:      "MAX_UPLOAD_SIZE_MB negativo é aceitável (sem validação adicional em Load)",
