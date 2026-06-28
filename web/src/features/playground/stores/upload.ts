@@ -21,8 +21,7 @@ export const useUploadStore = defineStore('upload', () => {
   async function initUpload(tag: string, filename: string, fileSize: number): Promise<UploadInitResponse | null> {
     const res = await api.post<UploadInitResponse>('/api/upload/init', {
       tag,
-      filename,
-      size: fileSize,
+      declared_size_bytes: fileSize,
     })
     if (res.error) {
       return null

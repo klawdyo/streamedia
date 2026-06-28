@@ -71,6 +71,7 @@ import { PhFilmReel, PhUpload, PhSpinnerGap } from '@phosphor-icons/vue'
 import { Input } from '@/components/ui/input'
 import { Button } from '@/components/ui/button'
 import { useUploadStore } from '../stores/upload'
+import { toast } from '@/composables/useToast'
 
 const emit = defineEmits<{
   uploaded: [videoId: string]
@@ -111,11 +112,17 @@ async function handleUpload() {
     selectedFile.value.size,
   )
 
-  if (!initData) return
+  if (!initData) {
+    toast.error('Erro ao iniciar o upload. Verifique o tamanho e a tag.')
+    return
+  }
 
   const ok = await uploadStore.tusUpload(selectedFile.value, initData.location, initData.upload_id)
   if (ok && initData.video_id) {
+    toast.success('Upload concluído com sucesso!')
     emit('uploaded', initData.video_id)
+  } else if (!ok) {
+    toast.error(uploadStore.currentUpload?.error || 'Erro durante o upload.')
   }
 }
 
