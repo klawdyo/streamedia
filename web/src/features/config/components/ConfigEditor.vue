@@ -19,21 +19,22 @@
         </p>
       </div>
       <div class="shrink-0">
-        <!-- Renderiza o input conforme o type -->
-        <!-- string / url / secret → Input text/password/url -->
+        <!-- Campos secret: apenas botão "Alterar" que abre popup -->
+        <Button
+          v-if="item.type === 'secret'"
+          variant="outline"
+          size="sm"
+          @click="openSecretDialog"
+        >
+          <PhPencilSimple :size="14" class="mr-1" />
+          Alterar
+        </Button>
+        <!-- string / url → Input text/url -->
         <Input
-          v-if="['string', 'url'].includes(item.type)"
+          v-else-if="['string', 'url'].includes(item.type)"
           :type="item.type === 'url' ? 'url' : 'text'"
           :model-value="localValue"
           @update:model-value="localValue = String($event)"
-          class="w-48 sm:w-64"
-        />
-        <Input
-          v-else-if="item.type === 'secret'"
-          type="password"
-          :model-value="localValue"
-          @update:model-value="localValue = String($event)"
-          placeholder="••••••••"
           class="w-48 sm:w-64"
         />
         <!-- number / duration_seconds → Input number -->
@@ -74,8 +75,8 @@
       Validação: {{ item.validation }}
     </p>
 
-    <!-- Botão salvar -->
-    <div class="flex items-center gap-2">
+    <!-- Botão salvar (não-secret) -->
+    <div v-if="item.type !== 'secret'" class="flex items-center gap-2">
       <Button
         size="sm"
         :disabled="!isDirty || saving"
@@ -94,21 +95,72 @@
       </Button>
     </div>
 
-    <!-- Mensagem de sucesso/erro -->
-    <p v-if="saveMsg" class="text-xs" :class="saveError ? 'text-destructive' : 'text-green-600 dark:text-green-400'">
-      {{ saveMsg }}
-    </p>
+    <!-- Dialog para campos secret -->
+    <Dialog v-model:open="showSecretDialog">
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>Alterar {{ item.key }}</DialogTitle>
+          <DialogDescription>
+            {{ item.description }}
+          </DialogDescription>
+        </DialogHeader>
+        <div class="space-y-3 py-4">
+          <Input
+            :type="showSecretValue ? 'text' : 'password'"
+            v-model="secretValue"
+            :placeholder="'Novo valor para ' + item.key"
+          />
+          <div class="flex items-center gap-3">
+            <Button
+              v-if="item.key === 'webhook.secret'"
+              variant="outline"
+              size="sm"
+              @click="generateToken"
+            >
+              <PhArrowsClockwise :size="14" class="mr-1" />
+              Gerar Token
+            </Button>
+            <Button
+              variant="ghost"
+              size="sm"
+              @click="showSecretValue = !showSecretValue"
+            >
+              <PhEye v-if="!showSecretValue" :size="14" class="mr-1" />
+              <PhEyeClosed v-else :size="14" class="mr-1" />
+              {{ showSecretValue ? 'Ocultar' : 'Mostrar' }}
+            </Button>
+          </div>
+        </div>
+        <DialogFooter>
+          <Button variant="outline" @click="showSecretDialog = false">
+            Cancelar
+          </Button>
+          <Button @click="handleSaveSecret" :disabled="!secretValue.trim() || secretSaving">
+            {{ secretSaving ? 'Salvando...' : 'Salvar' }}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   </div>
 </template>
 
 <script setup lang="ts">
 import { ref, watch, computed } from 'vue'
-import { PhFloppyDisk } from '@phosphor-icons/vue'
+import { PhFloppyDisk, PhPencilSimple, PhEye, PhEyeClosed, PhArrowsClockwise } from '@phosphor-icons/vue'
 import { Input } from '@/components/ui/input'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog'
 import type { ConfigItem } from '@/types'
 import { useConfigStore } from '@/features/config/stores/config'
+import { toast } from '@/composables/useToast'
 
 const props = defineProps<{
   item: ConfigItem
@@ -117,8 +169,12 @@ const props = defineProps<{
 const configStore = useConfigStore()
 const localValue = ref(props.item.value ?? '')
 const saving = ref(false)
-const saveMsg = ref('')
-const saveError = ref(false)
+
+// Dialog secret
+const showSecretDialog = ref(false)
+const showSecretValue = ref(false)
+const secretValue = ref('')
+const secretSaving = ref(false)
 
 const isDirty = computed(() => localValue.value !== (props.item.value ?? ''))
 
@@ -129,20 +185,43 @@ watch(() => props.item, (newItem) => {
 
 async function handleSave() {
   saving.value = true
-  saveMsg.value = ''
-  saveError.value = false
 
   const ok = await configStore.updateConfig(props.item.key, localValue.value)
   if (ok) {
-    saveMsg.value = 'Salvo com sucesso.'
-    saveError.value = false
+    toast.success(`"${props.item.key}" salvo com sucesso.`)
   } else {
-    saveMsg.value = configStore.error || 'Erro ao salvar.'
-    saveError.value = true
+    toast.error(configStore.error || 'Erro ao salvar.')
   }
   saving.value = false
+}
 
-  // Limpa mensagem após 3s
-  setTimeout(() => { saveMsg.value = '' }, 3000)
+function openSecretDialog() {
+  secretValue.value = ''
+  showSecretValue.value = false
+  showSecretDialog.value = true
+}
+
+function generateToken() {
+  const chars = 'abcdefghijklmnopqrstuvwxyz0123456789'
+  let token = ''
+  for (let i = 0; i < 16; i++) {
+    token += chars.charAt(Math.floor(Math.random() * chars.length))
+  }
+  secretValue.value = token
+  showSecretValue.value = true
+}
+
+async function handleSaveSecret() {
+  if (!secretValue.value.trim()) return
+  secretSaving.value = true
+
+  const ok = await configStore.updateConfig(props.item.key, secretValue.value.trim())
+  if (ok) {
+    toast.success(`"${props.item.key}" atualizado com sucesso.`)
+    showSecretDialog.value = false
+  } else {
+    toast.error(configStore.error || 'Erro ao salvar.')
+  }
+  secretSaving.value = false
 }
 </script>

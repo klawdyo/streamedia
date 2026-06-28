@@ -29,12 +29,10 @@
           <div v-if="!group.items.length" class="text-sm text-muted-foreground">
             Nenhuma configuração neste grupo.
           </div>
-          <Separator v-for="(item, idx) in group.items" :key="item.key" v-show="idx > 0" />
-          <ConfigEditor
-            v-for="item in group.items"
-            :key="item.key"
-            :item="item"
-          />
+          <template v-for="(item, idx) in group.items" :key="item.key">
+            <Separator v-if="idx > 0" />
+            <ConfigEditor :item="item" />
+          </template>
         </CardContent>
       </Card>
 
