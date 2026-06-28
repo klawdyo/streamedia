@@ -236,6 +236,44 @@ func (c *Config) ApplyFromDB(db *sql.DB) {
 	log.Printf("config: %d valores carregados do banco", 14)
 }
 
+// ReloadFromDB recarrega UMA configuração do banco e atualiza o campo
+// correspondente no Config em memória. Chamado pelo admin handler após
+// salvar ou deletar uma configuração, para aplicar a mudança em tempo
+// real sem necessidade de reiniciar o servidor.
+func (c *Config) ReloadFromDB(db *sql.DB, key string) {
+	dbc := dbconfig.New(db)
+	switch key {
+	case "webhook.url":
+		c.WebhookURL = dbc.GetString(key, c.WebhookURL)
+	case "webhook.secret":
+		c.WebhookSecret = dbc.GetString(key, c.WebhookSecret)
+	case "discord.webhook_url":
+		c.DiscordWebhookURL = dbc.GetString(key, c.DiscordWebhookURL)
+	case "upload.max_size_mb":
+		c.MaxUploadSizeBytes = int64(max(dbc.GetNumber(key, int(c.MaxUploadSizeBytes/1024/1024)), 1)) * 1024 * 1024
+	case "transcode.queue_max":
+		c.QueueMaxSize = max(dbc.GetNumber(key, c.QueueMaxSize), 1)
+	case "transcode.workers":
+		c.TranscodeWorkers = max(dbc.GetNumber(key, c.TranscodeWorkers), 1)
+	case "token.upload_ttl":
+		c.UploadTokenTTL = dbc.GetDurationSeconds(key, int(c.UploadTokenTTL.Seconds()))
+	case "token.play_ttl":
+		c.PlayTokenTTL = dbc.GetDurationSeconds(key, int(c.PlayTokenTTL.Seconds()))
+	case "upload.idle_timeout":
+		c.UploadIdleTimeout = dbc.GetDurationSeconds(key, int(c.UploadIdleTimeout.Seconds()))
+	case "transcode.stuck_timeout":
+		c.TranscodeStuckTime = dbc.GetDurationSeconds(key, int(c.TranscodeStuckTime.Seconds()))
+	case "transcode.max_attempts":
+		c.MaxTranscodeAttempts = max(dbc.GetNumber(key, c.MaxTranscodeAttempts), 1)
+	case "transcode.keep_original":
+		c.KeepOriginal = dbc.GetBool(key, c.KeepOriginal)
+	case "rate_limit.per_minute":
+		c.RateLimitPerMin = max(dbc.GetNumber(key, c.RateLimitPerMin), 1)
+	case "session.ttl_seconds":
+		c.SessionTTL = dbc.GetDurationSeconds(key, int(c.SessionTTL.Seconds()))
+	}
+}
+
 // IsGoogleOAuthConfigured retorna true quando as credenciais do Google
 // OAuth estão definidas (GOOGLE_CLIENT_ID e GOOGLE_CLIENT_SECRET).
 // A URL de redirect é construída dinamicamente a partir dos headers

@@ -76,6 +76,7 @@ func (h *AdminHandler) HandleUpdateConfig(w http.ResponseWriter, r *http.Request
 			apiresponse.Error(w, http.StatusInternalServerError, "Erro ao salvar configuração.")
 			return
 		}
+		h.cfg.ReloadFromDB(h.db, key)
 		apiresponse.Success(w, http.StatusOK, map[string]string{"key": key, "value": body.Value})
 		return
 	}
@@ -91,6 +92,9 @@ func (h *AdminHandler) HandleUpdateConfig(w http.ResponseWriter, r *http.Request
 		apiresponse.Error(w, http.StatusInternalServerError, "Erro ao salvar configuração.")
 		return
 	}
+
+	// Aplica a mudança em tempo real no Config em memória (sem reiniciar).
+	h.cfg.ReloadFromDB(h.db, key)
 
 	apiresponse.Success(w, http.StatusOK, map[string]string{"key": key, "value": body.Value})
 }
@@ -117,6 +121,9 @@ func (h *AdminHandler) HandleDeleteConfig(w http.ResponseWriter, r *http.Request
 		apiresponse.Error(w, http.StatusInternalServerError, "Erro ao remover configuração.")
 		return
 	}
+
+	// Recarrega do banco (vai usar o DefaultValues como fallback).
+	h.cfg.ReloadFromDB(h.db, key)
 
 	apiresponse.Success(w, http.StatusOK, map[string]string{"key": key, "deleted": "true"})
 }
