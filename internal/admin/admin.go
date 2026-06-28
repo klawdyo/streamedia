@@ -5,6 +5,7 @@
 package admin
 
 import (
+	"context"
 	"database/sql"
 	"net/http"
 	"os"
@@ -65,18 +66,40 @@ func RootAuth(rootToken string) func(http.Handler) http.Handler {
 				return
 			}
 
-			cookie, err := r.Cookie(SessionCookieName)
-			if err != nil || rootToken == "" || !auth.ValidateSessionToken(rootToken, cookie.Value) {
-				apiresponse.Error(w, http.StatusUnauthorized, "Não autorizado.")
-				return
-			}
+		cookie, err := r.Cookie(SessionCookieName)
+		if err != nil || rootToken == "" {
+			apiresponse.Error(w, http.StatusUnauthorized, "Não autorizado.")
+			return
+		}
 
+		// Tenta o formato novo primeiro (com user_id); se não for, cai
+		// no formato antigo como fallback. Ambos usam o mesmo nome de
+		// cookie — o formato é detectado pela quantidade de partes.
+		_, userID, _, ok := auth.ValidateSessionTokenWithUser(rootToken, cookie.Value)
+		if ok {
+			// Formato novo: injeta userID no contexto para que handlers
+			// como HandleMe possam identificar o usuário logado.
 			if !isSafeMethod(r.Method) && r.Header.Get(CSRFHeaderName) != csrfHeaderValue {
 				apiresponse.Error(w, http.StatusForbidden, "Requisição bloqueada: cabeçalho CSRF ausente.")
 				return
 			}
+			ctx := context.WithValue(r.Context(), auth.UserIDContextKey, userID)
+			next.ServeHTTP(w, r.WithContext(ctx))
+			return
+		}
 
-			next.ServeHTTP(w, r)
+		// Fallback: formato antigo (sem user_id).
+		if !auth.ValidateSessionToken(rootToken, cookie.Value) {
+			apiresponse.Error(w, http.StatusUnauthorized, "Não autorizado.")
+			return
+		}
+
+		if !isSafeMethod(r.Method) && r.Header.Get(CSRFHeaderName) != csrfHeaderValue {
+			apiresponse.Error(w, http.StatusForbidden, "Requisição bloqueada: cabeçalho CSRF ausente.")
+			return
+		}
+
+		next.ServeHTTP(w, r)
 		})
 	}
 }
@@ -273,4 +296,56 @@ func (h *AdminHandler) HandleDeleteVideo(w http.ResponseWriter, r *http.Request)
 	}
 
 	apiresponse.Success(w, http.StatusOK, map[string]string{"video_id": videoID, "deleted": "true"})
+}
+
+// RoleAuth é o middleware que valida se o usuário autenticado possui pelo menos
+// UMA das roles listadas no parâmetro allowedRoles. Deve ser usado APÓS o
+// RootAuth (que já validou a autenticação e injetou o userID no contexto).
+//
+// Se a requisição foi autenticada via Bearer ROOT_TOKEN (sem userID no
+// contexto), RoleAuth permite o acesso automaticamente — o ROOT_TOKEN é o
+// mecanismo de backend-to-backend (scraper Prometheus, CI/CD) e tem acesso
+// total a tudo que o middleware RootAuth já liberou.
+//
+// Uso:
+//
+//	r.Group(func(r chi.Router) {
+//	    r.Use(admin.RootAuth(cfg.RootToken))
+//	    r.Use(admin.RoleAuth(database, "admin", "acl", "manager"))
+//	    r.Get("/admin/videos", adminHandler.HandleVideos)
+//	})
+func RoleAuth(db *sql.DB, allowedRoles ...string) func(http.Handler) http.Handler {
+	// Converte a lista para um mapa para lookup O(1) em cada requisição.
+	allowed := make(map[string]bool, len(allowedRoles))
+	for _, r := range allowedRoles {
+		allowed[r] = true
+	}
+
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			// Se autenticado via Bearer ROOT_TOKEN (sem userID), acesso total.
+			userID, ok := auth.GetUserIDFromContext(r.Context())
+			if !ok {
+				next.ServeHTTP(w, r)
+				return
+			}
+
+			// Busca as roles do usuário no banco.
+			roles, err := models.GetUserRoles(db, userID)
+			if err != nil {
+				apiresponse.Error(w, http.StatusInternalServerError, "Erro ao verificar permissões.")
+				return
+			}
+
+			// Verifica se o usuário tem pelo menos uma das roles permitidas.
+			for _, role := range roles {
+				if allowed[role.Role] {
+					next.ServeHTTP(w, r)
+					return
+				}
+			}
+
+			apiresponse.Error(w, http.StatusForbidden, "Acesso negado: você não tem permissão para esta operação.")
+		})
+	}
 }
