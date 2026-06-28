@@ -29,10 +29,11 @@ type Config struct {
 	// momento (basta mudar o env e reiniciar).
 	RootToken string // env ROOT_TOKEN — obrigatório
 
-	// WebhookSecret (env WEBHOOK_SECRET) é o segredo compartilhado de
-	// assinatura HMAC dos webhooks enviados ao backend principal.
+	// WebhookSecret é o segredo compartilhado de assinatura HMAC dos
+	// webhooks enviados ao backend principal. Gerenciado via painel
+	// admin (/admin/config → webhook.secret), persistido no banco.
 	// Opcional — se vazio, webhooks são enviados sem assinatura.
-	WebhookSecret string // env WEBHOOK_SECRET — opcional
+	WebhookSecret string // banco: webhook.secret
 
 	// GoogleClientID (env GOOGLE_CLIENT_ID) é o client_id da aplicação
 	// registrada no Google Cloud Console para OAuth 2.0.
@@ -140,9 +141,6 @@ func Load() (*Config, error) {
 		return nil, fmt.Errorf("variável de ambiente ROOT_TOKEN é obrigatória")
 	}
 
-	// --- Env opcionais: segredos ---
-	webhookSecret := os.Getenv("WEBHOOK_SECRET")
-
 	// --- Env obrigatórias: Google OAuth ---
 	// Sem elas, ninguém consegue fazer login no painel admin.
 	googleClientID := os.Getenv("GOOGLE_CLIENT_ID")
@@ -180,7 +178,7 @@ func Load() (*Config, error) {
 	cfg := &Config{
 		// Env
 		RootToken:           rootToken,
-		WebhookSecret:       webhookSecret,
+		WebhookSecret:       "", // carregado do banco via ApplyFromDB (webhook.secret)
 		GoogleClientID:      googleClientID,
 		GoogleClientSecret:  googleClientSecret,
 		SQLitePath:          sqlitePath,

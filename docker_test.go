@@ -40,7 +40,6 @@ func TestEnvExampleHasAllVars(t *testing.T) {
 	text := string(content)
 	requiredVars := []string{
 		"ROOT_TOKEN",
-		"WEBHOOK_SECRET",
 		"GOOGLE_CLIENT_ID",
 		"GOOGLE_CLIENT_SECRET",
 		"SQLITE_PATH",

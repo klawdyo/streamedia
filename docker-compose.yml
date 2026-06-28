@@ -13,10 +13,8 @@ services:
       # Ambiente de execução exposto em GET /api. Em produção defina ENV=production
       # (no .env / nas variáveis do Coolify); o default é "development".
       - ENV=${ENV:-development}
-      # Webhook de notificação (ex.: n8n) chamado ao concluir uma transcodificação.
-      # A URL é configurada no banco (/admin/config → webhook.url).
-      # O segredo HMAC fica aqui por segurança — jamais em tabela de dados.
-      - WEBHOOK_SECRET=${WEBHOOK_SECRET}
+      # Webhook: URL e segredo HMAC são gerenciados via painel admin
+      # (/admin/config → webhook.url, webhook.secret) e persistidos no banco.
 
       # -- Google OAuth2 (admin unificado) --
       # Credenciais do OAuth2 do Google para login no painel de admin.

@@ -95,9 +95,9 @@ func sessionTokenMAC(rootToken, payload string) string {
 	return hex.EncodeToString(mac.Sum(nil))
 }
 
-// SignWebhook assina o corpo de um webhook com HMAC-SHA256 (hex), usando o
-// WEBHOOK_SECRET. É o único segredo compartilhado com o backend principal: o
-// outro lado valida a assinatura recalculando o HMAC com o mesmo segredo.
+// SignWebhook assina o corpo de um webhook com HMAC-SHA256 (hex). O segredo
+// (webhook.secret do banco) é compartilhado com o backend principal: o outro
+// lado valida a assinatura recalculando o HMAC com o mesmo segredo.
 func SignWebhook(secret string, body []byte) string {
 	mac := hmac.New(sha256.New, []byte(secret))
 	mac.Write(body)

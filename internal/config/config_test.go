@@ -202,19 +202,20 @@ func TestLoad_SessionCookieSecureEnv(t *testing.T) {
 }
 
 func TestLoad_WebhookSecretOptional(t *testing.T) {
-	// WEBHOOK_URL agora vem do banco — não há mais validação no Load().
-	// WEBHOOK_SECRET é sempre opcional.
+	// WebhookSecret é carregado do banco via ApplyFromDB, não de env.
+	// Default é vazio — opcional.
 	t.Setenv("ROOT_TOKEN", "s")
 	t.Setenv("GOOGLE_CLIENT_ID", "test-id")
 	t.Setenv("GOOGLE_CLIENT_SECRET", "test-secret")
-	t.Setenv("WEBHOOK_SECRET", "")
 
 	cfg, err := Load()
 	if err != nil {
 		t.Fatalf("Load() retornou erro inesperado: %v", err)
 	}
+	// WebhookSecret vem do banco via ApplyFromDB, não de env.
+	// Default é vazio até que o banco seja carregado.
 	if cfg.WebhookSecret != "" {
-		t.Errorf("WebhookSecret: esperado \"\", obtido %q", cfg.WebhookSecret)
+		t.Errorf("WebhookSecret: esperado \"\" antes do ApplyFromDB, obtido %q", cfg.WebhookSecret)
 	}
 }
 
