@@ -228,7 +228,7 @@ async function handleUpload() {
 
   if (!initData) {
 
-  toast.error('Erro ao iniciar o upload. Verifique o tamanho e a tag.')
+  toast.error(uploadStore.lastError || 'Erro ao iniciar o upload.')
 
   return
 

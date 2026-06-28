@@ -36,6 +36,8 @@ export const useUploadStore = defineStore('upload', () => {
 
   const currentUpload = ref<UploadProgress | null>(null)
 
+  const lastError = ref<string | null>(null)
+
 
 
   async function initUpload(tag: string, _filename: string, fileSize: number): Promise<UploadInitResponse | null> {
@@ -49,6 +51,8 @@ export const useUploadStore = defineStore('upload', () => {
   })
 
   if (res.error) {
+
+    lastError.value = res.error
 
     return null
 
@@ -216,6 +220,8 @@ export const useUploadStore = defineStore('upload', () => {
 
   currentUpload.value = null
 
+  lastError.value = null
+
   }
 
 
@@ -225,6 +231,8 @@ export const useUploadStore = defineStore('upload', () => {
   uploads,
 
   currentUpload,
+
+  lastError,
 
   initUpload,
 
