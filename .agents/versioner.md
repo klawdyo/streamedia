@@ -125,20 +125,23 @@ Se o usuário confirmar a criação da release:
    mesma versão calculada, mantendo-a sincronizada com o `VERSION`:
    ```bash
    # Exemplo: versão calculada = 1.11.2
-   # No PowerShell, use o objeto convertido de/para JSON:
-   $pkg = Get-Content web/package.json | ConvertFrom-Json
-   $pkg.version = "1.11.2"
-   $pkg | ConvertTo-Json | Set-Content web/package.json
-   ```
-   Ou com `jq` (se disponível):
-   ```bash
    jq '.version = "1.11.2"' web/package.json > web/package.json.tmp && mv web/package.json.tmp web/package.json
    ```
    Este arquivo é incluído no **mesmo** commit `release:` que o `VERSION`.
 
-3. **Crie o commit de release** incluindo `VERSION` e `web/package.json`:
+3. **Regenere o `web/package-lock.json`** para que o campo `"version"` dele
+   bata com o `package.json` recém-atualizado. Se isso não for feito, o
+   `npm ci` quebra no Docker build porque exige que os dois arquivos estejam
+   perfeitamente sincronizados:
    ```bash
-   git add VERSION web/package.json
+   npm install --package-lock-only
+   ```
+   (execute dentro do diretório `web/`)
+
+4. **Crie o commit de release** incluindo `VERSION`, `web/package.json` e
+   `web/package-lock.json`:
+   ```bash
+   git add VERSION web/package.json web/package-lock.json
    git commit -m "release: vX.Y.Z - resumo curto das mudanças desta versão"
    git push origin <branch>
    ```
@@ -191,6 +194,7 @@ Sem `--build-arg` manual — o arquivo `VERSION` é a única fonte de verdade.
 - [ ] Versão final reportada com justificativa (lista de commits que motivaram cada incremento)
 - [ ] `VERSION` atualizado com a nova versão
 - [ ] `web/package.json` → campo `"version"` sincronizado com o mesmo valor
+- [ ] `web/package-lock.json` → `"version"` sincronizado via `npm install --package-lock-only`
 - [ ] Commit `release: vX.Y.Z - resumo` criado SOMENTE mediante confirmação explícita do usuário
 
 ## Nota: atualização de spec
