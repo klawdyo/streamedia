@@ -40,17 +40,13 @@ func TestEnvExampleHasAllVars(t *testing.T) {
 	text := string(content)
 	requiredVars := []string{
 		"ROOT_TOKEN",
-		"WEBHOOK_URL",
 		"WEBHOOK_SECRET",
-		"MAX_UPLOAD_SIZE_MB",
-		"MEDIA_DIR",
-		"UPLOAD_TMP_DIR",
+		"GOOGLE_CLIENT_ID",
+		"GOOGLE_CLIENT_SECRET",
+		"GOOGLE_REDIRECT_URL",
 		"SQLITE_PATH",
-		"QUEUE_MAX_SIZE",
-		"TRANSCODE_WORKERS",
-		"KEEP_ORIGINAL",
 		"PORT",
-		"RATE_LIMIT_PER_MIN",
+		"ENV",
 	}
 
 	for _, varName := range requiredVars {

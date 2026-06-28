@@ -14,7 +14,8 @@ services:
       # (no .env / nas variáveis do Coolify); o default é "development".
       - ENV=${ENV:-development}
       # Webhook de notificação (ex.: n8n) chamado ao concluir uma transcodificação.
-      - WEBHOOK_URL=${WEBHOOK_URL}
+      # A URL é configurada no banco (/admin/config → webhook.url).
+      # O segredo HMAC fica aqui por segurança — jamais em tabela de dados.
       - WEBHOOK_SECRET=${WEBHOOK_SECRET}
 
       # -- Google OAuth2 (admin unificado) --
@@ -23,28 +24,20 @@ services:
       - GOOGLE_CLIENT_ID=${GOOGLE_CLIENT_ID}
       - GOOGLE_CLIENT_SECRET=${GOOGLE_CLIENT_SECRET}
       # URL de callback registrada no Google — deve ser a URL pública do serviço
-      # seguida de /api/oauth/google/callback (ex.: https://stream.example.com/api/oauth/google/callback).
+      # seguida de /api/auth/google/callback (ex.: https://stream.example.com/api/auth/google/callback).
       - GOOGLE_REDIRECT_URL=${GOOGLE_REDIRECT_URL}
 
-      # -- SPA (admin unificado) --
-      # Caminho no container onde o bundle compilado do Vue.js está.
-      # O servidor serve /admin/* a partir deste diretório.
-      - SPA_DIR=${SPA_DIR:-/app/web/dist}
-
       # -- Storage --
-      - MEDIA_DIR=${MEDIA_DIR:-/media}
-      - UPLOAD_TMP_DIR=${UPLOAD_TMP_DIR:-/media/.uploads}
       - SQLITE_PATH=${SQLITE_PATH:-/data/media.db}
 
       # Porta HTTP do servidor.
       - PORT=${PORT:-3000}
 
-      # As demais configurações (MAX_UPLOAD_SIZE_MB, QUEUE_MAX_SIZE,
-      # TRANSCODE_WORKERS, UPLOAD_TOKEN_TTL, PLAY_TOKEN_TTL, UPLOAD_IDLE_TIMEOUT,
-      # TRANSCODE_STUCK, MAX_TRANSCODE_ATTEMPTS, KEEP_ORIGINAL, RATE_LIMIT_PER_MIN)
-      # agora são gerenciadas via banco de dados pelo painel de admin unificado.
-      # O servidor carrega esses valores da tabela de configurações em runtime;
-      # não precisam mais ser passadas como variáveis de ambiente.
+      # Configurações operacionais (MAX_UPLOAD_SIZE_MB, QUEUE_MAX_SIZE,
+      # TRANSCODE_WORKERS, tokens TTL, timeouts, rate limit, webhook URL,
+      # Discord, sessão TTL, etc.) são gerenciadas via painel de admin
+      # unificado em /admin/config e persistidas no banco SQLite.
+      # Os defaults do código são usados quando nenhum valor está no banco.
     volumes:
       # BIND MOUNTS para caminhos absolutos do host: assim o storage aparece
       # como um DIRETÓRIO VISÍVEL na aba de Persistent Storage do Coolify (e é

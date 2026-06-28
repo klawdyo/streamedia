@@ -1,187 +1,234 @@
 // Package config carrega e valida a configuração da aplicação a partir
-// de variáveis de ambiente.
+// de variáveis de ambiente (apenas as essenciais) e do banco de dados
+// (configurações operacionais que podem ser alteradas via painel admin).
 package config
 
 import (
+	"database/sql"
 	"fmt"
+	"log"
 	"os"
 	"strconv"
 	"time"
+
+	"github.com/klawdyo/streamedia/internal/config/dbconfig"
 )
 
-// Config agrega todas as configurações da aplicação.
+// Config agrega todas as configurações da aplicação. Os campos marcados
+// como "env" são lidos de variáveis de ambiente no Load(); os marcados
+// como "db" recebem defaults do código e são sobrescritos pelo banco
+// via ApplyFromDB() após db.Open().
 type Config struct {
+	// --- Env: credenciais e segredos (8 variáveis no .env.example) ---
+
 	// RootToken é a ÚNICA credencial durável de gestão (env ROOT_TOKEN):
 	// o backend principal a apresenta em Authorization: Bearer para criar
 	// vídeos (upload-init), emitir URLs de play, consultar status, listar e
 	// apagar. Sem vínculo com nenhum dado — pode ser trocada a qualquer
 	// momento (basta mudar o env e reiniciar).
-	RootToken     string
-	WebhookURL    string
-	WebhookSecret string
-	// DiscordWebhookURL (env DISCORD_WEBHOOK_URL) é o webhook do Discord para
-	// alertas operacionais internos (issue #21). Opcional — vazio desabilita o
-	// canal (nenhum envio é tentado).
-	DiscordWebhookURL    string
-	MaxUploadSizeBytes   int64 // convertido de MB para bytes
-	MediaDir             string
-	UploadTmpDir         string
-	SQLitePath           string
-	QueueMaxSize         int
-	TranscodeWorkers     int
-	UploadTokenTTL       time.Duration // env UPLOAD_TOKEN_TTL (segundos) — TTL do token de upload (vida curta, ~20min)
-	PlayTokenTTL         time.Duration // env PLAY_TOKEN_TTL (segundos) — TTL do token de play emitido por /api/play/init
-	UploadIdleTimeout    time.Duration // env UPLOAD_IDLE_TIMEOUT (segundos)
-	TranscodeStuckTime   time.Duration // env TRANSCODE_STUCK (segundos)
-	MaxTranscodeAttempts int
-	KeepOriginal         bool
-	Port                 int
-	RateLimitPerMin      int
-	Environment          string // ambiente de execução (ENV): "production", "development", etc. Exposto em GET /api.
-	// SessionTTL (env SESSION_TTL, segundos) é a validade do cookie de sessão
-	// de navegador (streamedia_session), emitido por POST /admin/session.
-	// Padrão 43200 (12h).
-	SessionTTL time.Duration
-	// SessionCookieSecure (env SESSION_COOKIE_SECURE) define o atributo
-	// Secure do cookie de sessão. Padrão: true quando Environment !=
-	// "development" (produção atrás de HTTPS); false em desenvolvimento
-	// local, onde um cookie Secure nunca voltaria ao servidor por HTTP puro.
-	SessionCookieSecure bool
+	RootToken string // env ROOT_TOKEN — obrigatório
+
+	// WebhookSecret (env WEBHOOK_SECRET) é o segredo compartilhado de
+	// assinatura HMAC dos webhooks enviados ao backend principal.
+	// Opcional — se vazio, webhooks são enviados sem assinatura.
+	WebhookSecret string // env WEBHOOK_SECRET — opcional
+
 	// GoogleClientID (env GOOGLE_CLIENT_ID) é o client_id da aplicação
 	// registrada no Google Cloud Console para OAuth 2.0.
-	GoogleClientID string
+	GoogleClientID string // env GOOGLE_CLIENT_ID — opcional
+
 	// GoogleClientSecret (env GOOGLE_CLIENT_SECRET) é o segredo do cliente
 	// OAuth 2.0 — nunca exposto ao frontend.
-	GoogleClientSecret string
+	GoogleClientSecret string // env GOOGLE_CLIENT_SECRET — opcional
+
 	// GoogleRedirectURL (env GOOGLE_REDIRECT_URL) é a URL de callback
-	// registrada no Google Cloud Console para onde o usuário é redirecionado
-	// após autorizar o acesso (ex: https://streamedia.com/api/auth/google/callback).
-	GoogleRedirectURL string
-	// SPADir (env SPA_DIR) é o caminho para o diretório de build da SPA Vue.js
-	// (web/dist/). Em produção, o Dockerfile copia esse diretório para dentro
-	// da imagem. Default: ./web/dist (desenvolvimento local).
-	SPADir string
+	// registrada no Google Cloud Console.
+	GoogleRedirectURL string // env GOOGLE_REDIRECT_URL — opcional
+
+	// --- Env: infraestrutura ---
+
+	// SQLitePath (env SQLITE_PATH) é o caminho do arquivo do banco.
+	SQLitePath string // env SQLITE_PATH, padrão /data/media.db
+
+	// Port (env PORT) é a porta HTTP do servidor.
+	Port int // env PORT, padrão 3000
+
+	// Environment (env ENV) é o ambiente de execução: "production",
+	// "development", etc. Exposto em GET /api.
+	Environment string // env ENV, padrão "development"
+
+	// SessionCookieSecure (env SESSION_COOKIE_SECURE) define o atributo
+	// Secure do cookie de sessão. Padrão: true quando ENV != "development".
+	SessionCookieSecure bool // env SESSION_COOKIE_SECURE — opcional
+
+	// SPADir (env SPA_DIR) é o caminho para o diretório de build da SPA
+	// Vue.js. Em produção, o Dockerfile sobrescreve via ENV.
+	// Default: ./web/dist (desenvolvimento local).
+	SPADir string // env SPA_DIR, padrão ./web/dist
+
+	// --- Caminhos hardcoded (não vêm de env nem de banco) ---
+
+	// MediaDir é o diretório raiz dos arquivos HLS transcodificados.
+	MediaDir string // hardcoded: /media
+
+	// UploadTmpDir é o diretório temporário de uploads TUS.
+	UploadTmpDir string // hardcoded: /media/.uploads
+
+	// --- Configurações operacionais (defaults do código, sobrescritas pelo banco via ApplyFromDB) ---
+
+	// WebhookURL é a URL global de webhook. Vazia = desabilitado.
+	// Pode ser sobrescrita por vídeo via campo webhook_url no upload-init.
+	// Banco: webhook.url (default "")
+	WebhookURL string
+
+	// DiscordWebhookURL é o webhook do Discord para alertas operacionais.
+	// Vazia = canal desabilitado.
+	// Banco: discord.webhook_url (default "")
+	DiscordWebhookURL string
+
+	// MaxUploadSizeBytes é o tamanho máximo de upload em bytes.
+	// Banco: upload.max_size_mb (default 10)
+	MaxUploadSizeBytes int64
+
+	// QueueMaxSize é o tamanho máximo da fila de transcodificação.
+	// Banco: transcode.queue_max (default 50)
+	QueueMaxSize int
+
+	// TranscodeWorkers é o número de workers paralelos de transcodificação.
+	// Banco: transcode.workers (default 1)
+	TranscodeWorkers int
+
+	// UploadTokenTTL é o TTL do token de upload.
+	// Banco: token.upload_ttl (default 1200s = 20min)
+	UploadTokenTTL time.Duration
+
+	// PlayTokenTTL é o TTL do token de play emitido por /api/play/init.
+	// Banco: token.play_ttl (default 3600s = 1h)
+	PlayTokenTTL time.Duration
+
+	// UploadIdleTimeout é o tempo de inatividade até matar um upload.
+	// Banco: upload.idle_timeout (default 600s = 10min)
+	UploadIdleTimeout time.Duration
+
+	// TranscodeStuckTime é o tempo para considerar uma transcode travada.
+	// Banco: transcode.stuck_timeout (default 1800s = 30min)
+	TranscodeStuckTime time.Duration
+
+	// MaxTranscodeAttempts é o número máximo de tentativas de transcode.
+	// Banco: transcode.max_attempts (default 3)
+	MaxTranscodeAttempts int
+
+	// KeepOriginal mantém o arquivo original após transcode se true.
+	// Banco: transcode.keep_original (default false)
+	KeepOriginal bool
+
+	// RateLimitPerMin é o limite de requisições por minuto por IP.
+	// Banco: rate_limit.per_minute (default 60)
+	RateLimitPerMin int
+
+	// SessionTTL é a validade do cookie de sessão de navegador.
+	// Banco: session.ttl_seconds (default 43200 = 12h)
+	SessionTTL time.Duration
 }
 
-// Load lê a configuração das variáveis de ambiente, aplicando valores
-// padrão para as opcionais e validando as obrigatórias.
+// Load lê apenas as variáveis de ambiente essenciais (credenciais,
+// segredos e infraestrutura). As configurações operacionais recebem
+// defaults do código e serão sobrescritas pelo banco via ApplyFromDB().
 func Load() (*Config, error) {
-	// Variáveis obrigatórias.
+	// --- Env obrigatória ---
 	rootToken := os.Getenv("ROOT_TOKEN")
 	if rootToken == "" {
 		return nil, fmt.Errorf("variável de ambiente ROOT_TOKEN é obrigatória")
 	}
-	// WEBHOOK_URL é opcional: sem ela, nenhum webhook é enviado (mas o stream
-	// de eventos via SSE em /api/events continua funcionando normalmente).
-	// Quando definida, o segredo de assinatura HMAC passa a ser obrigatório.
-	webhookURL := os.Getenv("WEBHOOK_URL")
-	webhookSecret := os.Getenv("WEBHOOK_SECRET")
-	if webhookURL != "" && webhookSecret == "" {
-		return nil, fmt.Errorf("WEBHOOK_SECRET é obrigatório quando WEBHOOK_URL está definida")
-	}
 
-	// Google OAuth (opcionais — se não configuradas, as rotas de login via
-	// Google retornam erro descritivo em vez de derrubar o container).
+	// --- Env opcionais: segredos e credenciais ---
+	webhookSecret := os.Getenv("WEBHOOK_SECRET")
 	googleClientID := os.Getenv("GOOGLE_CLIENT_ID")
 	googleClientSecret := os.Getenv("GOOGLE_CLIENT_SECRET")
 	googleRedirectURL := os.Getenv("GOOGLE_REDIRECT_URL")
 
-	// Variáveis inteiras opcionais.
-	maxUploadSizeMB, err := getEnvInt("MAX_UPLOAD_SIZE_MB", 10)
-	if err != nil {
-		return nil, err
-	}
-	queueMaxSize, err := getEnvInt("QUEUE_MAX_SIZE", 50)
-	if err != nil {
-		return nil, err
-	}
-	transcodeWorkers, err := getEnvInt("TRANSCODE_WORKERS", 1)
-	if err != nil {
-		return nil, err
-	}
-	// Variáveis de tempo, todas em SEGUNDOS (o nome não carrega o sufixo de
-	// unidade; o significado está documentado aqui e no .env.example).
-	// UPLOAD_TOKEN_TTL: TTL do token de upload (padrão 1200 = 20min).
-	uploadTokenTTLSeconds, err := getEnvInt("UPLOAD_TOKEN_TTL", 1200)
-	if err != nil {
-		return nil, err
-	}
-	// PLAY_TOKEN_TTL: TTL do token de play emitido por /api/play/init (padrão 3600 = 1h).
-	playTokenTTLSeconds, err := getEnvInt("PLAY_TOKEN_TTL", 3600)
-	if err != nil {
-		return nil, err
-	}
-	// UPLOAD_IDLE_TIMEOUT: tempo de inatividade até matar um upload (padrão 600 = 10min).
-	uploadIdleTimeoutSeconds, err := getEnvInt("UPLOAD_IDLE_TIMEOUT", 600)
-	if err != nil {
-		return nil, err
-	}
-	// TRANSCODE_STUCK: tempo para considerar uma transcodificação travada (padrão 1800 = 30min).
-	transcodeStuckSeconds, err := getEnvInt("TRANSCODE_STUCK", 1800)
-	if err != nil {
-		return nil, err
-	}
-	maxTranscodeAttempts, err := getEnvInt("MAX_TRANSCODE_ATTEMPTS", 3)
-	if err != nil {
-		return nil, err
-	}
+	// --- Env opcionais: infraestrutura ---
+	sqlitePath := getEnvStr("SQLITE_PATH", "/data/media.db")
+	environment := getEnvStr("ENV", "development")
+	sessionCookieSecure := getEnvBool("SESSION_COOKIE_SECURE", environment != "development")
+	spaDir := getEnvStr("SPA_DIR", "./web/dist")
+
 	port, err := getEnvInt("PORT", 3000)
 	if err != nil {
 		return nil, err
 	}
-	rateLimitPerMin, err := getEnvInt("RATE_LIMIT_PER_MIN", 60)
-	if err != nil {
-		return nil, err
-	}
-	// SESSION_TTL: validade do cookie de sessão de navegador (padrão 43200 = 12h).
-	sessionTTLSeconds, err := getEnvInt("SESSION_TTL", 43200)
-	if err != nil {
-		return nil, err
-	}
 
-	environment := getEnvStr("ENV", "development")
-	// SESSION_COOKIE_SECURE: por padrão, exige HTTPS (Secure) fora de
-	// desenvolvimento. Pode ser sobrescrito explicitamente via env.
-	sessionCookieSecure := getEnvBool("SESSION_COOKIE_SECURE", environment != "development")
-
+	// --- Configurações operacionais: defaults do código ---
+	// Serão sobrescritas pelo banco via ApplyFromDB() após db.Open().
 	cfg := &Config{
-		RootToken:            rootToken,
-		WebhookURL:           webhookURL,
-		WebhookSecret:        webhookSecret,
-		DiscordWebhookURL:    os.Getenv("DISCORD_WEBHOOK_URL"),
-		MaxUploadSizeBytes:   int64(maxUploadSizeMB) * 1024 * 1024,
-		MediaDir:             getEnvStr("MEDIA_DIR", "/media"),
-		UploadTmpDir:         getEnvStr("UPLOAD_TMP_DIR", "/media/.uploads"),
-		SQLitePath:           getEnvStr("SQLITE_PATH", "/data/media.db"),
-		QueueMaxSize:         queueMaxSize,
-		TranscodeWorkers:     transcodeWorkers,
-		UploadTokenTTL:       time.Second * time.Duration(uploadTokenTTLSeconds),
-		PlayTokenTTL:         time.Second * time.Duration(playTokenTTLSeconds),
-		UploadIdleTimeout:    time.Second * time.Duration(uploadIdleTimeoutSeconds),
-		TranscodeStuckTime:   time.Second * time.Duration(transcodeStuckSeconds),
-		MaxTranscodeAttempts: maxTranscodeAttempts,
-		KeepOriginal:         getEnvBool("KEEP_ORIGINAL", false),
-		Port:                 port,
-		RateLimitPerMin:      rateLimitPerMin,
-		Environment:          environment,
-		SessionTTL:           time.Second * time.Duration(sessionTTLSeconds),
-		SessionCookieSecure:  sessionCookieSecure,
-		GoogleClientID:       googleClientID,
-		GoogleClientSecret:   googleClientSecret,
-		GoogleRedirectURL:    googleRedirectURL,
-		SPADir:               getEnvStr("SPA_DIR", "./web/dist"),
+		// Env
+		RootToken:           rootToken,
+		WebhookSecret:       webhookSecret,
+		GoogleClientID:      googleClientID,
+		GoogleClientSecret:  googleClientSecret,
+		GoogleRedirectURL:   googleRedirectURL,
+		SQLitePath:          sqlitePath,
+		Port:                port,
+		Environment:         environment,
+		SessionCookieSecure: sessionCookieSecure,
+		SPADir:              spaDir,
+
+		// Hardcoded
+		MediaDir:     "/media",
+		UploadTmpDir: "/media/.uploads",
+
+		// DB-bound (defaults do código)
+		WebhookURL:          "",   // desabilitado por padrão
+		DiscordWebhookURL:   "",   // desabilitado por padrão
+		MaxUploadSizeBytes:  10 * 1024 * 1024, // 10 MB
+		QueueMaxSize:        50,
+		TranscodeWorkers:    1,
+		UploadTokenTTL:      20 * time.Minute,
+		PlayTokenTTL:        1 * time.Hour,
+		UploadIdleTimeout:   10 * time.Minute,
+		TranscodeStuckTime:  30 * time.Minute,
+		MaxTranscodeAttempts: 3,
+		KeepOriginal:        false,
+		RateLimitPerMin:     60,
+		SessionTTL:          12 * time.Hour,
 	}
 
 	return cfg, nil
 }
 
+// ApplyFromDB sobrescreve as configurações operacionais com os valores
+// lidos da tabela configurations do banco. As chaves que não existirem
+// no banco mantêm os defaults definidos em Load().
+// Deve ser chamada após db.Open() e antes da criação da fila, workers,
+// router etc.
+func (c *Config) ApplyFromDB(db *sql.DB) {
+	dbc := dbconfig.New(db)
+
+	c.WebhookURL = dbc.GetString("webhook.url", c.WebhookURL)
+	c.DiscordWebhookURL = dbc.GetString("discord.webhook_url", c.DiscordWebhookURL)
+	c.MaxUploadSizeBytes = int64(max(dbc.GetNumber("upload.max_size_mb", int(c.MaxUploadSizeBytes/1024/1024)), 1)) * 1024 * 1024
+	c.QueueMaxSize = max(dbc.GetNumber("transcode.queue_max", c.QueueMaxSize), 1)
+	c.TranscodeWorkers = max(dbc.GetNumber("transcode.workers", c.TranscodeWorkers), 1)
+	c.UploadTokenTTL = dbc.GetDurationSeconds("token.upload_ttl", int(c.UploadTokenTTL.Seconds()))
+	c.PlayTokenTTL = dbc.GetDurationSeconds("token.play_ttl", int(c.PlayTokenTTL.Seconds()))
+	c.UploadIdleTimeout = dbc.GetDurationSeconds("upload.idle_timeout", int(c.UploadIdleTimeout.Seconds()))
+	c.TranscodeStuckTime = dbc.GetDurationSeconds("transcode.stuck_timeout", int(c.TranscodeStuckTime.Seconds()))
+	c.MaxTranscodeAttempts = max(dbc.GetNumber("transcode.max_attempts", c.MaxTranscodeAttempts), 1)
+	c.KeepOriginal = dbc.GetBool("transcode.keep_original", c.KeepOriginal)
+	c.RateLimitPerMin = max(dbc.GetNumber("rate_limit.per_minute", c.RateLimitPerMin), 1)
+	c.SessionTTL = dbc.GetDurationSeconds("session.ttl_seconds", int(c.SessionTTL.Seconds()))
+
+	log.Printf("config: %d valores carregados do banco", 13)
+}
+
 // IsGoogleOAuthConfigured retorna true quando as três variáveis do Google
-// OAuth estão definidas (GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET e
-// GOOGLE_REDIRECT_URL). Usado pelos handlers para decidir se o login via
-// Google está disponível ou se deve retornar erro descritivo.
+// OAuth estão definidas. Usado pelos handlers para decidir se o login via
+// Google está disponível.
 func (c *Config) IsGoogleOAuthConfigured() bool {
 	return c.GoogleClientID != "" && c.GoogleClientSecret != "" && c.GoogleRedirectURL != ""
 }
+
+// --- helpers ---
 
 // getEnvStr retorna o valor da variável de ambiente se definido e não
 // vazio; caso contrário retorna o valor padrão.

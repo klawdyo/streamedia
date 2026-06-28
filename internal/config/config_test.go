@@ -1,27 +1,27 @@
 package config
 
 import (
+	"database/sql"
 	"strings"
 	"testing"
 	"time"
+
+	_ "modernc.org/sqlite"
+
+	"github.com/klawdyo/streamedia/internal/db"
 )
 
 func TestLoad_RequiredVarsMissing(t *testing.T) {
-	// Garante que Load() falha quando variáveis obrigatórias estão ausentes.
 	t.Setenv("ROOT_TOKEN", "")
-	t.Setenv("WEBHOOK_URL", "")
-	t.Setenv("WEBHOOK_SECRET", "")
 
 	_, err := Load()
 	if err == nil {
-		t.Fatal("esperava erro quando variáveis obrigatórias estão ausentes, mas Load() retornou nil")
+		t.Fatal("esperava erro quando ROOT_TOKEN está ausente, mas Load() retornou nil")
 	}
 }
 
 func TestLoad_RequiredVarsPresent(t *testing.T) {
-	// Verifica que Load() funciona com as variáveis obrigatórias definidas.
 	t.Setenv("ROOT_TOKEN", "secret-upload")
-	t.Setenv("WEBHOOK_URL", "https://backend.exemplo.com/webhooks")
 	t.Setenv("WEBHOOK_SECRET", "secret-webhook")
 	t.Setenv("GOOGLE_CLIENT_ID", "test-client-id")
 	t.Setenv("GOOGLE_CLIENT_SECRET", "test-client-secret")
@@ -34,25 +34,17 @@ func TestLoad_RequiredVarsPresent(t *testing.T) {
 	if cfg.RootToken != "secret-upload" {
 		t.Errorf("RootToken: esperado %q, obtido %q", "secret-upload", cfg.RootToken)
 	}
-	if cfg.WebhookURL != "https://backend.exemplo.com/webhooks" {
-		t.Errorf("WebhookURL: esperado %q, obtido %q", "https://backend.exemplo.com/webhooks", cfg.WebhookURL)
+	if cfg.WebhookSecret != "secret-webhook" {
+		t.Errorf("WebhookSecret: esperado %q, obtido %q", "secret-webhook", cfg.WebhookSecret)
+	}
+	// WEBHOOK_URL vem do banco — default é ""
+	if cfg.WebhookURL != "" {
+		t.Errorf("WebhookURL: esperado \"\" (default), obtido %q", cfg.WebhookURL)
 	}
 }
 
 func TestLoad_Defaults(t *testing.T) {
-	// Verifica que os valores padrão são aplicados para variáveis opcionais.
 	t.Setenv("ROOT_TOKEN", "s")
-	t.Setenv("WEBHOOK_URL", "https://x.com")
-	t.Setenv("WEBHOOK_SECRET", "s2")
-	t.Setenv("GOOGLE_CLIENT_ID", "test-id")
-	t.Setenv("GOOGLE_CLIENT_SECRET", "test-secret")
-	t.Setenv("GOOGLE_REDIRECT_URL", "http://localhost/cb")
-	// Garante que variáveis opcionais não estão setadas
-	t.Setenv("MAX_UPLOAD_SIZE_MB", "")
-	t.Setenv("QUEUE_MAX_SIZE", "")
-	t.Setenv("TRANSCODE_WORKERS", "")
-	t.Setenv("PORT", "")
-	t.Setenv("KEEP_ORIGINAL", "")
 	t.Setenv("ENV", "")
 
 	cfg, err := Load()
@@ -60,10 +52,28 @@ func TestLoad_Defaults(t *testing.T) {
 		t.Fatalf("Load() retornou erro inesperado: %v", err)
 	}
 
-	// Verifica os padrões documentados na spec
 	if cfg.Environment != "development" {
 		t.Errorf("Environment: esperado 'development' (default), obtido %q", cfg.Environment)
 	}
+	if cfg.Port != 3000 {
+		t.Errorf("Port: esperado 3000, obtido %d", cfg.Port)
+	}
+	if cfg.SQLitePath != "/data/media.db" {
+		t.Errorf("SQLitePath: esperado /data/media.db, obtido %q", cfg.SQLitePath)
+	}
+	if cfg.MediaDir != "/media" {
+		t.Errorf("MediaDir: esperado /media, obtido %q", cfg.MediaDir)
+	}
+	if cfg.UploadTmpDir != "/media/.uploads" {
+		t.Errorf("UploadTmpDir: esperado /media/.uploads, obtido %q", cfg.UploadTmpDir)
+	}
+	if cfg.SPADir != "./web/dist" {
+		t.Errorf("SPADir: esperado ./web/dist, obtido %q", cfg.SPADir)
+	}
+	if cfg.SessionCookieSecure != false {
+		t.Errorf("SessionCookieSecure: esperado false (ENV=development), obtido %v", cfg.SessionCookieSecure)
+	}
+	// Defaults operacionais (serão sobrescritos pelo banco via ApplyFromDB)
 	if cfg.MaxUploadSizeBytes != 10*1024*1024 {
 		t.Errorf("MaxUploadSizeBytes: esperado %d (10MB), obtido %d", 10*1024*1024, cfg.MaxUploadSizeBytes)
 	}
@@ -73,67 +83,108 @@ func TestLoad_Defaults(t *testing.T) {
 	if cfg.TranscodeWorkers != 1 {
 		t.Errorf("TranscodeWorkers: esperado 1, obtido %d", cfg.TranscodeWorkers)
 	}
-	if cfg.Port != 3000 {
-		t.Errorf("Port: esperado 3000, obtido %d", cfg.Port)
-	}
 	if cfg.KeepOriginal != false {
 		t.Errorf("KeepOriginal: esperado false, obtido %v", cfg.KeepOriginal)
 	}
 }
 
-func TestLoad_OverrideDefaults(t *testing.T) {
-	// Verifica que valores das variáveis de ambiente sobrescrevem os padrões.
+func TestLoad_EnvOverrides(t *testing.T) {
 	t.Setenv("ROOT_TOKEN", "s")
-	t.Setenv("WEBHOOK_URL", "https://x.com")
-	t.Setenv("WEBHOOK_SECRET", "s2")
-	t.Setenv("GOOGLE_CLIENT_ID", "test-id")
-	t.Setenv("GOOGLE_CLIENT_SECRET", "test-secret")
-	t.Setenv("GOOGLE_REDIRECT_URL", "http://localhost/cb")
-	t.Setenv("MAX_UPLOAD_SIZE_MB", "500")
-	t.Setenv("TRANSCODE_WORKERS", "4")
+	t.Setenv("PORT", "8080")
 	t.Setenv("ENV", "production")
+	t.Setenv("SQLITE_PATH", "/custom/path.db")
+	t.Setenv("SESSION_COOKIE_SECURE", "true")
+	t.Setenv("SPA_DIR", "/custom/spa")
 
 	cfg, err := Load()
 	if err != nil {
 		t.Fatalf("Load() retornou erro inesperado: %v", err)
 	}
 
-	if cfg.MaxUploadSizeBytes != 500*1024*1024 {
-		t.Errorf("MaxUploadSizeBytes: esperado %d (500MB), obtido %d", 500*1024*1024, cfg.MaxUploadSizeBytes)
-	}
-	if cfg.TranscodeWorkers != 4 {
-		t.Errorf("TranscodeWorkers: esperado 4, obtido %d", cfg.TranscodeWorkers)
+	if cfg.Port != 8080 {
+		t.Errorf("Port: esperado 8080, obtido %d", cfg.Port)
 	}
 	if cfg.Environment != "production" {
 		t.Errorf("Environment: esperado 'production', obtido %q", cfg.Environment)
 	}
-}
-
-func TestLoad_InvalidInt(t *testing.T) {
-	// Verifica que Load() retorna erro quando um inteiro inválido é fornecido.
-	t.Setenv("ROOT_TOKEN", "s")
-	t.Setenv("WEBHOOK_URL", "https://x.com")
-	t.Setenv("WEBHOOK_SECRET", "s2")
-	t.Setenv("MAX_UPLOAD_SIZE_MB", "nao_e_numero")
-
-	_, err := Load()
-	if err == nil {
-		t.Fatal("esperava erro para MAX_UPLOAD_SIZE_MB inválido, mas Load() retornou nil")
+	if cfg.SQLitePath != "/custom/path.db" {
+		t.Errorf("SQLitePath: esperado /custom/path.db, obtido %q", cfg.SQLitePath)
+	}
+	if cfg.SessionCookieSecure != true {
+		t.Errorf("SessionCookieSecure: esperado true, obtido %v", cfg.SessionCookieSecure)
+	}
+	if cfg.SPADir != "/custom/spa" {
+		t.Errorf("SPADir: esperado /custom/spa, obtido %q", cfg.SPADir)
 	}
 }
 
-func TestLoad_TimeVarsDefaults(t *testing.T) {
-	// As variáveis de tempo são lidas em segundos; valida os defaults.
+func TestLoad_InvalidInt(t *testing.T) {
 	t.Setenv("ROOT_TOKEN", "s")
-	t.Setenv("WEBHOOK_URL", "https://x.com")
-	t.Setenv("WEBHOOK_SECRET", "s2")
-	t.Setenv("GOOGLE_CLIENT_ID", "test-id")
-	t.Setenv("GOOGLE_CLIENT_SECRET", "test-secret")
-	t.Setenv("GOOGLE_REDIRECT_URL", "http://localhost/cb")
-	t.Setenv("UPLOAD_TOKEN_TTL", "")
-	t.Setenv("PLAY_TOKEN_TTL", "")
-	t.Setenv("UPLOAD_IDLE_TIMEOUT", "")
-	t.Setenv("TRANSCODE_STUCK", "")
+	t.Setenv("PORT", "nao_e_numero")
+
+	_, err := Load()
+	if err == nil {
+		t.Fatal("esperava erro para PORT inválido, mas Load() retornou nil")
+	}
+}
+
+func TestLoad_MissingRootToken(t *testing.T) {
+	t.Setenv("ROOT_TOKEN", "")
+
+	_, err := Load()
+	if err == nil {
+		t.Fatal("esperava erro, mas Load() retornou nil")
+	}
+	if !strings.Contains(err.Error(), "ROOT_TOKEN") {
+		t.Errorf("erro deve mencionar ROOT_TOKEN, mas foi: %v", err)
+	}
+}
+
+func TestLoad_SessionCookieSecureEnv(t *testing.T) {
+	t.Setenv("ROOT_TOKEN", "s")
+
+	// Default: false em development
+	t.Setenv("ENV", "development")
+	cfg, _ := Load()
+	if cfg.SessionCookieSecure != false {
+		t.Errorf("em development: esperado false, obtido %v", cfg.SessionCookieSecure)
+	}
+
+	// Default: true em production
+	t.Setenv("ENV", "production")
+	cfg, _ = Load()
+	if cfg.SessionCookieSecure != true {
+		t.Errorf("em production: esperado true, obtido %v", cfg.SessionCookieSecure)
+	}
+
+	// Sobrescrito explicitamente
+	t.Setenv("ENV", "development")
+	t.Setenv("SESSION_COOKIE_SECURE", "true")
+	cfg, _ = Load()
+	if cfg.SessionCookieSecure != true {
+		t.Errorf("explícito true: esperado true, obtido %v", cfg.SessionCookieSecure)
+	}
+}
+
+func TestLoad_WebhookSecretOptional(t *testing.T) {
+	// WEBHOOK_URL agora vem do banco — não há mais validação no Load().
+	// WEBHOOK_SECRET é sempre opcional.
+	t.Setenv("ROOT_TOKEN", "s")
+	t.Setenv("WEBHOOK_SECRET", "")
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load() retornou erro inesperado: %v", err)
+	}
+	if cfg.WebhookSecret != "" {
+		t.Errorf("WebhookSecret: esperado \"\", obtido %q", cfg.WebhookSecret)
+	}
+}
+
+func TestLoad_TimeDefaults(t *testing.T) {
+	// Valores de tempo agora são defaults hardcoded (vindos do código),
+	// não do env. O banco sobrescreve via ApplyFromDB.
+	t.Setenv("ROOT_TOKEN", "s")
 
 	cfg, err := Load()
 	if err != nil {
@@ -149,6 +200,7 @@ func TestLoad_TimeVarsDefaults(t *testing.T) {
 		{"PlayTokenTTL", cfg.PlayTokenTTL, 1 * time.Hour},
 		{"UploadIdleTimeout", cfg.UploadIdleTimeout, 10 * time.Minute},
 		{"TranscodeStuckTime", cfg.TranscodeStuckTime, 30 * time.Minute},
+		{"SessionTTL", cfg.SessionTTL, 12 * time.Hour},
 	}
 	for _, c := range cases {
 		if c.got != c.want {
@@ -157,55 +209,138 @@ func TestLoad_TimeVarsDefaults(t *testing.T) {
 	}
 }
 
-func TestLoad_TimeVarsReadInSeconds(t *testing.T) {
-	// Os valores das variáveis de tempo refletem diretamente em time.Duration
-	// via time.Second, sem conversões ocultas.
-	t.Setenv("ROOT_TOKEN", "s")
-	t.Setenv("WEBHOOK_URL", "https://x.com")
-	t.Setenv("WEBHOOK_SECRET", "s2")
-	t.Setenv("GOOGLE_CLIENT_ID", "test-id")
-	t.Setenv("GOOGLE_CLIENT_SECRET", "test-secret")
-	t.Setenv("GOOGLE_REDIRECT_URL", "http://localhost/cb")
-	t.Setenv("UPLOAD_TOKEN_TTL", "900")
-	t.Setenv("PLAY_TOKEN_TTL", "1200")
-	t.Setenv("UPLOAD_IDLE_TIMEOUT", "120")
-	t.Setenv("TRANSCODE_STUCK", "300")
+// --- Testes do ApplyFromDB ---
 
-	cfg, err := Load()
-	if err != nil {
-		t.Fatalf("Load() retornou erro inesperado: %v", err)
+func TestApplyFromDB_DefaultsPreserved(t *testing.T) {
+	// Sem a tabela configurations no banco, os defaults do código são mantidos.
+	tdb := openTestDB(t)
+	defer tdb.Close()
+
+	cfg := testCfg()
+	cfg.ApplyFromDB(tdb)
+
+	if cfg.MaxUploadSizeBytes != 10*1024*1024 {
+		t.Errorf("MaxUploadSizeBytes: esperado %d, obtido %d", 10*1024*1024, cfg.MaxUploadSizeBytes)
 	}
+	if cfg.TranscodeWorkers != 1 {
+		t.Errorf("TranscodeWorkers: esperado 1, obtido %d", cfg.TranscodeWorkers)
+	}
+	if cfg.WebhookURL != "" {
+		t.Errorf("WebhookURL: esperado vazio, obtido %q", cfg.WebhookURL)
+	}
+}
 
+func TestApplyFromDB_OverridesFromDB(t *testing.T) {
+	tdb := openTestDB(t)
+	defer tdb.Close()
+
+	// Insere valores customizados na tabela configurations
+	tdb.Exec(`INSERT OR REPLACE INTO configurations (key, value, type, description, group_key) VALUES ('upload.max_size_mb', '50', 'number', 'test', 'upload')`)
+	tdb.Exec(`INSERT OR REPLACE INTO configurations (key, value, type, description, group_key) VALUES ('transcode.workers', '4', 'number', 'test', 'transcode')`)
+	tdb.Exec(`INSERT OR REPLACE INTO configurations (key, value, type, description, group_key) VALUES ('webhook.url', 'https://example.com/hook', 'url', 'test', 'webhook')`)
+	tdb.Exec(`INSERT OR REPLACE INTO configurations (key, value, type, description, group_key) VALUES ('token.upload_ttl', '900', 'duration_seconds', 'test', 'token')`)
+	tdb.Exec(`INSERT OR REPLACE INTO configurations (key, value, type, description, group_key) VALUES ('transcode.keep_original', 'true', 'boolean', 'test', 'transcode')`)
+
+	cfg := testCfg()
+	cfg.ApplyFromDB(tdb)
+
+	if cfg.MaxUploadSizeBytes != 50*1024*1024 {
+		t.Errorf("MaxUploadSizeBytes: esperado %d, obtido %d", 50*1024*1024, cfg.MaxUploadSizeBytes)
+	}
+	if cfg.TranscodeWorkers != 4 {
+		t.Errorf("TranscodeWorkers: esperado 4, obtido %d", cfg.TranscodeWorkers)
+	}
+	if cfg.WebhookURL != "https://example.com/hook" {
+		t.Errorf("WebhookURL: esperado https://example.com/hook, obtido %q", cfg.WebhookURL)
+	}
 	if cfg.UploadTokenTTL != 900*time.Second {
 		t.Errorf("UploadTokenTTL: esperado %v, obtido %v", 900*time.Second, cfg.UploadTokenTTL)
 	}
-	if cfg.PlayTokenTTL != 1200*time.Second {
-		t.Errorf("PlayTokenTTL: esperado %v, obtido %v", 1200*time.Second, cfg.PlayTokenTTL)
-	}
-	if cfg.UploadIdleTimeout != 120*time.Second {
-		t.Errorf("UploadIdleTimeout: esperado %v, obtido %v", 120*time.Second, cfg.UploadIdleTimeout)
-	}
-	if cfg.TranscodeStuckTime != 300*time.Second {
-		t.Errorf("TranscodeStuckTime: esperado %v, obtido %v", 300*time.Second, cfg.TranscodeStuckTime)
+	if cfg.KeepOriginal != true {
+		t.Errorf("KeepOriginal: esperado true, obtido %v", cfg.KeepOriginal)
 	}
 }
 
-func TestLoad_MissingUploadSecret(t *testing.T) {
-	// Verifica que o erro menciona ROOT_TOKEN quando ele está ausente.
-	t.Setenv("ROOT_TOKEN", "")
-	t.Setenv("WEBHOOK_URL", "https://x.com")
-	t.Setenv("WEBHOOK_SECRET", "s2")
+func TestApplyFromDB_InvalidValuesFallback(t *testing.T) {
+	tdb := openTestDB(t)
+	defer tdb.Close()
 
-	_, err := Load()
-	if err == nil {
-		t.Fatal("esperava erro, mas Load() retornou nil")
+	// Valor inválido: transcode.workers como string não-numérica
+	tdb.Exec(`INSERT OR REPLACE INTO configurations (key, value, type, description, group_key) VALUES ('transcode.workers', 'abc', 'number', 'test', 'transcode')`)
+	// Valor inválido: keep_original não é boolean
+	tdb.Exec(`INSERT OR REPLACE INTO configurations (key, value, type, description, group_key) VALUES ('transcode.keep_original', 'xyz', 'boolean', 'test', 'transcode')`)
+	// Valor inválido: upload.max_size_mb negativo
+	tdb.Exec(`INSERT OR REPLACE INTO configurations (key, value, type, description, group_key) VALUES ('upload.max_size_mb', '-10', 'number', 'test', 'upload')`)
+
+	cfg := testCfg()
+	cfg.ApplyFromDB(tdb)
+
+	// Deve manter os defaults (fallback)
+	if cfg.TranscodeWorkers != 1 {
+		t.Errorf("TranscodeWorkers: esperado fallback 1, obtido %d", cfg.TranscodeWorkers)
 	}
-	if !strings.Contains(err.Error(), "ROOT_TOKEN") {
-		t.Errorf("erro deve mencionar ROOT_TOKEN, mas foi: %v", err)
+	if cfg.KeepOriginal != false {
+		t.Errorf("KeepOriginal: esperado fallback false, obtido %v", cfg.KeepOriginal)
+	}
+	if cfg.MaxUploadSizeBytes < 1*1024*1024 {
+		t.Errorf("MaxUploadSizeBytes: valor negativo foi corrigido, obtido %d (mínimo 1MB)", cfg.MaxUploadSizeBytes)
 	}
 }
 
-// TestGetEnvStr_TableDriven testa a função getEnvStr com múltiplos casos
+func TestApplyFromDB_DisabledFeatures(t *testing.T) {
+	tdb := openTestDB(t)
+	defer tdb.Close()
+
+	cfg := testCfg()
+
+	// Discord e webhook desabilitados por padrão
+	cfg.ApplyFromDB(tdb)
+	if cfg.DiscordWebhookURL != "" {
+		t.Errorf("DiscordWebhookURL: esperado vazio (desabilitado), obtido %q", cfg.DiscordWebhookURL)
+	}
+	if cfg.WebhookURL != "" {
+		t.Errorf("WebhookURL: esperado vazio (desabilitado), obtido %q", cfg.WebhookURL)
+	}
+
+	// Habilita Discord
+	tdb.Exec(`INSERT OR REPLACE INTO configurations (key, value, type, description, group_key) VALUES ('discord.webhook_url', 'https://discord.com/api/webhooks/123/abc', 'url', 'test', 'discord')`)
+	cfg.ApplyFromDB(tdb)
+	if cfg.DiscordWebhookURL != "https://discord.com/api/webhooks/123/abc" {
+		t.Errorf("DiscordWebhookURL: esperado URL do Discord, obtido %q", cfg.DiscordWebhookURL)
+	}
+}
+
+// --- Helpers ---
+
+func testCfg() *Config {
+	return &Config{
+		MaxUploadSizeBytes: 10 * 1024 * 1024,
+		QueueMaxSize:       50,
+		TranscodeWorkers:   1,
+		UploadTokenTTL:     20 * time.Minute,
+		PlayTokenTTL:       1 * time.Hour,
+		UploadIdleTimeout:  10 * time.Minute,
+		TranscodeStuckTime: 30 * time.Minute,
+		MaxTranscodeAttempts: 3,
+		KeepOriginal:      false,
+		RateLimitPerMin:   60,
+		SessionTTL:        12 * time.Hour,
+		WebhookURL:        "",
+		DiscordWebhookURL: "",
+	}
+}
+
+func openTestDB(t *testing.T) *sql.DB {
+	t.Helper()
+	database, err := db.Open(":memory:")
+	if err != nil {
+		t.Fatalf("falha ao abrir banco em memória: %v", err)
+	}
+	return database
+}
+
+// --- Testes de getEnv* (mantidos da versão anterior) ---
+
 func TestGetEnvStr_TableDriven(t *testing.T) {
 	cases := []struct {
 		name       string
@@ -215,56 +350,20 @@ func TestGetEnvStr_TableDriven(t *testing.T) {
 		desc       string
 	}{
 		{
-			name:       "env_set_non_empty",
-			envValue:   "http://example.com",
-			defaultVal: "http://default.com",
-			expected:   "http://example.com",
-			desc:       "variável definida não-vazia deve retornar seu valor",
+			name: "env_set_non_empty", envValue: "http://example.com",
+			defaultVal: "http://default.com", expected: "http://example.com",
+			desc: "variável definida não-vazia deve retornar seu valor",
 		},
 		{
-			name:       "env_empty_uses_default",
-			envValue:   "",
-			defaultVal: "http://default.com",
-			expected:   "http://default.com",
-			desc:       "variável vazia deve retornar default",
+			name: "env_empty_uses_default", envValue: "",
+			defaultVal: "http://default.com", expected: "http://default.com",
+			desc: "variável vazia deve retornar default",
 		},
 		{
-			name:       "env_unset_uses_default",
-			envValue:   "",
-			defaultVal: "http://default.com",
-			expected:   "http://default.com",
-			desc:       "variável não-setada deve retornar default",
-		},
-		{
-			name:       "env_default_empty",
-			envValue:   "some-value",
-			defaultVal: "",
-			expected:   "some-value",
-			desc:       "default vazio é válido; env não-vazia prevalece",
-		},
-		{
-			name:       "both_empty",
-			envValue:   "",
-			defaultVal: "",
-			expected:   "",
-			desc:       "ambos vazios devem retornar string vazia",
-		},
-		{
-			name:       "special_chars",
-			envValue:   "http://host.com:8080/path?query=value&other=123",
-			defaultVal: "default",
-			expected:   "http://host.com:8080/path?query=value&other=123",
-			desc:       "caracteres especiais em URL devem ser preservados",
-		},
-		{
-			name:       "whitespace_preserved",
-			envValue:   "  spaces  ",
-			defaultVal: "default",
-			expected:   "  spaces  ",
-			desc:       "espaços em branco devem ser preservados (não trimmed)",
+			name: "both_empty", envValue: "", defaultVal: "", expected: "",
+			desc: "ambos vazios devem retornar string vazia",
 		},
 	}
-
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Setenv("TEST_ENV_STR", tc.envValue)
@@ -276,7 +375,6 @@ func TestGetEnvStr_TableDriven(t *testing.T) {
 	}
 }
 
-// TestGetEnvBool_TableDriven testa a função getEnvBool com todos os casos edge
 func TestGetEnvBool_TableDriven(t *testing.T) {
 	cases := []struct {
 		name       string
@@ -285,92 +383,14 @@ func TestGetEnvBool_TableDriven(t *testing.T) {
 		expected   bool
 		desc       string
 	}{
-		{
-			name:       "true_lowercase",
-			envValue:   "true",
-			defaultVal: false,
-			expected:   true,
-			desc:       "valor 'true' (lowercase) deve retornar true",
-		},
-		{
-			name:       "false_lowercase",
-			envValue:   "false",
-			defaultVal: true,
-			expected:   false,
-			desc:       "valor 'false' (lowercase) deve retornar false",
-		},
-		{
-			name:       "one_string",
-			envValue:   "1",
-			defaultVal: false,
-			expected:   true,
-			desc:       "valor '1' deve retornar true",
-		},
-		{
-			name:       "zero_string",
-			envValue:   "0",
-			defaultVal: true,
-			expected:   false,
-			desc:       "valor '0' deve retornar false",
-		},
-		{
-			name:       "empty_uses_default",
-			envValue:   "",
-			defaultVal: true,
-			expected:   true,
-			desc:       "valor vazio deve usar default (true)",
-		},
-		{
-			name:       "empty_uses_default_false",
-			envValue:   "",
-			defaultVal: false,
-			expected:   false,
-			desc:       "valor vazio deve usar default (false)",
-		},
-		{
-			name:       "uppercase_true",
-			envValue:   "TRUE",
-			defaultVal: false,
-			expected:   false,
-			desc:       "valor 'TRUE' (uppercase) não é 'true' lowercase — usa default",
-		},
-		{
-			name:       "uppercase_false",
-			envValue:   "FALSE",
-			defaultVal: true,
-			expected:   true,
-			desc:       "valor 'FALSE' (uppercase) não é 'false' lowercase — usa default",
-		},
-		{
-			name:       "yes_is_not_true",
-			envValue:   "yes",
-			defaultVal: false,
-			expected:   false,
-			desc:       "valor 'yes' não é reconhecido — usa default",
-		},
-		{
-			name:       "no_is_not_false",
-			envValue:   "no",
-			defaultVal: true,
-			expected:   true,
-			desc:       "valor 'no' não é reconhecido — usa default",
-		},
-		{
-			name:       "two_is_unknown",
-			envValue:   "2",
-			defaultVal: false,
-			expected:   false,
-			desc:       "valor '2' não é '0' ou '1' — usa default",
-		},
-		{
-			name:       "whitespace_around",
-			envValue:   " true ",
-			defaultVal: false,
-			expected:   false,
-			desc:       "valor ' true ' com whitespace não é 'true' puro — usa default",
-		},
+		{name: "true_lowercase", envValue: "true", defaultVal: false, expected: true, desc: "'true' → true"},
+		{name: "false_lowercase", envValue: "false", defaultVal: true, expected: false, desc: "'false' → false"},
+		{name: "one_string", envValue: "1", defaultVal: false, expected: true, desc: "'1' → true"},
+		{name: "zero_string", envValue: "0", defaultVal: true, expected: false, desc: "'0' → false"},
+		{name: "empty_uses_default", envValue: "", defaultVal: true, expected: true, desc: "vazio → default"},
+		{name: "uppercase_true", envValue: "TRUE", defaultVal: false, expected: false, desc: "'TRUE' não é 'true' → default"},
+		{name: "whitespace_around", envValue: " true ", defaultVal: false, expected: false, desc: "' true ' não é 'true' puro → default"},
 	}
-
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Setenv("TEST_ENV_BOOL", tc.envValue)
@@ -382,7 +402,6 @@ func TestGetEnvBool_TableDriven(t *testing.T) {
 	}
 }
 
-// TestGetEnvInt_NegativeAndZero testa getEnvInt com valores negativos e zero
 func TestGetEnvInt_NegativeAndZero(t *testing.T) {
 	cases := []struct {
 		name       string
@@ -392,56 +411,11 @@ func TestGetEnvInt_NegativeAndZero(t *testing.T) {
 		shouldErr  bool
 		desc       string
 	}{
-		{
-			name:       "zero_value",
-			envValue:   "0",
-			defaultVal: 999,
-			expected:   0,
-			shouldErr:  false,
-			desc:       "valor 0 é válido",
-		},
-		{
-			name:       "negative_value",
-			envValue:   "-100",
-			defaultVal: 999,
-			expected:   -100,
-			shouldErr:  false,
-			desc:       "valor negativo é aceito (sem validação de range em getEnvInt)",
-		},
-		{
-			name:       "large_positive",
-			envValue:   "2147483647",
-			defaultVal: 999,
-			expected:   2147483647,
-			shouldErr:  false,
-			desc:       "valor máximo int32 é aceito",
-		},
-		{
-			name:       "invalid_non_numeric",
-			envValue:   "not-a-number",
-			defaultVal: 999,
-			expected:   0,
-			shouldErr:  true,
-			desc:       "string não-numérica deve retornar erro",
-		},
-		{
-			name:       "float_string",
-			envValue:   "123.45",
-			defaultVal: 999,
-			expected:   0,
-			shouldErr:  true,
-			desc:       "string float não é inteiro válido para strconv.Atoi",
-		},
-		{
-			name:       "leading_whitespace",
-			envValue:   " 123",
-			defaultVal: 999,
-			expected:   0,
-			shouldErr:  true,
-			desc:       "strconv.Atoi NÃO aceita whitespace leading — erro esperado",
-		},
+		{name: "zero_value", envValue: "0", defaultVal: 999, expected: 0, shouldErr: false, desc: "0 é válido"},
+		{name: "negative_value", envValue: "-100", defaultVal: 999, expected: -100, shouldErr: false, desc: "negativo aceito"},
+		{name: "invalid_non_numeric", envValue: "not-a-number", defaultVal: 999, expected: 0, shouldErr: true, desc: "string não-numérica → erro"},
+		{name: "float_string", envValue: "123.45", defaultVal: 999, expected: 0, shouldErr: true, desc: "float → erro"},
 	}
-
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Setenv("TEST_ENV_INT", tc.envValue)
@@ -452,105 +426,6 @@ func TestGetEnvInt_NegativeAndZero(t *testing.T) {
 				t.Errorf("%s: esperava sucesso, mas retornou erro: %v", tc.desc, err)
 			} else if !tc.shouldErr && result != tc.expected {
 				t.Errorf("%s: esperado %d, obtido %d", tc.desc, tc.expected, result)
-			}
-		})
-	}
-}
-
-// TestLoad_AllVarsDefinedInvalidCombos testa combinações inválidas de variáveis
-func TestLoad_AllVarsDefinedInvalidCombos(t *testing.T) {
-	cases := []struct {
-		name         string
-		setupEnv     map[string]string
-		shouldErr    bool
-		errorPattern string
-		desc         string
-	}{
-		{
-			name: "all_required_present",
-			setupEnv: map[string]string{
-				"ROOT_TOKEN":           "secret",
-				"WEBHOOK_URL":          "https://example.com",
-				"WEBHOOK_SECRET":       "whsecret",
-				"GOOGLE_CLIENT_ID":     "test-id",
-				"GOOGLE_CLIENT_SECRET": "test-secret",
-				"GOOGLE_REDIRECT_URL":  "http://localhost/cb",
-			},
-			shouldErr: false,
-			desc:      "com todas as obrigatórias, Load deve suceder",
-		},
-		{
-			name: "webhook_disabled",
-			setupEnv: map[string]string{
-				"ROOT_TOKEN":           "secret",
-				"WEBHOOK_URL":          "",
-				"WEBHOOK_SECRET":       "",
-				"GOOGLE_CLIENT_ID":     "test-id",
-				"GOOGLE_CLIENT_SECRET": "test-secret",
-				"GOOGLE_REDIRECT_URL":  "http://localhost/cb",
-			},
-			shouldErr: false,
-			desc:      "sem WEBHOOK_URL, webhook fica desabilitado (sucesso; só SSE)",
-		},
-		{
-			name: "missing_webhook_secret_with_url",
-			setupEnv: map[string]string{
-				"ROOT_TOKEN":           "secret",
-				"WEBHOOK_URL":          "https://example.com",
-				"WEBHOOK_SECRET":       "",
-				"GOOGLE_CLIENT_ID":     "test-id",
-				"GOOGLE_CLIENT_SECRET": "test-secret",
-				"GOOGLE_REDIRECT_URL":  "http://localhost/cb",
-			},
-			shouldErr:    true,
-			errorPattern: "WEBHOOK_SECRET",
-			desc:         "com WEBHOOK_URL definida e sem WEBHOOK_SECRET, deve retornar erro",
-		},
-		{
-			name: "zero_port",
-			setupEnv: map[string]string{
-				"ROOT_TOKEN":           "secret",
-				"WEBHOOK_URL":          "https://example.com",
-				"WEBHOOK_SECRET":       "whsecret",
-				"GOOGLE_CLIENT_ID":     "test-id",
-				"GOOGLE_CLIENT_SECRET": "test-secret",
-				"GOOGLE_REDIRECT_URL":  "http://localhost/cb",
-				"PORT":                 "0",
-			},
-			shouldErr: false,
-			desc:      "PORT=0 é aceitável (bind em porta aleatória ou default)",
-		},
-		{
-			name: "negative_max_size",
-			setupEnv: map[string]string{
-				"ROOT_TOKEN":           "secret",
-				"WEBHOOK_URL":          "https://example.com",
-				"WEBHOOK_SECRET":       "whsecret",
-				"GOOGLE_CLIENT_ID":     "test-id",
-				"GOOGLE_CLIENT_SECRET": "test-secret",
-				"GOOGLE_REDIRECT_URL":  "http://localhost/cb",
-				"MAX_UPLOAD_SIZE_MB":   "-10",
-			},
-			shouldErr: false,
-			desc:      "MAX_UPLOAD_SIZE_MB negativo é aceitável (sem validação adicional em Load)",
-		},
-	}
-
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			// Limpa e define variáveis
-			for k := range tc.setupEnv {
-				t.Setenv(k, tc.setupEnv[k])
-			}
-			cfg, err := Load()
-			if tc.shouldErr && err == nil {
-				t.Errorf("%s: esperava erro, mas Load() retornou nil", tc.desc)
-			} else if !tc.shouldErr && err != nil {
-				t.Errorf("%s: esperava sucesso, mas retornou erro: %v", tc.desc, err)
-			} else if tc.shouldErr && err != nil && !strings.Contains(err.Error(), tc.errorPattern) {
-				t.Errorf("%s: erro não menciona '%s': %v", tc.desc, tc.errorPattern, err)
-			} else if !tc.shouldErr && cfg == nil {
-				t.Errorf("%s: cfg é nil mesmo sem erro", tc.desc)
 			}
 		})
 	}

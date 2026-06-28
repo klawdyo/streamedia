@@ -169,7 +169,7 @@ A versão calculada por este agente é consumida pelo build via `-ldflags`:
 ```
 Versioner calcula versão → usuário confirma
 → Versioner atualiza arquivo VERSION com vX.Y.Z
-→ commit release: vX.Y.Z (inclui VERSION atualizado)
+→ commit release: vX.Y.Z (inclui VERSION e web/package*.json atualizados)
 → Docker build lê VERSION automaticamente → binário com versão correta
 → GET /api responde a versão lida do binário
 ```
@@ -185,6 +185,13 @@ RUN CGO_ENABLED=0 go build \
 ```
 
 Sem `--build-arg` manual — o arquivo `VERSION` é a única fonte de verdade.
+
+**Nota sobre .env.example**: as únicas variáveis de ambiente essenciais são
+`ROOT_TOKEN`, `WEBHOOK_SECRET`, `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`,
+`GOOGLE_REDIRECT_URL`, `PORT`, `ENV` e `SQLITE_PATH`. Configurações operacionais
+(workers, timeouts, tamanhos de upload, rate limit, URLs de webhook/Discord,
+TTL de sessão, etc.) são gerenciadas via painel admin (`/admin/config`) e
+persistidas no banco — não precisam mais estar no `.env.example`.
 
 ## Definition of Done
 
