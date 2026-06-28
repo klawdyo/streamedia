@@ -221,6 +221,7 @@ func (c *Config) ApplyFromDB(db *sql.DB) {
 	dbc := dbconfig.New(db)
 
 	c.WebhookURL = dbc.GetString("webhook.url", c.WebhookURL)
+	c.WebhookSecret = dbc.GetString("webhook.secret", c.WebhookSecret)
 	c.DiscordWebhookURL = dbc.GetString("discord.webhook_url", c.DiscordWebhookURL)
 	c.MaxUploadSizeBytes = int64(max(dbc.GetNumber("upload.max_size_mb", int(c.MaxUploadSizeBytes/1024/1024)), 1)) * 1024 * 1024
 	c.QueueMaxSize = max(dbc.GetNumber("transcode.queue_max", c.QueueMaxSize), 1)
@@ -234,7 +235,7 @@ func (c *Config) ApplyFromDB(db *sql.DB) {
 	c.RateLimitPerMin = max(dbc.GetNumber("rate_limit.per_minute", c.RateLimitPerMin), 1)
 	c.SessionTTL = dbc.GetDurationSeconds("session.ttl_seconds", int(c.SessionTTL.Seconds()))
 
-	log.Printf("config: %d valores carregados do banco", 13)
+	log.Printf("config: %d valores carregados do banco", 14)
 }
 
 // IsGoogleOAuthConfigured retorna true quando as credenciais do Google
