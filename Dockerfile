@@ -31,7 +31,7 @@ COPY --from=ui-build /app/dist ./web/dist
 RUN CGO_ENABLED=0 go build \
   -ldflags="-X github.com/klawdyo/streamedia/internal/version.Version=$(cat VERSION) \
             -X github.com/klawdyo/streamedia/internal/version.Commit=${GIT_COMMIT}" \
-  -o /streamedia ./cmd/server
+  -o /mediaserver ./cmd/server
 
 # Stage 3: runtime — imagem mínima com FFmpeg + bundle Vue
 FROM alpine:3.20
@@ -45,14 +45,14 @@ RUN apk add --no-cache ffmpeg wget su-exec && \
     adduser -D -u 10001 appuser && \
     mkdir -p /data /media /media/.uploads /app/web/dist && \
     chown -R appuser:appuser /data /media /app
-COPY --from=go-build /streamedia /usr/local/bin/streamedia
-# Bundle Vue compilado: servido pelo próprio streamedia em /admin/*
+COPY --from=go-build /mediaserver /usr/local/bin/mediaserver
+# Bundle Vue compilado: servido pelo próprio mediaserver em /admin/*
 COPY --from=go-build /src/web/dist /app/web/dist
 COPY docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh
 RUN chmod +x /usr/local/bin/docker-entrypoint.sh
 # IMPORTANTE: o container inicia como ROOT (sem USER appuser) — o entrypoint
 # precisa de root para fazer o chown dos bind mounts e SÓ DEPOIS baixa o
-# privilégio para appuser via su-exec. O processo final (streamedia) roda como
+# privilégio para appuser via su-exec. O processo final (mediaserver) roda como
 # não-root; a segurança de não-root é garantida pelo entrypoint, não por USER.
 EXPOSE 3000
 # Diretório onde o SPA está no container — o servidor usa esta env para servir

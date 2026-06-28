@@ -1,73 +1,37 @@
-{
-
-  "name": "web",
-
-  "private": true,
-
-  "version": "1.25.0",
-
-  "type": "module",
-
-  "scripts": {
-
-  "dev": "vite",
-
-  "build": "vue-tsc -b \u0026\u0026 vite build",
-
-  "preview": "vite preview"
-
-  },
-
-  "dependencies": {
-
-  "@phosphor-icons/vue": "^2.2.1",
-
-  "@radix-icons/vue": "^1.0.0",
-
-  "@tanstack/vue-table": "^8.21.3",
-
-  "@vueuse/core": "^14.3.0",
-
-  "chart.js": "^4.5.1",
-
-  "class-variance-authority": "^0.7.1",
-
-  "clsx": "^2.1.1",
-
-  "hls.js": "^1.6.16",
-
-  "pinia": "^3.0.4",
-
-  "reka-ui": "^2.10.1",
-
-  "tailwind-merge": "^3.6.0",
-
-  "vue": "^3.5.38",
-
-  "vue-chartjs": "^5.3.3",
-
-  "vue-router": "^4.6.4"
-
-  },
-
-  "devDependencies": {
-
-  "@tailwindcss/vite": "^4.3.1",
-
-  "@types/node": "^24.13.2",
-
-  "@vitejs/plugin-vue": "^6.0.7",
-
-  "@vue/tsconfig": "^0.9.1",
-
-  "tailwindcss": "^4.3.1",
-
-  "typescript": "~6.0.2",
-
-  "vite": "^8.1.0",
-
-  "vue-tsc": "^3.3.5"
-
-  }
-
+﻿{
+    "name":  "web",
+    "private":  true,
+    "version":  "1.24.1",
+    "type":  "module",
+    "scripts":  {
+                    "dev":  "vite",
+                    "build":  "vue-tsc -b \u0026\u0026 vite build",
+                    "preview":  "vite preview"
+                },
+    "dependencies":  {
+                         "@phosphor-icons/vue":  "^2.2.1",
+                         "@radix-icons/vue":  "^1.0.0",
+                         "@tanstack/vue-table":  "^8.21.3",
+                         "@vueuse/core":  "^14.3.0",
+                         "chart.js":  "^4.5.1",
+                         "class-variance-authority":  "^0.7.1",
+                         "clsx":  "^2.1.1",
+                         "hls.js":  "^1.6.16",
+                         "pinia":  "^3.0.4",
+                         "reka-ui":  "^2.10.1",
+                         "tailwind-merge":  "^3.6.0",
+                         "vue":  "^3.5.38",
+                         "vue-chartjs":  "^5.3.3",
+                         "vue-router":  "^4.6.4"
+                     },
+    "devDependencies":  {
+                            "@tailwindcss/vite":  "^4.3.1",
+                            "@types/node":  "^24.13.2",
+                            "@vitejs/plugin-vue":  "^6.0.7",
+                            "@vue/tsconfig":  "^0.9.1",
+                            "tailwindcss":  "^4.3.1",
+                            "typescript":  "~6.0.2",
+                            "vite":  "^8.1.0",
+                            "vue-tsc":  "^3.3.5"
+                        }
 }
