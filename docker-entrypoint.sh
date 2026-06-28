@@ -9,7 +9,7 @@
 # ao gravar (error 14: unable to open database file).
 #
 # O container inicia como ROOT só para executar este chown; em seguida baixa o
-# privilégio para appuser via su-exec e entrega o processo ao mediaserver.
+# privilégio para appuser via su-exec e entrega o processo ao streamedia.
 # Assim mantemos o servidor rodando como não-root, mas com os bind mounts
 # graváveis.
 set -e
@@ -19,5 +19,5 @@ mkdir -p /data /media /media/.uploads
 chown -R appuser:appuser /data /media
 
 # Baixa o privilégio e executa o servidor como appuser (substitui o shell,
-# então o mediaserver vira o PID 1 e recebe os sinais de shutdown).
-exec su-exec appuser:appuser mediaserver "$@"
+# então o streamedia vira o PID 1 e recebe os sinais de shutdown).
+exec su-exec appuser:appuser streamedia "$@"

@@ -1,5 +1,5 @@
 # Dockerfile de desenvolvimento — hot reload com Air
-# Usado pelo docker-compose.dev.yml para rodar o servidor Go com rebuild
+# Usado pelo docker-compose.yaml para rodar o servidor Go com rebuild
 # automático a cada alteração no código-fonte.
 
 # Stage 1: build do frontend Vue (igual produção, mas com node_modules em cache)
@@ -32,5 +32,5 @@ COPY .air.toml ./
 COPY --from=ui-build /app/dist /app/web/dist
 
 # Entrypoint de dev: inicia o Air com hot reload
-# O código-fonte (cmd/, internal/) é montado via bind mount no docker-compose.dev.yml
+# O código-fonte (cmd/, internal/) é montado via bind mount no docker-compose.yaml
 CMD ["air", "-c", ".air.toml"]

@@ -2,8 +2,7 @@
 .env
 
 # Binários
-/mediaserver
-/server
+/streamedia
 *.exe
 
 # Logs de teste
