@@ -7,7 +7,6 @@ export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, process.cwd(), '')
   // Em produção, o SPA é servido em /app/* pelo mediaserver.
   // O base define o prefixo dos paths dos assets no HTML gerado.
-  const base = mode === 'production' ? '/app/' : '/'
   return {
     plugins: [vue(), tailwindcss()],
     resolve: {
@@ -29,6 +28,6 @@ export default defineConfig(({ mode }) => {
       outDir: 'dist',
       emptyOutDir: true,
     },
-    base,
+    base: '/app/',
   }
 })
