@@ -3,22 +3,26 @@
 import { defineStore } from 'pinia'
 import { ref } from 'vue'
 import type { Video } from '@/types'
-import type { PaginatedResponse } from '@/types'
 import { api } from '@/api/client'
+
+interface VideosListResponse {
+  videos: Video[]
+  total: number
+}
 
 export interface VideoFilters {
   status?: string
   tag?: string
   sort?: string
   page?: number
-  per_page?: number
+  limit?: number
 }
 
 export const useVideosStore = defineStore('videos', () => {
   const videos = ref<Video[]>([])
   const total = ref(0)
   const page = ref(1)
-  const perPage = ref(20)
+  const limit = ref(20)
   const totalPages = ref(0)
   const loading = ref(false)
   const error = ref<string | null>(null)
@@ -32,21 +36,23 @@ export const useVideosStore = defineStore('videos', () => {
     if (filters.value.status) params.set('status', filters.value.status)
     if (filters.value.tag) params.set('tag', filters.value.tag)
     if (filters.value.sort) params.set('sort', filters.value.sort)
-    params.set('page', String(filters.value.page || page.value))
-    params.set('per_page', String(filters.value.per_page || perPage.value))
+    const l = filters.value.limit ?? limit.value
+    params.set('limit', String(l))
+    const p = filters.value.page ?? page.value
+    params.set('offset', String((p - 1) * l))
 
-    const res = await api.get<PaginatedResponse<Video>>(`/admin/videos?${params.toString()}`)
+    const res = await api.get<VideosListResponse>(`/admin/videos?${params.toString()}`)
     if (res.error) {
       error.value = res.error
-    } else {
-      const pageData = res as unknown as PaginatedResponse<Video>
-      videos.value = pageData.data || (res.data as unknown as Video[])
-      if (res.meta) {
-        total.value = res.meta.total
-        page.value = res.meta.page
-        totalPages.value = res.meta.total_pages
-      }
+      loading.value = false
+      return
     }
+
+    const list = res.data?.videos ?? []
+    videos.value = list
+    total.value = res.data?.total ?? list.length
+    page.value = filters.value.page ?? page.value
+    totalPages.value = Math.max(1, Math.ceil(total.value / l))
     loading.value = false
   }
 
@@ -56,7 +62,6 @@ export const useVideosStore = defineStore('videos', () => {
       error.value = res.error
       return false
     }
-    // Remove da lista local
     videos.value = videos.value.filter((v) => v.video_id !== videoId)
     return true
   }
@@ -88,7 +93,7 @@ export const useVideosStore = defineStore('videos', () => {
     videos,
     total,
     page,
-    perPage,
+    limit,
     totalPages,
     loading,
     error,
