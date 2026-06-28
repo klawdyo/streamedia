@@ -2,7 +2,7 @@
 FROM node:22-alpine AS ui-build
 WORKDIR /app
 COPY web/package.json web/package-lock.json ./
-RUN npm ci
+RUN npm install
 COPY web/ ./
 RUN npm run build
 
