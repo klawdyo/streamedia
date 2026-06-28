@@ -8,26 +8,43 @@ services:
         GIT_COMMIT: ${GIT_COMMIT:-unknown}
     restart: unless-stopped
     environment:
+      # Token raiz (admin) para autenticação via header Authorization.
       - ROOT_TOKEN=${ROOT_TOKEN}
       # Ambiente de execução exposto em GET /api. Em produção defina ENV=production
       # (no .env / nas variáveis do Coolify); o default é "development".
       - ENV=${ENV:-development}
+      # Webhook de notificação (ex.: n8n) chamado ao concluir uma transcodificação.
       - WEBHOOK_URL=${WEBHOOK_URL}
       - WEBHOOK_SECRET=${WEBHOOK_SECRET}
-      - MAX_UPLOAD_SIZE_MB=${MAX_UPLOAD_SIZE_MB:-10}
+
+      # -- Google OAuth2 (admin unificado) --
+      # Credenciais do OAuth2 do Google para login no painel de admin.
+      # Obtidas em https://console.cloud.google.com/apis/credentials.
+      - GOOGLE_CLIENT_ID=${GOOGLE_CLIENT_ID}
+      - GOOGLE_CLIENT_SECRET=${GOOGLE_CLIENT_SECRET}
+      # URL de callback registrada no Google — deve ser a URL pública do serviço
+      # seguida de /api/oauth/google/callback (ex.: https://stream.example.com/api/oauth/google/callback).
+      - GOOGLE_REDIRECT_URL=${GOOGLE_REDIRECT_URL}
+
+      # -- SPA (admin unificado) --
+      # Caminho no container onde o bundle compilado do Vue.js está.
+      # O servidor serve /admin/* a partir deste diretório.
+      - SPA_DIR=${SPA_DIR:-/app/web/dist}
+
+      # -- Storage --
       - MEDIA_DIR=${MEDIA_DIR:-/media}
       - UPLOAD_TMP_DIR=${UPLOAD_TMP_DIR:-/media/.uploads}
       - SQLITE_PATH=${SQLITE_PATH:-/data/media.db}
-      - QUEUE_MAX_SIZE=${QUEUE_MAX_SIZE:-50}
-      - TRANSCODE_WORKERS=${TRANSCODE_WORKERS:-1}
-      - UPLOAD_TOKEN_TTL=${UPLOAD_TOKEN_TTL:-1200}
-      - PLAY_TOKEN_TTL=${PLAY_TOKEN_TTL:-3600}
-      - UPLOAD_IDLE_TIMEOUT=${UPLOAD_IDLE_TIMEOUT:-600}
-      - TRANSCODE_STUCK=${TRANSCODE_STUCK:-1800}
-      - MAX_TRANSCODE_ATTEMPTS=${MAX_TRANSCODE_ATTEMPTS:-3}
-      - KEEP_ORIGINAL=${KEEP_ORIGINAL:-false}
+
+      # Porta HTTP do servidor.
       - PORT=${PORT:-3000}
-      - RATE_LIMIT_PER_MIN=${RATE_LIMIT_PER_MIN:-60}
+
+      # As demais configurações (MAX_UPLOAD_SIZE_MB, QUEUE_MAX_SIZE,
+      # TRANSCODE_WORKERS, UPLOAD_TOKEN_TTL, PLAY_TOKEN_TTL, UPLOAD_IDLE_TIMEOUT,
+      # TRANSCODE_STUCK, MAX_TRANSCODE_ATTEMPTS, KEEP_ORIGINAL, RATE_LIMIT_PER_MIN)
+      # agora são gerenciadas via banco de dados pelo painel de admin unificado.
+      # O servidor carrega esses valores da tabela de configurações em runtime;
+      # não precisam mais ser passadas como variáveis de ambiente.
     volumes:
       # BIND MOUNTS para caminhos absolutos do host: assim o storage aparece
       # como um DIRETÓRIO VISÍVEL na aba de Persistent Storage do Coolify (e é
@@ -49,7 +66,7 @@ services:
     # Em desenvolvimento, o docker-compose.override.yml republica a porta em
     # 127.0.0.1 para acesso local.
     expose:
-      - "3000"
+      - "${PORT:-3000}"
     healthcheck:
       # Usa GET (-O /dev/null), não HEAD (--spider): a app responde 200 em GET
       # /healthz. Um HEAD retornaria 405 e marcaria o container como unhealthy,
