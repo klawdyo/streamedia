@@ -120,6 +120,11 @@ func (h *GoogleHandler) getUserInfoURL() string {
 // (conforme cfg.SessionCookieSecure) e SameSite=Lax (necessário para
 // que o navegador o envie no redirecionamento de volta do Google).
 func (h *GoogleHandler) HandleLogin(w http.ResponseWriter, r *http.Request) {
+	if !h.cfg.IsGoogleOAuthConfigured() {
+		apiresponse.Error(w, http.StatusServiceUnavailable, "Login via Google não configurado (GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET, GOOGLE_REDIRECT_URL).")
+		return
+	}
+
 	// Gera state aleatório para prevenção de CSRF.
 	stateBytes := make([]byte, 32)
 	if _, err := rand.Read(stateBytes); err != nil {
@@ -168,6 +173,11 @@ func (h *GoogleHandler) HandleLogin(w http.ResponseWriter, r *http.Request) {
 //  5. Emite cookie de sessão com user_id, roles e HMAC e redireciona para
 //     /app.
 func (h *GoogleHandler) HandleCallback(w http.ResponseWriter, r *http.Request) {
+	if !h.cfg.IsGoogleOAuthConfigured() {
+		apiresponse.Error(w, http.StatusServiceUnavailable, "Login via Google não configurado (GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET, GOOGLE_REDIRECT_URL).")
+		return
+	}
+
 	// 1. Validação do state anti-CSRF.
 	stateCookie, err := r.Cookie(stateCookieName)
 	if err != nil {

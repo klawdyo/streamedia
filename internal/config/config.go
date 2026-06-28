@@ -80,19 +80,11 @@ func Load() (*Config, error) {
 		return nil, fmt.Errorf("WEBHOOK_SECRET é obrigatório quando WEBHOOK_URL está definida")
 	}
 
-	// Google OAuth (obrigatórias para autenticação de usuários).
+	// Google OAuth (opcionais — se não configuradas, as rotas de login via
+	// Google retornam erro descritivo em vez de derrubar o container).
 	googleClientID := os.Getenv("GOOGLE_CLIENT_ID")
-	if googleClientID == "" {
-		return nil, fmt.Errorf("variável de ambiente GOOGLE_CLIENT_ID é obrigatória")
-	}
 	googleClientSecret := os.Getenv("GOOGLE_CLIENT_SECRET")
-	if googleClientSecret == "" {
-		return nil, fmt.Errorf("variável de ambiente GOOGLE_CLIENT_SECRET é obrigatória")
-	}
 	googleRedirectURL := os.Getenv("GOOGLE_REDIRECT_URL")
-	if googleRedirectURL == "" {
-		return nil, fmt.Errorf("variável de ambiente GOOGLE_REDIRECT_URL é obrigatória")
-	}
 
 	// Variáveis inteiras opcionais.
 	maxUploadSizeMB, err := getEnvInt("MAX_UPLOAD_SIZE_MB", 10)
@@ -181,6 +173,14 @@ func Load() (*Config, error) {
 	}
 
 	return cfg, nil
+}
+
+// IsGoogleOAuthConfigured retorna true quando as três variáveis do Google
+// OAuth estão definidas (GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET e
+// GOOGLE_REDIRECT_URL). Usado pelos handlers para decidir se o login via
+// Google está disponível ou se deve retornar erro descritivo.
+func (c *Config) IsGoogleOAuthConfigured() bool {
+	return c.GoogleClientID != "" && c.GoogleClientSecret != "" && c.GoogleRedirectURL != ""
 }
 
 // getEnvStr retorna o valor da variável de ambiente se definido e não
