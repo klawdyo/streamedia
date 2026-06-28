@@ -117,6 +117,7 @@ import {
 } from '@/components/ui/select'
 import { useVideosStore } from '../stores/videos'
 import VideoTable from '../components/VideoTable.vue'
+import { toast } from '@/composables/useToast'
 
 const router = useRouter()
 const store = useVideosStore()
@@ -151,7 +152,10 @@ function goToPlayground() {
 async function handleReprocess(videoId: string) {
   const ok = await store.reprocessVideo(videoId)
   if (ok) {
+    toast.success('Vídeo enviado para reprocessamento.')
     store.fetchVideos()
+  } else {
+    toast.error(store.error || 'Erro ao reprocessar vídeo.')
   }
 }
 
@@ -159,7 +163,10 @@ async function handleDelete(videoId: string) {
   if (!confirm('Tem certeza que deseja deletar este vídeo?')) return
   const ok = await store.deleteVideo(videoId)
   if (ok) {
+    toast.success('Vídeo deletado com sucesso.')
     store.fetchVideos()
+  } else {
+    toast.error(store.error || 'Erro ao deletar vídeo.')
   }
 }
 
