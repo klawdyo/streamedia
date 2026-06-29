@@ -119,9 +119,10 @@ export interface SSEEvent {
 }
 
 export interface UploadInitResponse {
-  upload_id: string
-  location: string
-  video_id?: string
+  video_id: string
+  tag: string
+  upload_url: string
+  token: string
 }
 
 export interface PlayInitResponse {

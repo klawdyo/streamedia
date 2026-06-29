@@ -1,7 +1,5 @@
 // Store de upload (playground) — TUS upload com progresso
 
-
-
 import { defineStore } from 'pinia'
 
 import { ref } from 'vue'
@@ -14,17 +12,19 @@ import { api } from '@/api/client'
 
 export interface UploadProgress {
 
-  upload_id: string
+  video_id: string
 
   tag: string
+
+  upload_url: string
+
+  token: string
 
   progress: number // 0 a 100
 
   status: 'init' | 'uploading' | 'done' | 'error'
 
   error?: string
-
-  video_id?: string
 
 }
 
@@ -60,15 +60,17 @@ export const useUploadStore = defineStore('upload', () => {
 
   currentUpload.value = {
 
-    upload_id: res.data.upload_id,
+    video_id: res.data.video_id,
 
-    tag,
+    tag: tag,
+
+    upload_url: res.data.upload_url,
+
+    token: res.data.token,
 
     progress: 0,
 
     status: 'init',
-
-    video_id: res.data.video_id,
 
   }
 
@@ -84,11 +86,11 @@ export const useUploadStore = defineStore('upload', () => {
 
    * Upload via TUS protocol (resumable upload).
 
-   * Recebe o arquivo (File), a location do init, e reporta progresso.
+   * Recebe o arquivo (File), a URL absoluta de upload e o video_id.
 
    */
 
-  async function tusUpload(file: File, location: string, uploadId: string): Promise<boolean> {
+  async function tusUpload(file: File, uploadUrl: string, videoId: string): Promise<boolean> {
 
   if (!currentUpload.value) return false
 
@@ -110,9 +112,7 @@ export const useUploadStore = defineStore('upload', () => {
 
       currentUpload.value.progress = Math.round((e.loaded / e.total) * 100)
 
-      // Atualiza também na lista
-
-      const idx = uploads.value.findIndex((u) => u.upload_id === uploadId)
+      const idx = uploads.value.findIndex((u) => u.video_id === videoId)
 
       if (idx >= 0) {
 
@@ -136,7 +136,7 @@ export const useUploadStore = defineStore('upload', () => {
 
       currentUpload.value.status = 'done'
 
-      const idx = uploads.value.findIndex((u) => u.upload_id === uploadId)
+      const idx = uploads.value.findIndex((u) => u.video_id === videoId)
 
       if (idx >= 0) {
 
@@ -152,7 +152,7 @@ export const useUploadStore = defineStore('upload', () => {
 
       currentUpload.value.error = `HTTP ${xhr.status}`
 
-      const idx = uploads.value.findIndex((u) => u.upload_id === uploadId)
+      const idx = uploads.value.findIndex((u) => u.video_id === videoId)
 
       if (idx >= 0) {
 
@@ -180,7 +180,7 @@ export const useUploadStore = defineStore('upload', () => {
 
       currentUpload.value.error = 'Erro de rede'
 
-      const idx = uploads.value.findIndex((u) => u.upload_id === uploadId)
+      const idx = uploads.value.findIndex((u) => u.video_id === videoId)
 
       if (idx >= 0) {
 
@@ -198,13 +198,21 @@ export const useUploadStore = defineStore('upload', () => {
 
 
 
-    xhr.open('PATCH', location)
+    xhr.open('PATCH', uploadUrl)
 
     xhr.setRequestHeader('Content-Type', 'application/offset+octet-stream')
 
     xhr.setRequestHeader('Upload-Offset', '0')
 
     xhr.setRequestHeader('Tus-Resumable', '1.0.0')
+
+    // Token de upload como Authorization para o TUS handler
+
+    if (currentUpload.value.token) {
+
+      xhr.setRequestHeader('Authorization', `Bearer ${currentUpload.value.token}`)
+
+    }
 
     xhr.send(file)
 

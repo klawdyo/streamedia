@@ -236,7 +236,7 @@ async function handleUpload() {
 
 
 
-  const ok = await uploadStore.tusUpload(selectedFile.value, initData.location, initData.upload_id)
+  const ok = await uploadStore.tusUpload(selectedFile.value, initData.upload_url, initData.video_id)
 
   if (ok && initData.video_id) {
 
